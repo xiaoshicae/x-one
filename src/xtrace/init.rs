@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use super::config::{XTRACE_CONFIG_KEY, XTraceConfig};
 
 /// 全局 trace 启用标志
-pub static TRACE_ENABLED: AtomicBool = AtomicBool::new(false);
+static TRACE_ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// 全局 TracerProvider（需要在 shutdown 时用到）
 static PROVIDER: std::sync::OnceLock<Mutex<Option<SdkTracerProvider>>> =
@@ -22,7 +22,7 @@ fn provider_store() -> &'static Mutex<Option<SdkTracerProvider>> {
 }
 
 /// 判断 trace 是否启用
-pub fn enable_trace() -> bool {
+pub fn is_trace_enabled() -> bool {
     TRACE_ENABLED.load(Ordering::SeqCst)
 }
 
@@ -73,7 +73,7 @@ pub fn init_xtrace() -> Result<(), crate::error::XOneError> {
     Ok(())
 }
 
-/// 关闭 XTrace
+/// 关闭 XTrace（带超时保护）
 pub fn shutdown_xtrace() -> Result<(), crate::error::XOneError> {
     if !TRACE_ENABLED.load(Ordering::SeqCst) {
         return Ok(());
@@ -87,9 +87,29 @@ pub fn shutdown_xtrace() -> Result<(), crate::error::XOneError> {
     };
 
     if let Some(provider) = provider {
-        provider
-            .shutdown()
-            .map_err(|e| crate::error::XOneError::Other(format!("XTrace shutdown failed: {e}")))?;
+        let timeout = super::get_shutdown_timeout();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            let result = provider.shutdown();
+            let _ = tx.send(result);
+        });
+
+        match rx.recv_timeout(timeout) {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                TRACE_ENABLED.store(false, Ordering::SeqCst);
+                return Err(crate::error::XOneError::Other(format!(
+                    "XTrace shutdown failed: {e}"
+                )));
+            }
+            Err(_) => {
+                TRACE_ENABLED.store(false, Ordering::SeqCst);
+                return Err(crate::error::XOneError::Other(format!(
+                    "XTrace shutdown timeout after {timeout:?}"
+                )));
+            }
+        }
     }
 
     TRACE_ENABLED.store(false, Ordering::SeqCst);
@@ -98,7 +118,6 @@ pub fn shutdown_xtrace() -> Result<(), crate::error::XOneError> {
 }
 
 /// 加载 XTrace 配置
-pub fn load_config() -> XTraceConfig {
+fn load_config() -> XTraceConfig {
     xconfig::parse_config::<XTraceConfig>(XTRACE_CONFIG_KEY).unwrap_or_default()
 }
-

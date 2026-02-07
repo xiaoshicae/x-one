@@ -24,9 +24,9 @@ fn test_register_hook_idempotent() {
 }
 
 #[test]
-fn test_enable_trace_api() {
+fn test_is_trace_enabled_api() {
     // 调用不 panic
-    let _ = enable_trace();
+    let _ = is_trace_enabled();
 }
 
 #[test]

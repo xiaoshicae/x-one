@@ -7,7 +7,7 @@ pub mod config;
 pub mod init;
 
 pub use config::XTraceConfig;
-pub use init::{enable_trace, get_tracer};
+pub use init::{is_trace_enabled, get_tracer};
 
 use crate::xhook;
 use parking_lot::Mutex;

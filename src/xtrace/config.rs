@@ -1,6 +1,6 @@
 //! xtrace 配置结构体
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// XTrace 配置 key
 pub const XTRACE_CONFIG_KEY: &str = "XTrace";
@@ -13,7 +13,7 @@ pub const XTRACE_CONFIG_KEY: &str = "XTrace";
 ///   Enable: true
 ///   Console: false
 /// ```
-#[derive(Debug, Default, Deserialize, Clone)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct XTraceConfig {
     /// 是否启用链路追踪（默认 true，None 视为 true）
     #[serde(rename = "Enable")]
