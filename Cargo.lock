@@ -3203,6 +3203,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-test",
+ "tower",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",

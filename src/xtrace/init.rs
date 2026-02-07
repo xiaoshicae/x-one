@@ -4,6 +4,7 @@ use crate::xconfig;
 use crate::xutil;
 use opentelemetry::global;
 use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -58,6 +59,7 @@ pub fn init_xtrace() -> Result<(), crate::error::XOneError> {
     };
 
     global::set_tracer_provider(provider.clone());
+    global::set_text_map_propagator(TraceContextPropagator::new());
 
     let mut store = provider_store().lock();
     *store = Some(provider);

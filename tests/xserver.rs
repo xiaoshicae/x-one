@@ -6,3 +6,6 @@ mod auxm;
 
 #[path = "xserver/blocking.rs"]
 mod blocking;
+
+#[path = "xserver/trace.rs"]
+mod trace;
