@@ -33,12 +33,6 @@ pub fn get_tracer(name: &str) -> opentelemetry::global::BoxedTracer {
 
 /// 初始化 XTrace
 pub fn init_xtrace() -> Result<(), crate::error::XOneError> {
-    if !xconfig::contain_key(XTRACE_CONFIG_KEY) {
-        xutil::info_if_enable_debug("XTrace config not found, skip init");
-        TRACE_ENABLED.store(false, Ordering::SeqCst);
-        return Ok(());
-    }
-
     let config = load_config();
 
     if !config.is_enabled() {
