@@ -20,20 +20,20 @@ const DEFAULT_STOP_TIMEOUT_SECS: u64 = 30;
 const MAX_HOOK_NUM: usize = 1000;
 
 /// Hook 函数类型
-pub type HookFunc = Box<dyn FnOnce() -> Result<(), XOneError> + Send + 'static>;
+type HookFunc = Box<dyn FnOnce() -> Result<(), XOneError> + Send + 'static>;
 
 /// 内部 Hook 结构体
-pub struct Hook {
-    pub func: HookFunc,
-    pub options: HookOptions,
-    pub name: String,
+struct Hook {
+    func: HookFunc,
+    options: HookOptions,
+    name: String,
 }
 
 /// 全局 Hook 管理器
-pub struct HookManager {
-    pub before_start_hooks: Vec<Hook>,
-    pub before_stop_hooks: Vec<Hook>,
-    pub stop_timeout: Duration,
+struct HookManager {
+    before_start_hooks: Vec<Hook>,
+    before_stop_hooks: Vec<Hook>,
+    stop_timeout: Duration,
 }
 
 impl Default for HookManager {
@@ -46,7 +46,7 @@ impl Default for HookManager {
     }
 }
 
-pub fn manager() -> &'static Mutex<HookManager> {
+fn manager() -> &'static Mutex<HookManager> {
     static INSTANCE: OnceLock<Mutex<HookManager>> = OnceLock::new();
     INSTANCE.get_or_init(|| Mutex::new(HookManager::default()))
 }
@@ -57,6 +57,12 @@ pub fn set_stop_timeout(timeout: Duration) {
         let mut mgr = manager().lock();
         mgr.stop_timeout = timeout;
     }
+}
+
+/// 获取当前 BeforeStop hooks 的超时时间
+pub fn get_stop_timeout() -> Duration {
+    let mgr = manager().lock();
+    mgr.stop_timeout
 }
 
 /// 注册 BeforeStart Hook
@@ -84,8 +90,6 @@ where
     let mut mgr = manager().lock();
     register_hook(&mut mgr, false, name, f, opts);
 }
-
-// ... invoke functions ...
 
 fn register_hook<F>(
     mgr: &mut HookManager,
@@ -164,11 +168,18 @@ pub fn invoke_before_stop_hooks() -> Result<(), XOneError> {
 
         for h in hooks {
             if let Err(e) = safe_invoke_hook(h.func) {
-                xutil::error_if_enable_debug(&format!(
-                    "XOne invoke before stop hook failed, func=[{}], err=[{e}]",
-                    h.name,
-                ));
-                err_msgs.push(format!("func=[{}], err=[{e}]", h.name));
+                if h.options.must_invoke_success {
+                    xutil::error_if_enable_debug(&format!(
+                        "XOne invoke before stop hook failed, func=[{}], err=[{e}]",
+                        h.name,
+                    ));
+                    err_msgs.push(format!("func=[{}], err=[{e}]", h.name));
+                } else {
+                    xutil::warn_if_enable_debug(&format!(
+                        "XOne invoke before stop hook failed, case MustInvokeSuccess=false, func=[{}], err=[{e}]",
+                        h.name,
+                    ));
+                }
                 continue;
             }
 
@@ -224,6 +235,7 @@ fn safe_invoke_hook(f: HookFunc) -> Result<(), XOneError> {
 }
 
 /// 重置 Hook 管理器（仅测试用）
+#[doc(hidden)]
 pub fn reset_hooks() {
     let mut mgr = manager().lock();
     mgr.before_start_hooks.clear();

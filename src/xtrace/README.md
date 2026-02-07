@@ -34,4 +34,4 @@ tracer.in_span("operation_name", |cx| {
 
 ## 自动集成
 
-目前 `xlog` 已集成 Trace，会自动从 Context 中提取 `trace_id` 和 `span_id` 记录到日志中（需配合 `tracing-opentelemetry` 使用）。
+`xlog` 已集成 Trace，会自动从 OpenTelemetry Context 中提取 `trace_id` 和 `span_id` 记录到日志中。当存在活跃的 OTel Span（如通过 `tracer.in_span(...)` 创建）时，JSON 和控制台日志会自动包含 `trace_id` 和 `span_id` 字段。
