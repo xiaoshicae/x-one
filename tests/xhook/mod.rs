@@ -119,11 +119,16 @@ fn test_before_stop_hook_error() {
 #[serial]
 fn test_before_stop_hook_timeout() {
     reset_hooks();
-    set_stop_timeout(Duration::from_millis(100));
-    x_one::before_stop!(|| {
-        std::thread::sleep(Duration::from_secs(5));
-        Ok(())
-    });
+    x_one::before_stop!(
+        || {
+            std::thread::sleep(Duration::from_secs(5));
+            Ok(())
+        },
+        HookOptions {
+            timeout: Duration::from_millis(100),
+            ..HookOptions::default()
+        }
+    );
     let result = invoke_before_stop_hooks();
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("timeout"));
@@ -174,17 +179,19 @@ fn test_before_stop_hook_error_not_must_success() {
 
 #[test]
 #[serial]
-fn test_set_stop_timeout() {
+fn test_before_start_hook_timeout() {
     reset_hooks();
-    set_stop_timeout(Duration::from_secs(60));
-    assert_eq!(get_stop_timeout(), Duration::from_secs(60));
-}
-
-#[test]
-#[serial]
-fn test_set_stop_timeout_zero_ignored() {
-    reset_hooks();
-    let original = get_stop_timeout();
-    set_stop_timeout(Duration::ZERO);
-    assert_eq!(get_stop_timeout(), original);
+    x_one::before_start!(
+        || {
+            std::thread::sleep(Duration::from_secs(5));
+            Ok(())
+        },
+        HookOptions {
+            timeout: Duration::from_millis(100),
+            ..HookOptions::default()
+        }
+    );
+    let result = invoke_before_start_hooks();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("timeout"));
 }

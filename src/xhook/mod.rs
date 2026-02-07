@@ -14,8 +14,6 @@ use std::panic;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-/// 默认 stop 超时时间（30 秒）
-const DEFAULT_STOP_TIMEOUT_SECS: u64 = 30;
 /// Hook 数量上限
 const MAX_HOOK_NUM: usize = 1000;
 
@@ -30,39 +28,15 @@ struct Hook {
 }
 
 /// 全局 Hook 管理器
+#[derive(Default)]
 struct HookManager {
     before_start_hooks: Vec<Hook>,
     before_stop_hooks: Vec<Hook>,
-    stop_timeout: Duration,
-}
-
-impl Default for HookManager {
-    fn default() -> Self {
-        Self {
-            before_start_hooks: Vec::new(),
-            before_stop_hooks: Vec::new(),
-            stop_timeout: Duration::from_secs(DEFAULT_STOP_TIMEOUT_SECS),
-        }
-    }
 }
 
 fn manager() -> &'static Mutex<HookManager> {
     static INSTANCE: OnceLock<Mutex<HookManager>> = OnceLock::new();
     INSTANCE.get_or_init(|| Mutex::new(HookManager::default()))
-}
-
-/// 设置 BeforeStop hooks 的超时时间
-pub fn set_stop_timeout(timeout: Duration) {
-    if timeout > Duration::ZERO {
-        let mut mgr = manager().lock();
-        mgr.stop_timeout = timeout;
-    }
-}
-
-/// 获取当前 BeforeStop hooks 的超时时间
-pub fn get_stop_timeout() -> Duration {
-    let mgr = manager().lock();
-    mgr.stop_timeout
 }
 
 /// 注册 BeforeStart Hook（内部实现，请使用 `before_start!` 宏）
@@ -173,38 +147,40 @@ fn register_hook<F>(
     });
 }
 
-/// 执行所有 BeforeStart Hook
+/// 执行所有 BeforeStart Hook（带逐个超时控制）
 pub fn invoke_before_start_hooks() -> Result<(), XOneError> {
     let hooks = take_sorted_hooks(true);
 
     for h in hooks {
-        if let Err(e) = safe_invoke_hook(h.func) {
-            if h.options.must_invoke_success {
-                xutil::error_if_enable_debug(&format!(
-                    "XOne invoke before start hook failed, func=[{}], err=[{e}]",
+        match invoke_hook_with_timeout(h.func, h.options.timeout) {
+            Ok(()) => {
+                xutil::info_if_enable_debug(&format!(
+                    "XOne invoke before start hook success, func=[{}]",
+                    h.name
+                ));
+            }
+            Err(e) => {
+                if h.options.must_invoke_success {
+                    xutil::error_if_enable_debug(&format!(
+                        "XOne invoke before start hook failed, func=[{}], err=[{e}]",
+                        h.name,
+                    ));
+                    return Err(XOneError::Hook(format!(
+                        "invoke before start hook failed, func=[{}], err=[{e}]",
+                        h.name,
+                    )));
+                }
+                xutil::warn_if_enable_debug(&format!(
+                    "XOne invoke before start hook failed, case MustInvokeSuccess=false, func=[{}], err=[{e}]",
                     h.name,
                 ));
-                return Err(XOneError::Hook(format!(
-                    "invoke before start hook failed, func=[{}], err=[{e}]",
-                    h.name,
-                )));
             }
-            xutil::warn_if_enable_debug(&format!(
-                "XOne invoke before start hook failed, case MustInvokeSuccess=false, func=[{}], err=[{e}]",
-                h.name,
-            ));
-            continue;
         }
-
-        xutil::info_if_enable_debug(&format!(
-            "XOne invoke before start hook success, func=[{}]",
-            h.name
-        ));
     }
     Ok(())
 }
 
-/// 执行所有 BeforeStop Hook（带超时控制）
+/// 执行所有 BeforeStop Hook（带逐个超时控制）
 pub fn invoke_before_stop_hooks() -> Result<(), XOneError> {
     let hooks = take_sorted_hooks(false);
 
@@ -212,18 +188,17 @@ pub fn invoke_before_stop_hooks() -> Result<(), XOneError> {
         return Ok(());
     }
 
-    let timeout = {
-        let mgr = manager().lock();
-        mgr.stop_timeout
-    };
+    let mut err_msgs: Vec<String> = Vec::new();
 
-    let (tx, rx) = std::sync::mpsc::channel();
-
-    std::thread::spawn(move || {
-        let mut err_msgs: Vec<String> = Vec::new();
-
-        for h in hooks {
-            if let Err(e) = safe_invoke_hook(h.func) {
+    for h in hooks {
+        match invoke_hook_with_timeout(h.func, h.options.timeout) {
+            Ok(()) => {
+                xutil::info_if_enable_debug(&format!(
+                    "XOne invoke before stop hook success, func=[{}]",
+                    h.name
+                ));
+            }
+            Err(e) => {
                 if h.options.must_invoke_success {
                     xutil::error_if_enable_debug(&format!(
                         "XOne invoke before stop hook failed, func=[{}], err=[{e}]",
@@ -236,31 +211,17 @@ pub fn invoke_before_stop_hooks() -> Result<(), XOneError> {
                         h.name,
                     ));
                 }
-                continue;
             }
-
-            xutil::info_if_enable_debug(&format!(
-                "XOne invoke before stop hook success, func=[{}]",
-                h.name
-            ));
         }
+    }
 
-        let result = if err_msgs.is_empty() {
-            Ok(())
-        } else {
-            Err(err_msgs.join("; "))
-        };
-        let _ = tx.send(result);
-    });
-
-    match rx.recv_timeout(timeout) {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(e)) => Err(XOneError::Hook(format!(
-            "invoke before stop hook failed, {e}"
-        ))),
-        Err(_) => Err(XOneError::Hook(format!(
-            "invoke before stop hook failed, due to timeout after {timeout:?}"
-        ))),
+    if err_msgs.is_empty() {
+        Ok(())
+    } else {
+        Err(XOneError::Hook(format!(
+            "invoke before stop hook failed, {}",
+            err_msgs.join("; ")
+        )))
     }
 }
 
@@ -274,6 +235,26 @@ fn take_sorted_hooks(is_start: bool) -> Vec<Hook> {
     };
     hooks.sort_by_key(|h| h.options.order);
     std::mem::take(hooks)
+}
+
+/// 带超时执行 Hook 函数，同时捕获 panic
+fn invoke_hook_with_timeout(
+    f: HookFunc,
+    timeout: Duration,
+) -> Result<(), XOneError> {
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    std::thread::spawn(move || {
+        let result = safe_invoke_hook(f);
+        let _ = tx.send(result);
+    });
+
+    match rx.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(_) => Err(XOneError::Hook(format!(
+            "timeout after {timeout:?}"
+        ))),
+    }
 }
 
 /// 安全执行 Hook 函数，捕获 panic
@@ -296,5 +277,4 @@ pub fn reset_hooks() {
     let mut mgr = manager().lock();
     mgr.before_start_hooks.clear();
     mgr.before_stop_hooks.clear();
-    mgr.stop_timeout = Duration::from_secs(DEFAULT_STOP_TIMEOUT_SECS);
 }

@@ -1,20 +1,4 @@
-use std::time::Duration;
 use x_one::xtrace::*;
-
-#[test]
-fn test_set_shutdown_timeout() {
-    set_shutdown_timeout(Duration::from_secs(10));
-    assert_eq!(get_shutdown_timeout(), Duration::from_secs(10));
-    // 恢复默认值
-    set_shutdown_timeout(Duration::from_secs(DEFAULT_SHUTDOWN_TIMEOUT_SECS));
-}
-
-#[test]
-fn test_set_shutdown_timeout_zero_ignored() {
-    let before = get_shutdown_timeout();
-    set_shutdown_timeout(Duration::ZERO);
-    assert_eq!(get_shutdown_timeout(), before);
-}
 
 #[test]
 fn test_register_hook_idempotent() {

@@ -69,7 +69,9 @@ pub fn init_xtrace() -> Result<(), crate::error::XOneError> {
     Ok(())
 }
 
-/// 关闭 XTrace（带超时保护）
+/// 关闭 XTrace
+///
+/// 超时由 xhook 框架通过 `HookOptions.timeout` 统一控制。
 pub fn shutdown_xtrace() -> Result<(), crate::error::XOneError> {
     if !TRACE_ENABLED.load(Ordering::SeqCst) {
         return Ok(());
@@ -83,29 +85,10 @@ pub fn shutdown_xtrace() -> Result<(), crate::error::XOneError> {
     };
 
     if let Some(provider) = provider {
-        let timeout = super::get_shutdown_timeout();
-        let (tx, rx) = std::sync::mpsc::channel();
-
-        std::thread::spawn(move || {
-            let result = provider.shutdown();
-            let _ = tx.send(result);
-        });
-
-        match rx.recv_timeout(timeout) {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => {
-                TRACE_ENABLED.store(false, Ordering::SeqCst);
-                return Err(crate::error::XOneError::Other(format!(
-                    "XTrace shutdown failed: {e}"
-                )));
-            }
-            Err(_) => {
-                TRACE_ENABLED.store(false, Ordering::SeqCst);
-                return Err(crate::error::XOneError::Other(format!(
-                    "XTrace shutdown timeout after {timeout:?}"
-                )));
-            }
-        }
+        provider.shutdown().map_err(|e| {
+            TRACE_ENABLED.store(false, Ordering::SeqCst);
+            crate::error::XOneError::Other(format!("XTrace shutdown failed: {e}"))
+        })?;
     }
 
     TRACE_ENABLED.store(false, Ordering::SeqCst);

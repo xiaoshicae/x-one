@@ -24,7 +24,7 @@ use std::sync::OnceLock;
 static AUTO_INIT: OnceLock<()> = OnceLock::new();
 
 fn ensure_init() {
-    AUTO_INIT.get_or_init(|| init_all_inner());
+    AUTO_INIT.get_or_init(init_all_inner);
 }
 
 /// 初始化所有模块
