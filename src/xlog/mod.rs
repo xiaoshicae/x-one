@@ -7,6 +7,7 @@ pub mod async_writer;
 pub mod config;
 pub mod console;
 pub mod init;
+pub mod otel_fmt;
 
 pub use config::{LogLevel, XLOG_CONFIG_KEY, XLogConfig};
 

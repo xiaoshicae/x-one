@@ -1,6 +1,7 @@
 //! 日志系统初始化
 
 use super::config::{LogLevel, XLOG_CONFIG_KEY, XLogConfig};
+use super::otel_fmt::{OtelConsoleFormat, OtelJsonFormat};
 use crate::{xconfig, xutil};
 use std::path::Path;
 use tracing_subscriber::EnvFilter;
@@ -65,20 +66,21 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
     // 构建 env filter
     let env_filter = EnvFilter::try_new(level_filter).unwrap_or_else(|_| EnvFilter::new("info"));
 
-    // 构建 tracing subscriber
-    // 文件输出：JSON 格式
+    // 文件输出：JSON 格式（自动注入 trace_id）
     let file_layer = tracing_subscriber::fmt::layer()
-        .json()
-        .with_writer(non_blocking)
-        .with_target(true)
-        .with_thread_ids(true);
+        .event_format(OtelJsonFormat)
+        .with_writer(non_blocking);
 
-    // 控制台输出（如果启用）
+    fn init_err(e: impl std::fmt::Display) -> crate::error::XOneError {
+        crate::error::XOneError::Log(format!("init tracing subscriber failed, err=[{e}]"))
+    }
+
+    // 组装 subscriber
     if c.console {
         if c.console_format_is_raw {
-            // 原始 JSON 格式输出到控制台
+            // 原始 JSON 格式输出到控制台（自动注入 trace_id）
             let console_layer = tracing_subscriber::fmt::layer()
-                .json()
+                .event_format(OtelJsonFormat)
                 .with_writer(std::io::stdout);
 
             tracing_subscriber::registry()
@@ -86,16 +88,11 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
                 .with(file_layer)
                 .with(console_layer)
                 .try_init()
-                .map_err(|e| {
-                    crate::error::XOneError::Log(format!(
-                        "init tracing subscriber failed, err=[{e}]"
-                    ))
-                })?;
+                .map_err(init_err)?;
         } else {
-            // 带颜色的简洁格式输出到控制台
+            // 带颜色的简洁格式输出到控制台（自动注入 trace_id）
             let console_layer = tracing_subscriber::fmt::layer()
-                .with_ansi(true)
-                .with_target(false)
+                .event_format(OtelConsoleFormat)
                 .with_writer(std::io::stdout);
 
             tracing_subscriber::registry()
@@ -103,20 +100,14 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
                 .with(file_layer)
                 .with(console_layer)
                 .try_init()
-                .map_err(|e| {
-                    crate::error::XOneError::Log(format!(
-                        "init tracing subscriber failed, err=[{e}]"
-                    ))
-                })?;
+                .map_err(init_err)?;
         }
     } else {
         tracing_subscriber::registry()
             .with(env_filter)
             .with(file_layer)
             .try_init()
-            .map_err(|e| {
-                crate::error::XOneError::Log(format!("init tracing subscriber failed, err=[{e}]"))
-            })?;
+            .map_err(init_err)?;
     }
 
     xutil::info_if_enable_debug(&format!(
@@ -131,4 +122,3 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
 pub fn get_config() -> Result<XLogConfig, crate::error::XOneError> {
     Ok(xconfig::parse_config::<XLogConfig>(XLOG_CONFIG_KEY).unwrap_or_default())
 }
-

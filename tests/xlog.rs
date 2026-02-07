@@ -12,3 +12,6 @@ mod init;
 
 #[path = "xlog/mod.rs"]
 mod main;
+
+#[path = "xlog/otel_fmt.rs"]
+mod otel_fmt;
