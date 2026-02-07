@@ -166,25 +166,44 @@ fn test_before_stop_empty_hooks() {
 
 #[test]
 #[serial]
+fn test_before_stop_hook_error_not_must_success() {
+    reset_hooks();
+    let executed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+    before_stop(
+        "failing_hook",
+        || Err(XOneError::Other("stop error".to_string())),
+        HookOptions::with_order_and_must(1, false),
+    );
+
+    let exec = executed.clone();
+    before_stop(
+        "next_hook",
+        move || {
+            exec.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        },
+        HookOptions::with_order(2),
+    );
+
+    let result = invoke_before_stop_hooks();
+    assert!(result.is_ok());
+    assert!(executed.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[test]
+#[serial]
 fn test_set_stop_timeout() {
     reset_hooks();
     set_stop_timeout(Duration::from_secs(60));
-    let mgr = manager().lock();
-    assert_eq!(mgr.stop_timeout, Duration::from_secs(60));
+    assert_eq!(get_stop_timeout(), Duration::from_secs(60));
 }
 
 #[test]
 #[serial]
 fn test_set_stop_timeout_zero_ignored() {
     reset_hooks();
-    let original = {
-        let mgr = manager().lock();
-        mgr.stop_timeout
-    };
+    let original = get_stop_timeout();
     set_stop_timeout(Duration::ZERO);
-    let current = {
-        let mgr = manager().lock();
-        mgr.stop_timeout
-    };
-    assert_eq!(original, current);
+    assert_eq!(get_stop_timeout(), original);
 }
