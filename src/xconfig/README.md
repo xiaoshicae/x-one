@@ -41,7 +41,7 @@ Server:
   Profiles:
     Active: "dev"    # 激活 dev 环境配置 (application-dev.yml)
   
-  Gin:
+  Auxm:
     Port: 8000
     Host: "0.0.0.0"
 ```
@@ -51,8 +51,8 @@ Server:
 ```rust
 use x_one::xconfig;
 
-// 读取内置配置
-let port = xconfig::get_gin_config().port;
+// 读取内置配置（Auxm）
+let port = xconfig::get_auxm_config().port;
 
 // 读取自定义配置
 let my_val = xconfig::get_string("MyConfig.Key");

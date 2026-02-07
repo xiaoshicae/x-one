@@ -8,14 +8,14 @@ Server:
   Version: v1.0.0
   Profiles:
     Active: dev
-  Gin:
+  Auxm:
     Host: "0.0.0.0"
     Port: 8000
 CustomKey: base_value
 "#;
         let env_yaml = r#"
 Server:
-  Gin:
+  Auxm:
     Port: 9090
 CustomKey: env_value
 "#;
@@ -36,12 +36,12 @@ CustomKey: env_value
             "test-app"
         );
 
-        // Server.Gin 应被环境覆盖
+        // Server.Auxm 应被环境覆盖
         assert_eq!(
             merged
                 .get("Server")
                 .unwrap()
-                .get("Gin")
+                .get("Auxm")
                 .unwrap()
                 .get("Port")
                 .unwrap()

@@ -1,6 +1,6 @@
-//! Axum HTTP 服务器
+//! Auxm HTTP 服务器
 //!
-//! 对应 Go 版的 Gin 服务器实现（配置名使用 Axum）。
+//! 对应 Go 版的 HTTP 服务器实现。
 
 use crate::error::XOneError;
 use super::Server;
@@ -8,27 +8,27 @@ use crate::xconfig;
 use crate::xutil;
 use std::net::SocketAddr;
 
-/// Axum HTTP 服务器
-pub struct AxumServer {
+/// Auxm HTTP 服务器（基于 Axum）
+pub struct AuxmServer {
     router: axum::Router,
     addr: SocketAddr,
     shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
 }
 
-impl AxumServer {
-    /// 创建新的 Axum HTTP 服务器
+impl AuxmServer {
+    /// 创建新的 Auxm HTTP 服务器
     pub fn new(router: axum::Router) -> Self {
-        let axum_config = xconfig::get_gin_config();
+        let auxm_config = xconfig::get_auxm_config();
 
-        if axum_config.use_http2 {
-            xutil::info_if_enable_debug("axum server use http2");
+        if auxm_config.use_http2 {
+            xutil::info_if_enable_debug("auxm server use http2");
         }
 
-        let addr: SocketAddr = format!("{}:{}", axum_config.host, axum_config.port)
+        let addr: SocketAddr = format!("{}:{}", auxm_config.host, auxm_config.port)
             .parse()
-            .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], axum_config.port)));
+            .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], auxm_config.port)));
 
-        xutil::info_if_enable_debug(&format!("axum server listen at: {addr}"));
+        xutil::info_if_enable_debug(&format!("auxm server listen at: {addr}"));
 
         let (shutdown_tx, _) = tokio::sync::watch::channel(false);
 
@@ -39,7 +39,7 @@ impl AxumServer {
         }
     }
 
-    /// 使用自定义地址创建 Axum HTTP 服务器
+    /// 使用自定义地址创建 Auxm HTTP 服务器
     pub fn with_addr(router: axum::Router, addr: SocketAddr) -> Self {
         let (shutdown_tx, _) = tokio::sync::watch::channel(false);
         Self {
@@ -55,13 +55,13 @@ impl AxumServer {
     }
 }
 
-impl Server for AxumServer {
+impl Server for AuxmServer {
     async fn run(&self) -> Result<(), XOneError> {
         let listener = tokio::net::TcpListener::bind(self.addr)
             .await
             .map_err(|e| XOneError::Server(format!("bind failed: {e}")))?;
 
-        xutil::info_if_enable_debug(&format!("axum server listening on {}", self.addr));
+        xutil::info_if_enable_debug(&format!("auxm server listening on {}", self.addr));
 
         let mut shutdown_rx = self
             .shutdown_tx
@@ -87,11 +87,11 @@ impl Server for AxumServer {
     }
 }
 
-/// Axum TLS (HTTPS) 服务器
+/// Auxm TLS (HTTPS) 服务器
 ///
 /// TLS 完整实现将在 Phase 2 提供。
 #[allow(dead_code)]
-pub struct AxumTlsServer {
+pub struct AuxmTlsServer {
     router: axum::Router,
     addr: SocketAddr,
     cert_file: String,
@@ -99,16 +99,16 @@ pub struct AxumTlsServer {
     shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
 }
 
-impl AxumTlsServer {
-    /// 创建新的 Axum HTTPS 服务器
+impl AuxmTlsServer {
+    /// 创建新的 Auxm HTTPS 服务器
     pub fn new(router: axum::Router, cert_file: &str, key_file: &str) -> Self {
-        let axum_config = xconfig::get_gin_config();
+        let auxm_config = xconfig::get_auxm_config();
 
-        let addr: SocketAddr = format!("{}:{}", axum_config.host, axum_config.port)
+        let addr: SocketAddr = format!("{}:{}", auxm_config.host, auxm_config.port)
             .parse()
-            .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], axum_config.port)));
+            .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], auxm_config.port)));
 
-        xutil::info_if_enable_debug(&format!("axum server listen at: {addr} (TLS)"));
+        xutil::info_if_enable_debug(&format!("auxm server listen at: {addr} (TLS)"));
 
         let (shutdown_tx, _) = tokio::sync::watch::channel(false);
 
@@ -122,7 +122,7 @@ impl AxumTlsServer {
     }
 }
 
-impl Server for AxumTlsServer {
+impl Server for AuxmTlsServer {
     async fn run(&self) -> Result<(), XOneError> {
         // TLS 支持需要额外的 crate（如 axum-server 或 rustls）
         // 这里提供基础框架，完整 TLS 实现在 Phase 2
@@ -138,4 +138,3 @@ impl Server for AxumTlsServer {
         Ok(())
     }
 }
-

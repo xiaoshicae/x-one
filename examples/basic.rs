@@ -20,9 +20,9 @@ async fn main() {
     // 创建 Axum 路由
     let app = axum::Router::new().route("/", axum::routing::get(|| async { "hello from x-one" }));
 
-    // 以 Axum HTTP 服务器运行，阻塞等待退出信号
+    // 以 Auxm HTTP 服务器运行，阻塞等待退出信号
     // 退出时自动调用 BeforeStop hooks（xtrace shutdown、xorm close、xcache clear 等）
-    if let Err(e) = x_one::run_axum(app).await {
+    if let Err(e) = x_one::run_auxm(app).await {
         eprintln!("服务器运行失败: {e}");
     }
 }

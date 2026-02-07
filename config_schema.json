@@ -14,13 +14,13 @@
             "Active": { "type": "string" }
           }
         },
-        "Gin": {
+        "Auxm": {
           "type": "object",
           "properties": {
             "Host": { "type": "string", "default": "0.0.0.0" },
             "Port": { "type": "integer", "default": 8000 },
             "UseHttp2": { "type": "boolean", "default": false },
-            "GinSwagger": {
+            "Swagger": {
               "type": "object",
               "properties": {
                 "Host": { "type": "string" },

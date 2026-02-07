@@ -1,7 +1,7 @@
 //! Server trait 定义和服务运行逻辑
 #![allow(async_fn_in_trait)]
 
-pub mod axum;
+pub mod auxm;
 pub mod blocking;
 
 use crate::error::XOneError;
@@ -10,7 +10,7 @@ use crate::xutil;
 
 /// 服务器 trait
 ///
-/// 所有服务器实现（AxumServer, BlockingServer 等）都需要实现此 trait。
+/// 所有服务器实现（AuxmServer, BlockingServer 等）都需要实现此 trait。
 pub trait Server: Send + Sync {
     /// 启动服务
     ///

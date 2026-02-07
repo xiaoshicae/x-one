@@ -34,12 +34,12 @@ use x_one::xconfig::*;
     fn test_get_int() {
         reset_config();
         let yaml = "Server:
-  Gin:
+  Auxm:
     Port: 9090
 ";
         let config: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
         set_config(config);
-        assert_eq!(get_int("Server.Gin.Port"), 9090);
+        assert_eq!(get_int("Server.Auxm.Port"), 9090);
         reset_config();
     }
 
@@ -47,12 +47,12 @@ use x_one::xconfig::*;
     fn test_get_bool() {
         reset_config();
         let yaml = "Server:
-  Gin:
+  Auxm:
     UseHttp2: true
 ";
         let config: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
         set_config(config);
-        assert!(get_bool("Server.Gin.UseHttp2"));
+        assert!(get_bool("Server.Auxm.UseHttp2"));
         reset_config();
     }
 
@@ -87,29 +87,29 @@ use x_one::xconfig::*;
     fn test_parse_config() {
         reset_config();
         let yaml = "Server:
-  Gin:
+  Auxm:
     Host: '127.0.0.1'
     Port: 3000
 ";
         let config: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
         set_config(config);
-        let gin: GinConfig = parse_config("Server.Gin").unwrap();
-        assert_eq!(gin.host, "127.0.0.1");
-        assert_eq!(gin.port, 3000);
+        let auxm: AuxmConfig = parse_config("Server.Auxm").unwrap();
+        assert_eq!(auxm.host, "127.0.0.1");
+        assert_eq!(auxm.port, 3000);
         reset_config();
     }
 
     #[test]
-    fn test_get_gin_config_default() {
+    fn test_get_auxm_config_default() {
         reset_config();
-        let gin = get_gin_config();
-        assert_eq!(gin.host, "0.0.0.0");
-        assert_eq!(gin.port, 8000);
+        let auxm = get_auxm_config();
+        assert_eq!(auxm.host, "0.0.0.0");
+        assert_eq!(auxm.port, 8000);
     }
 
     #[test]
-    fn test_get_gin_swagger_config_default() {
+    fn test_get_auxm_swagger_config_default() {
         reset_config();
-        let swagger = get_gin_swagger_config();
+        let swagger = get_auxm_swagger_config();
         assert_eq!(swagger.schemes, vec!["https", "http"]);
     }

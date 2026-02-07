@@ -1,22 +1,22 @@
 # XServer - 服务启动模块
 
-💡 提供 `AxumServer` (HTTP) 和 `BlockingServer` (Consumer/Job) 的封装，统一处理信号监听、优雅停机和生命周期管理。
+💡 提供 `AuxmServer` (HTTP) 和 `BlockingServer` (Consumer/Job) 的封装，统一处理信号监听、优雅停机和生命周期管理。
 
 ## 核心组件
 
-### 1. AxumServer
+### 1. AuxmServer
 
 适用于 Web 服务，集成了 `axum` 框架。
 
-- **配置**: 通过 `Server.Axum` 配置端口和 Host（兼容旧的 `Server.Gin`）。
+- **配置**: 通过 `Server.Auxm` 配置端口和 Host。
 - **特性**: 自动注入 Trace 中间件（待实现）、优雅停机。
 
 ```rust
-use x_one::run_axum;
+use x_one::run_auxm;
 use axum::{Router, routing::get};
 
 let app = Router::new().route("/", get(|| async { "Hello" }));
-run_axum(app).await?;
+run_auxm(app).await?;
 ```
 
 ### 2. BlockingServer

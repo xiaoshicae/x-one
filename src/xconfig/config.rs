@@ -22,8 +22,8 @@ pub struct ServerConfig {
     pub profiles: Option<ProfilesConfig>,
 
     /// HTTP 服务相关配置
-    #[serde(rename = "Gin")]
-    pub gin: Option<GinConfig>,
+    #[serde(rename = "Auxm")]
+    pub auxm: Option<AuxmConfig>,
 }
 
 impl Default for ServerConfig {
@@ -32,7 +32,7 @@ impl Default for ServerConfig {
             name: String::new(),
             version: "v0.0.1".to_string(),
             profiles: None,
-            gin: None,
+            auxm: None,
         }
     }
 }
@@ -46,10 +46,10 @@ pub struct ProfilesConfig {
     pub active: String,
 }
 
-/// HTTP 服务配置
+/// Auxm HTTP 服务配置（基于 Axum）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct GinConfig {
+pub struct AuxmConfig {
     /// 服务监听的 host（默认 "0.0.0.0"）
     #[serde(rename = "Host")]
     pub host: String,
@@ -63,25 +63,25 @@ pub struct GinConfig {
     pub use_http2: bool,
 
     /// Swagger 相关配置
-    #[serde(rename = "GinSwagger")]
-    pub gin_swagger: Option<GinSwaggerConfig>,
+    #[serde(rename = "Swagger")]
+    pub swagger: Option<AuxmSwaggerConfig>,
 }
 
-impl Default for GinConfig {
+impl Default for AuxmConfig {
     fn default() -> Self {
         Self {
             host: "0.0.0.0".to_string(),
             port: 8000,
             use_http2: false,
-            gin_swagger: None,
+            swagger: None,
         }
     }
 }
 
-/// Swagger 配置
+/// Auxm Swagger 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct GinSwaggerConfig {
+pub struct AuxmSwaggerConfig {
     /// 提供 API 服务的 host
     #[serde(rename = "Host")]
     pub host: String,
@@ -103,7 +103,7 @@ pub struct GinSwaggerConfig {
     pub schemes: Vec<String>,
 }
 
-impl Default for GinSwaggerConfig {
+impl Default for AuxmSwaggerConfig {
     fn default() -> Self {
         Self {
             host: String::new(),
@@ -114,5 +114,3 @@ impl Default for GinSwaggerConfig {
         }
     }
 }
-
-

@@ -4,7 +4,7 @@
 
 ## 💡 功能特性
 
-- **统一集成**：集成常用三方库（Axum, Sqlx, Moka, Reqwest, OpenTelemetry），降低维护成本
+- **统一集成**：集成常用三方库（Auxm〔基于 axum〕, Sqlx, Moka, Reqwest, OpenTelemetry），降低维护成本
 - **配置驱动**：通过 YAML 配置启用能力，开箱即用，支持多环境 Profile
 - **最佳实践**：提供生产级默认参数配置（连接池、超时、日志轮转等）
 - **生命周期**：支持 Hook 机制（BeforeStart/BeforeStop），灵活扩展
@@ -38,7 +38,7 @@ Server:
   Version: "v1.0.0"
   Profiles:
     Active: "dev"
-  Gin: # 沿用 Go 版命名习惯，对应 Axum HTTP 服务
+  Auxm: # 对应 Auxm HTTP 服务（基于 axum）
     Port: 8000
 
 XLog:
@@ -61,7 +61,7 @@ XCache:
 ### 3. 启动服务
 
 ```rust
-use x_one::xserver::axum::AxumServer;
+use x_one::xserver::auxm::AuxmServer;
 use axum::{Router, routing::get};
 
 #[tokio::main]
@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new().route("/ping", get(|| async { "pong" }));
 
     // 3. 启动服务（自动处理平滑关闭）
-    x_one::run_axum(app).await?;
+    x_one::run_auxm(app).await?;
 
     Ok(())
 }
@@ -100,7 +100,7 @@ async fn handler() {
     xlog_info!("request handled");
 
     // 读取配置
-    let port = xconfig::get_int("Server.Gin.Port");
+    let port = xconfig::get_int("Server.Auxm.Port");
 }
 ```
 
@@ -139,11 +139,11 @@ fn init_hooks() {
 async fn main() -> x_one::Result<()> {
     init_hooks();
     
-    // 方式一：Axum Web 服务
-    // x_one::run_axum(app).await
+    // 方式一：Auxm Web 服务
+    // x_one::run_auxm(app).await
     
-    // 方式二：Axum HTTPS 服务
-    // x_one::run_axum_tls(app, "cert.pem", "key.pem").await
+    // 方式二：Auxm HTTPS 服务
+    // x_one::run_auxm_tls(app, "cert.pem", "key.pem").await
 
     // 方式三：阻塞服务（适用于 Consumer/Job）
     x_one::run_blocking_server().await
@@ -168,3 +168,4 @@ XOrm:
 ## 📝 更新日志
 
 - **v0.1.0** (2026-02-07) - 初始版本移植自 Go xone 框架
+- **v0.1.1** (2026-02-07) - Auxm 命名统一（破坏性变更，见 `MIGRATION.md`）

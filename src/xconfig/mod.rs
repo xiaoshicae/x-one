@@ -9,7 +9,7 @@ pub mod init;
 pub mod location;
 pub mod profiles;
 
-pub use config::{GinConfig, GinSwaggerConfig, ProfilesConfig, SERVER_CONFIG_KEY, ServerConfig};
+pub use config::{AuxmConfig, AuxmSwaggerConfig, ProfilesConfig, SERVER_CONFIG_KEY, ServerConfig};
 
 use parking_lot::RwLock;
 use std::sync::OnceLock;
@@ -143,24 +143,16 @@ pub fn get_server_version() -> String {
     )
 }
 
-/// 获取 Gin 配置
-pub fn get_gin_config() -> GinConfig {
-    let axum_key = format!("{SERVER_CONFIG_KEY}.Axum");
-    if let Ok(config) = parse_config::<GinConfig>(&axum_key) {
-        return config;
-    }
-    let gin_key = format!("{SERVER_CONFIG_KEY}.Gin");
-    parse_config::<GinConfig>(&gin_key).unwrap_or_default()
+/// 获取 Auxm 配置
+pub fn get_auxm_config() -> AuxmConfig {
+    let auxm_key = format!("{SERVER_CONFIG_KEY}.Auxm");
+    parse_config::<AuxmConfig>(&auxm_key).unwrap_or_default()
 }
 
-/// 获取 GinSwagger 配置
-pub fn get_gin_swagger_config() -> GinSwaggerConfig {
-    let axum_key = format!("{SERVER_CONFIG_KEY}.Axum.GinSwagger");
-    if let Ok(config) = parse_config::<GinSwaggerConfig>(&axum_key) {
-        return config;
-    }
-    let gin_key = format!("{SERVER_CONFIG_KEY}.Gin.GinSwagger");
-    parse_config::<GinSwaggerConfig>(&gin_key).unwrap_or_default()
+/// 获取 Auxm Swagger 配置
+pub fn get_auxm_swagger_config() -> AuxmSwaggerConfig {
+    let key = format!("{SERVER_CONFIG_KEY}.Auxm.Swagger");
+    parse_config::<AuxmSwaggerConfig>(&key).unwrap_or_default()
 }
 
 /// 重置配置存储（仅测试用）

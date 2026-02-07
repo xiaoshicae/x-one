@@ -14,7 +14,7 @@ pub mod xserver;
 pub mod xtrace;
 pub mod xutil;
 
-pub use xserver::axum::{AxumServer, AxumTlsServer};
+pub use xserver::auxm::{AuxmServer, AuxmTlsServer};
 pub use xserver::blocking::BlockingServer;
 pub use error::{Result, XOneError};
 pub use xserver::Server;
@@ -59,20 +59,20 @@ fn auto_init() {
     ensure_init();
 }
 
-/// 以 Axum HTTP 服务器运行
+/// 以 Auxm HTTP 服务器运行
 ///
-/// 初始化所有模块后，创建 AxumServer 并以异步方式运行，
+/// 初始化所有模块后，创建 AuxmServer 并以异步方式运行，
 /// 阻塞等待退出信号（SIGINT/SIGTERM）。
-pub async fn run_axum(router: axum::Router) -> Result<()> {
+pub async fn run_auxm(router: axum::Router) -> Result<()> {
     ensure_init();
-    let server = AxumServer::new(router);
+    let server = AuxmServer::new(router);
     xserver::run_with_server(&server).await
 }
 
-/// 以 Axum HTTPS 服务器运行
-pub async fn run_axum_tls(router: axum::Router, cert_file: &str, key_file: &str) -> Result<()> {
+/// 以 Auxm HTTPS 服务器运行
+pub async fn run_auxm_tls(router: axum::Router, cert_file: &str, key_file: &str) -> Result<()> {
     ensure_init();
-    let server = AxumTlsServer::new(router, cert_file, key_file);
+    let server = AuxmTlsServer::new(router, cert_file, key_file);
     xserver::run_with_server(&server).await
 }
 
