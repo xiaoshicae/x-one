@@ -65,12 +65,9 @@ pub fn get_stop_timeout() -> Duration {
     mgr.stop_timeout
 }
 
-/// 注册 BeforeStart Hook
-///
-/// # Panics
-///
-/// 当 Hook 数量超过上限时 panic
-pub fn before_start<F>(name: &str, f: F, opts: HookOptions)
+/// 注册 BeforeStart Hook（内部实现，请使用 `before_start!` 宏）
+#[doc(hidden)]
+pub fn _before_start<F>(name: &str, f: F, opts: HookOptions)
 where
     F: FnOnce() -> Result<(), XOneError> + Send + 'static,
 {
@@ -78,17 +75,76 @@ where
     register_hook(&mut mgr, true, name, f, opts);
 }
 
-/// 注册 BeforeStop Hook
-///
-/// # Panics
-///
-/// 当 Hook 数量超过上限时 panic
-pub fn before_stop<F>(name: &str, f: F, opts: HookOptions)
+/// 注册 BeforeStop Hook（内部实现，请使用 `before_stop!` 宏）
+#[doc(hidden)]
+pub fn _before_stop<F>(name: &str, f: F, opts: HookOptions)
 where
     F: FnOnce() -> Result<(), XOneError> + Send + 'static,
 {
     let mut mgr = manager().lock();
     register_hook(&mut mgr, false, name, f, opts);
+}
+
+/// 注册 BeforeStart Hook
+///
+/// 自动以调用位置（file:line）作为 Hook 名称，`HookOptions` 可选。
+///
+/// # Examples
+///
+/// ```ignore
+/// // 仅传函数，使用默认选项
+/// x_one::before_start!(|| Ok(()));
+///
+/// // 指定选项
+/// x_one::before_start!(|| Ok(()), HookOptions::with_order(10));
+/// ```
+#[macro_export]
+macro_rules! before_start {
+    ($f:expr) => {
+        $crate::xhook::_before_start(
+            concat!(file!(), ":", line!()),
+            $f,
+            $crate::xhook::HookOptions::default(),
+        )
+    };
+    ($f:expr, $opts:expr) => {
+        $crate::xhook::_before_start(
+            concat!(file!(), ":", line!()),
+            $f,
+            $opts,
+        )
+    };
+}
+
+/// 注册 BeforeStop Hook
+///
+/// 自动以调用位置（file:line）作为 Hook 名称，`HookOptions` 可选。
+///
+/// # Examples
+///
+/// ```ignore
+/// // 仅传函数，使用默认选项
+/// x_one::before_stop!(|| Ok(()));
+///
+/// // 指定选项
+/// x_one::before_stop!(|| Ok(()), HookOptions::with_order(1));
+/// ```
+#[macro_export]
+macro_rules! before_stop {
+    ($f:expr) => {
+        $crate::xhook::_before_stop(
+            concat!(file!(), ":", line!()),
+            $f,
+            $crate::xhook::HookOptions::default(),
+        )
+    };
+    ($f:expr, $opts:expr) => {
+        $crate::xhook::_before_stop(
+            concat!(file!(), ":", line!()),
+            $f,
+            $opts,
+        )
+    };
 }
 
 fn register_hook<F>(

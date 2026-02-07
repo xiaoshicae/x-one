@@ -13,11 +13,7 @@ pub use config::{LogLevel, XLOG_CONFIG_KEY, XLogConfig};
 
 /// 注册日志初始化 Hook
 pub fn register_hook() {
-    crate::xhook::before_start(
-        "xlog::init",
-        init::init_xlog,
-        crate::xhook::HookOptions::with_order(100), // 默认顺序，在 xconfig 之后
-    );
+    crate::before_start!(init::init_xlog, crate::xhook::HookOptions::with_order(100));
 }
 
 /// 获取当前日志级别

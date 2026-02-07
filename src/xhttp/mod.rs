@@ -7,12 +7,5 @@ pub use config::XHttpConfig;
 pub use init::{build_client, init_xhttp};
 
 pub fn register_hook() {
-    crate::xhook::before_start(
-        "xhttp::init",
-        init::init_xhttp,
-        crate::xhook::HookOptions {
-            order: 4,
-            ..Default::default()
-        },
-    );
+    crate::before_start!(init::init_xhttp, crate::xhook::HookOptions::with_order(4));
 }

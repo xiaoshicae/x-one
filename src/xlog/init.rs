@@ -45,14 +45,10 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
     // 防止 guard 被 drop（需要保持活跃直到程序结束）
     // 通过 xhook 的 before_stop 来管理生命周期
     let guard = Box::new(guard);
-    crate::xhook::before_stop(
-        "xlog::flush",
-        move || {
-            drop(guard);
-            Ok(())
-        },
-        crate::xhook::HookOptions::default(),
-    );
+    crate::before_stop!(move || {
+        drop(guard);
+        Ok(())
+    });
 
     // 解析日志级别
     let level_filter = match c.level {
