@@ -1,1 +1,24 @@
 /target
+
+log/
+*.log
+*.log.*
+cover.out
+coverage.out
+
+
+### VS Code ###
+.vscode/
+
+### idea ###
+.idea/
+*.iws
+*.iml
+*.ipr
+
+### Mac OS ###
+.DS_Store
+
+# Claude Code 本地配置（不提交）
+.claude/settings.local.json
+.claude/CLAUDE.local.md

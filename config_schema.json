@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "XOne Configuration",
+  "type": "object",
+  "properties": {
+    "Server": {
+      "type": "object",
+      "properties": {
+        "Name": { "type": "string" },
+        "Version": { "type": "string", "default": "v0.0.1" },
+        "Profiles": {
+          "type": "object",
+          "properties": {
+            "Active": { "type": "string" }
+          }
+        },
+        "Gin": {
+          "type": "object",
+          "properties": {
+            "Host": { "type": "string", "default": "0.0.0.0" },
+            "Port": { "type": "integer", "default": 8000 },
+            "UseHttp2": { "type": "boolean", "default": false },
+            "GinSwagger": {
+              "type": "object",
+              "properties": {
+                "Host": { "type": "string" },
+                "BasePath": { "type": "string" },
+                "Title": { "type": "string" },
+                "Description": { "type": "string" },
+                "Schemes": { "type": "array", "items": { "type": "string" }, "default": ["https", "http"] }
+              }
+            }
+          }
+        }
+      },
+      "required": ["Name"]
+    },
+    "XLog": {
+      "type": "object",
+      "properties": {
+        "Level": { "type": "string", "enum": ["trace", "debug", "info", "warn", "error"], "default": "info" },
+        "Name": { "type": "string", "default": "app" },
+        "Path": { "type": "string", "default": "./log" },
+        "Console": { "type": "boolean", "default": false },
+        "ConsoleFormatIsRaw": { "type": "boolean", "default": false },
+        "MaxAge": { "type": "string", "default": "7d" },
+        "RotateTime": { "type": "string", "default": "1d" },
+        "Timezone": { "type": "string", "default": "Asia/Shanghai" }
+      }
+    },
+    "XTrace": {
+      "type": "object",
+      "properties": {
+        "Enable": { "type": "boolean", "default": true },
+        "Console": { "type": "boolean", "default": false }
+      }
+    },
+    "XHttp": {
+      "type": "object",
+      "properties": {
+        "Timeout": { "type": "string", "default": "30s" },
+        "DialTimeout": { "type": "string", "default": "10s" },
+        "DialKeepAlive": { "type": "string", "default": "30s" },
+        "MaxIdleConnsPerHost": { "type": "integer", "default": 100 },
+        "PoolMaxIdlePerHost": { "type": "integer", "default": 10 },
+        "RetryCount": { "type": "integer", "default": 0 },
+        "RetryWaitTime": { "type": "string", "default": "1s" },
+        "RetryMaxWaitTime": { "type": "string", "default": "10s" }
+      }
+    },
+    "XOrm": {
+      "oneOf": [
+        { "$ref": "#/definitions/XOrmConfig" },
+        { "type": "array", "items": { "$ref": "#/definitions/XOrmConfig" } }
+      ]
+    },
+    "XCache": {
+      "oneOf": [
+        { "$ref": "#/definitions/XCacheConfig" },
+        { "type": "array", "items": { "$ref": "#/definitions/XCacheConfig" } }
+      ]
+    }
+  },
+  "definitions": {
+    "XOrmConfig": {
+      "type": "object",
+      "properties": {
+        "Driver": { "type": "string", "enum": ["postgres", "mysql"], "default": "postgres" },
+        "DSN": { "type": "string" },
+        "MaxOpenConns": { "type": "integer", "default": 100 },
+        "MaxIdleConns": { "type": "integer", "default": 10 },
+        "MaxLifetime": { "type": "string", "default": "1h" },
+        "MaxIdleTime": { "type": "string", "default": "10m" },
+        "SlowThreshold": { "type": "string", "default": "200ms" },
+        "EnableLog": { "type": "boolean", "default": true },
+        "Name": { "type": "string", "default": "" }
+      }
+    },
+    "XCacheConfig": {
+      "type": "object",
+      "properties": {
+        "MaxCapacity": { "type": "integer", "default": 100000 },
+        "DefaultTTL": { "type": "string", "default": "5m" },
+        "Name": { "type": "string", "default": "" }
+      }
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo test:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo doc:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo run:*)"
+    ],
+    "deny": [
+      "Bash(cargo publish:*)",
+      "Bash(rm -rf:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|mcp__jetbrains__replace_text_in_file|mcp__jetbrains__create_new_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-edit-check.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
