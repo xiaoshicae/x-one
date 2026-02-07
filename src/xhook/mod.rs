@@ -32,9 +32,7 @@ pub struct Hook {
 /// 全局 Hook 管理器
 pub struct HookManager {
     pub before_start_hooks: Vec<Hook>,
-    pub before_start_sorted: bool,
     pub before_stop_hooks: Vec<Hook>,
-    pub before_stop_sorted: bool,
     pub stop_timeout: Duration,
 }
 
@@ -42,9 +40,7 @@ impl Default for HookManager {
     fn default() -> Self {
         Self {
             before_start_hooks: Vec::new(),
-            before_start_sorted: true,
             before_stop_hooks: Vec::new(),
-            before_stop_sorted: true,
             stop_timeout: Duration::from_secs(DEFAULT_STOP_TIMEOUT_SECS),
         }
     }
@@ -100,10 +96,10 @@ fn register_hook<F>(
 ) where
     F: FnOnce() -> Result<(), XOneError> + Send + 'static,
 {
-    let (hooks, sorted_flag, label) = if is_start {
-        (&mut mgr.before_start_hooks, &mut mgr.before_start_sorted, "BeforeStart")
+    let (hooks, label) = if is_start {
+        (&mut mgr.before_start_hooks, "BeforeStart")
     } else {
-        (&mut mgr.before_stop_hooks, &mut mgr.before_stop_sorted, "BeforeStop")
+        (&mut mgr.before_stop_hooks, "BeforeStop")
     };
 
     if hooks.len() >= MAX_HOOK_NUM {
@@ -115,7 +111,6 @@ fn register_hook<F>(
         options: opts,
         name: name.to_string(),
     });
-    *sorted_flag = false;
 }
 
 /// 执行所有 BeforeStart Hook
@@ -192,12 +187,10 @@ pub fn invoke_before_stop_hooks() -> Result<(), XOneError> {
     });
 
     match rx.recv_timeout(timeout) {
-        Ok(result) => match result {
-            Ok(()) => Ok(()),
-            Err(e) => Err(XOneError::Hook(format!(
-                "invoke before stop hook failed, {e}"
-            ))),
-        },
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(XOneError::Hook(format!(
+            "invoke before stop hook failed, {e}"
+        ))),
         Err(_) => Err(XOneError::Hook(format!(
             "invoke before stop hook failed, due to timeout after {timeout:?}"
         ))),
@@ -207,22 +200,14 @@ pub fn invoke_before_stop_hooks() -> Result<(), XOneError> {
 /// 从管理器中取出排序后的 hooks
 fn take_sorted_hooks(is_start: bool) -> Vec<Hook> {
     let mut mgr = manager().lock();
-    let mgr = &mut *mgr;
-
-    let (hooks, sorted) = if is_start {
-        (&mut mgr.before_start_hooks, &mut mgr.before_start_sorted)
+    let hooks = if is_start {
+        &mut mgr.before_start_hooks
     } else {
-        (&mut mgr.before_stop_hooks, &mut mgr.before_stop_sorted)
+        &mut mgr.before_stop_hooks
     };
-
-    if !*sorted {
-        hooks.sort_by_key(|h| h.options.order);
-        *sorted = true;
-    }
+    hooks.sort_by_key(|h| h.options.order);
     std::mem::take(hooks)
 }
-
-
 
 /// 安全执行 Hook 函数，捕获 panic
 fn safe_invoke_hook(f: HookFunc) -> Result<(), XOneError> {
@@ -242,8 +227,6 @@ fn safe_invoke_hook(f: HookFunc) -> Result<(), XOneError> {
 pub fn reset_hooks() {
     let mut mgr = manager().lock();
     mgr.before_start_hooks.clear();
-    mgr.before_start_sorted = true;
     mgr.before_stop_hooks.clear();
-    mgr.before_stop_sorted = true;
     mgr.stop_timeout = Duration::from_secs(DEFAULT_STOP_TIMEOUT_SECS);
 }
