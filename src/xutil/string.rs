@@ -2,11 +2,7 @@
 
 /// 若为空字符串则返回默认值（借用）
 pub fn default_if_empty<'a>(value: &'a str, default: &'a str) -> &'a str {
-    if value.is_empty() {
-        default
-    } else {
-        value
-    }
+    if value.is_empty() { default } else { value }
 }
 
 /// 若为空字符串则返回默认值（占有）

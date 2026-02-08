@@ -90,5 +90,3 @@ impl Default for XHttpConfig {
         }
     }
 }
-
-

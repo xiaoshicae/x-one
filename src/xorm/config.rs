@@ -116,4 +116,3 @@ impl Default for XOrmConfig {
         }
     }
 }
-

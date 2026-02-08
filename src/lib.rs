@@ -4,20 +4,21 @@
 //! HTTP 服务、链路追踪、数据库连接管理、本地缓存等功能。
 
 pub mod error;
+pub mod xauxm;
 pub mod xcache;
 pub mod xconfig;
-pub mod xorm;
 pub mod xhook;
 pub mod xhttp;
 pub mod xlog;
+pub mod xorm;
 pub mod xserver;
 pub mod xtrace;
 pub mod xutil;
 
-pub use xserver::auxm::{AuxmServer, AuxmTlsServer};
-pub use xserver::blocking::BlockingServer;
 pub use error::{Result, XOneError};
+pub use xauxm::{AuxmServer, AuxmTlsServer};
 pub use xserver::Server;
+pub use xserver::blocking::BlockingServer;
 
 use std::sync::OnceLock;
 

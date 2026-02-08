@@ -72,5 +72,3 @@ pub fn validate_ip(candidate: &str, original: &str) -> Result<String, String> {
         .map(|ip| ip.to_string())
         .map_err(|_| format!("ip addr {original} is invalid"))
 }
-
-

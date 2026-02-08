@@ -2,10 +2,11 @@
 //!
 //! 对应 Go 版的 HTTP 服务器实现。
 
+pub mod trace;
+
 use crate::error::XOneError;
-use super::Server;
-use super::trace;
 use crate::xconfig;
+use crate::xserver::Server;
 use crate::xutil;
 use std::net::SocketAddr;
 

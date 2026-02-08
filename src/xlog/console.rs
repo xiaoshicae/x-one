@@ -35,5 +35,3 @@ pub fn format_console_line(
         )
     }
 }
-
-

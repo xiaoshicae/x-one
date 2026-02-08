@@ -24,5 +24,3 @@ pub fn enable_debug() -> bool {
         Err(_) => false,
     }
 }
-
-

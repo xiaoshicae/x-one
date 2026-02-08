@@ -68,5 +68,3 @@ impl Default for XLogConfig {
         }
     }
 }
-
-

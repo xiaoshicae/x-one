@@ -84,5 +84,3 @@ impl Drop for AsyncWriter {
         self.close();
     }
 }
-
-

@@ -99,8 +99,7 @@ where
         let now = chrono::Utc::now();
         root.insert(
             "timestamp".to_string(),
-            serde_json::json!(now
-                .to_rfc3339_opts(chrono::SecondsFormat::Micros, true)),
+            serde_json::json!(now.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)),
         );
 
         // 日志级别
@@ -125,10 +124,7 @@ where
         root.insert("fields".to_string(), Value::Object(fields));
 
         // 目标模块
-        root.insert(
-            "target".to_string(),
-            serde_json::json!(meta.target()),
-        );
+        root.insert("target".to_string(), serde_json::json!(meta.target()));
 
         // 线程 ID
         root.insert(

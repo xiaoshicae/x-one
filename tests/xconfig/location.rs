@@ -1,6 +1,6 @@
-use x_one::xutil;
-use x_one::xconfig::location::*;
 use serial_test::serial;
+use x_one::xconfig::location::*;
+use x_one::xutil;
 
 fn set_env(key: &str, value: &str) {
     unsafe { std::env::set_var(key, value) };
@@ -38,9 +38,13 @@ fn test_get_location_from_env_empty() {
 fn test_get_location_from_current_dir_with_file() {
     let dir = tempfile::tempdir().unwrap();
     let file_path = dir.path().join("application.yml");
-    std::fs::write(&file_path, "Server:
+    std::fs::write(
+        &file_path,
+        "Server:
   Name: test
-").unwrap();
+",
+    )
+    .unwrap();
 
     // 保存当前目录
     let original_dir = std::env::current_dir().unwrap();

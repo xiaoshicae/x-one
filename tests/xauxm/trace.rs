@@ -1,14 +1,12 @@
 use axum::{Router, body::Body, routing::get};
-use opentelemetry::{trace::TraceContextExt, Context};
+use opentelemetry::{Context, trace::TraceContextExt};
 use serial_test::serial;
 use tower::ServiceExt;
 
 /// 初始化测试用 tracer 并启用 trace
 fn setup_trace() {
     // 设置 config 使 init_xtrace 能正常初始化
-    x_one::xconfig::set_config(
-        serde_yaml::from_str("XTrace:\n  Enable: true").unwrap(),
-    );
+    x_one::xconfig::set_config(serde_yaml::from_str("XTrace:\n  Enable: true").unwrap());
     x_one::xtrace::init::init_xtrace().ok();
 }
 
@@ -23,7 +21,7 @@ fn build_app() -> Router {
             }),
         )
         .layer(axum::middleware::from_fn::<_, (axum::extract::Request,)>(
-            x_one::xserver::trace::trace_middleware,
+            x_one::xauxm::trace::trace_middleware,
         ))
 }
 
@@ -97,7 +95,7 @@ async fn test_trace_middleware_disabled_passthrough() {
     let app = Router::new()
         .route("/ping", get(|| async { "pong" }))
         .layer(axum::middleware::from_fn::<_, (axum::extract::Request,)>(
-            x_one::xserver::trace::trace_middleware,
+            x_one::xauxm::trace::trace_middleware,
         ));
 
     let response = app

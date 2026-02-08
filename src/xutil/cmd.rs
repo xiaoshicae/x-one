@@ -72,5 +72,3 @@ pub fn get_config_from_args_with(key: &str, args: &[String]) -> Result<String, S
 pub fn get_os_args() -> Vec<String> {
     std::env::args().skip(1).collect()
 }
-
-

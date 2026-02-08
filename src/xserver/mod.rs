@@ -1,9 +1,7 @@
 //! Server trait 定义和服务运行逻辑
 #![allow(async_fn_in_trait)]
 
-pub mod auxm;
 pub mod blocking;
-pub mod trace;
 
 use crate::error::XOneError;
 use crate::xhook;

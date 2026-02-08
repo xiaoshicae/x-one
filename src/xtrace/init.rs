@@ -15,8 +15,7 @@ use super::config::{XTRACE_CONFIG_KEY, XTraceConfig};
 static TRACE_ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// 全局 TracerProvider（需要在 shutdown 时用到）
-static PROVIDER: std::sync::OnceLock<Mutex<Option<SdkTracerProvider>>> =
-    std::sync::OnceLock::new();
+static PROVIDER: std::sync::OnceLock<Mutex<Option<SdkTracerProvider>>> = std::sync::OnceLock::new();
 
 fn provider_store() -> &'static Mutex<Option<SdkTracerProvider>> {
     PROVIDER.get_or_init(|| Mutex::new(None))

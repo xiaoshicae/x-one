@@ -30,5 +30,3 @@ impl XTraceConfig {
         self.enable.unwrap_or(true)
     }
 }
-
-

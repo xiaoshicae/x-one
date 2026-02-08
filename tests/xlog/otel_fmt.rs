@@ -55,9 +55,8 @@ fn test_otel_json_format_produces_valid_json() {
     let buf = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
     let buf_clone = buf.clone();
 
-    let writer = move || -> Box<dyn std::io::Write + Send> {
-        Box::new(SharedWriter(buf_clone.clone()))
-    };
+    let writer =
+        move || -> Box<dyn std::io::Write + Send> { Box::new(SharedWriter(buf_clone.clone())) };
 
     let subscriber = tracing_subscriber::registry().with(
         tracing_subscriber::fmt::layer()
@@ -83,7 +82,10 @@ fn test_otel_json_format_produces_valid_json() {
     assert_eq!(json["fields"]["message"], "hello world");
     assert_eq!(json["fields"]["user_id"], 42);
     // 无活跃 Span 时不应包含 trace_id
-    assert!(json.get("trace_id").is_none(), "无 Span 时不应包含 trace_id");
+    assert!(
+        json.get("trace_id").is_none(),
+        "无 Span 时不应包含 trace_id"
+    );
 }
 
 #[test]
@@ -93,9 +95,8 @@ fn test_otel_json_format_includes_trace_id_with_active_span() {
     let buf = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
     let buf_clone = buf.clone();
 
-    let writer = move || -> Box<dyn std::io::Write + Send> {
-        Box::new(SharedWriter(buf_clone.clone()))
-    };
+    let writer =
+        move || -> Box<dyn std::io::Write + Send> { Box::new(SharedWriter(buf_clone.clone())) };
 
     let subscriber = tracing_subscriber::registry().with(
         tracing_subscriber::fmt::layer()
@@ -134,9 +135,8 @@ fn test_otel_console_format_without_trace_id() {
     let buf = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
     let buf_clone = buf.clone();
 
-    let writer = move || -> Box<dyn std::io::Write + Send> {
-        Box::new(SharedWriter(buf_clone.clone()))
-    };
+    let writer =
+        move || -> Box<dyn std::io::Write + Send> { Box::new(SharedWriter(buf_clone.clone())) };
 
     let subscriber = tracing_subscriber::registry().with(
         tracing_subscriber::fmt::layer()
@@ -164,9 +164,8 @@ fn test_otel_console_format_with_trace_id() {
     let buf = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
     let buf_clone = buf.clone();
 
-    let writer = move || -> Box<dyn std::io::Write + Send> {
-        Box::new(SharedWriter(buf_clone.clone()))
-    };
+    let writer =
+        move || -> Box<dyn std::io::Write + Send> { Box::new(SharedWriter(buf_clone.clone())) };
 
     let subscriber = tracing_subscriber::registry().with(
         tracing_subscriber::fmt::layer()
@@ -207,9 +206,8 @@ fn test_otel_console_format_includes_extra_fields() {
     let buf = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
     let buf_clone = buf.clone();
 
-    let writer = move || -> Box<dyn std::io::Write + Send> {
-        Box::new(SharedWriter(buf_clone.clone()))
-    };
+    let writer =
+        move || -> Box<dyn std::io::Write + Send> { Box::new(SharedWriter(buf_clone.clone())) };
 
     let subscriber = tracing_subscriber::registry().with(
         tracing_subscriber::fmt::layer()

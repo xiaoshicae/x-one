@@ -91,5 +91,3 @@ pub fn to_profiles_active_config_location(
         Ok(format!("{parent}/{stem}-{profile_active}.{ext}"))
     }
 }
-
-

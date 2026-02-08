@@ -110,7 +110,10 @@ pub fn load_local_config(path: &str) -> Result<serde_yaml::Value, String> {
 ///
 /// 环境配置中的顶层 key 会覆盖基础配置中的对应 key，
 /// Server 下的二级 key 也会单独覆盖
-pub fn merge_profiles_config(mut base: serde_yaml::Value, env: serde_yaml::Value) -> serde_yaml::Value {
+pub fn merge_profiles_config(
+    mut base: serde_yaml::Value,
+    env: serde_yaml::Value,
+) -> serde_yaml::Value {
     if let (Some(base_map), Some(env_map)) = (base.as_mapping_mut(), env.as_mapping()) {
         for (key, value) in env_map {
             // 跳过 Server.Profiles
@@ -145,5 +148,3 @@ fn print_final_config(config: &serde_yaml::Value) {
         );
     }
 }
-
-

@@ -1,8 +1,8 @@
 use parking_lot::Mutex;
 use serial_test::serial;
 use std::time::Duration;
-use x_one::xhook::*;
 use x_one::XOneError;
+use x_one::xhook::*;
 
 #[test]
 #[serial]

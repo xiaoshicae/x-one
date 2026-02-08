@@ -1,13 +1,15 @@
 pub mod cache;
+pub mod client;
 pub mod config;
 pub mod init;
-pub mod client;
 
 use std::any::Any;
 
 pub use client::{c, default};
 pub use config::XCacheConfig;
-pub use init::{cache_store, create_cache_instance, get_cache_names, init_xcache, load_configs, shutdown_xcache};
+pub use init::{
+    cache_store, create_cache_instance, get_cache_names, init_xcache, load_configs, shutdown_xcache,
+};
 
 // 兼容旧 API
 pub fn set<V: Any + Send + Sync + 'static>(key: &str, value: V) {
@@ -35,5 +37,8 @@ pub fn del(key: &str) {
 pub fn register_hook() {
     crate::before_start!(init::init_xcache, crate::xhook::HookOptions::with_order(6));
 
-    crate::before_stop!(init::shutdown_xcache, crate::xhook::HookOptions::with_order(2));
+    crate::before_stop!(
+        init::shutdown_xcache,
+        crate::xhook::HookOptions::with_order(2)
+    );
 }

@@ -40,5 +40,3 @@ impl From<String> for XOneError {
 
 /// 便捷的 Result 类型别名
 pub type Result<T> = std::result::Result<T, XOneError>;
-
-

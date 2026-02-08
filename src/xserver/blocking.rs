@@ -2,8 +2,8 @@
 //!
 //! 用于 consumer/job 等服务，以阻塞方式启动，等待退出信号。
 
-use crate::error::XOneError;
 use super::Server;
+use crate::error::XOneError;
 use tokio::sync::watch;
 
 /// 阻塞式服务器
@@ -53,5 +53,3 @@ impl Server for BlockingServer {
         Ok(())
     }
 }
-
-

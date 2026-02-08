@@ -34,5 +34,3 @@ pub fn log_if_enable_debug(level: &str, msg: &str) {
         eprintln!("{color}{level}\x1b[0m[{now}] {msg}");
     }
 }
-
-

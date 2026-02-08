@@ -1,5 +1,5 @@
-use x_one::xutil::json::*;
 use std::collections::HashMap;
+use x_one::xutil::json::*;
 
 #[test]
 fn test_to_json_string_map() {

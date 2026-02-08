@@ -1,6 +1,6 @@
+use serial_test::serial;
 use std::time::Duration;
 use x_one::xcache::*;
-use serial_test::serial;
 
 fn reset_and_init() {
     let mut store = init::cache_store().write();

@@ -61,5 +61,3 @@ pub fn get_location_from_current_dir() -> Option<String> {
         .find(|loc| xutil::file_exist(loc))
         .map(|loc| loc.to_string())
 }
-
-

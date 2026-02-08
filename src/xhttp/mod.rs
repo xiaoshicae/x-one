@@ -1,6 +1,6 @@
+pub mod client;
 pub mod config;
 pub mod init;
-pub mod client;
 
 pub use client::{c, delete, get, head, patch, post, put};
 pub use config::XHttpConfig;

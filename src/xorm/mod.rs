@@ -6,7 +6,7 @@
 pub mod config;
 pub mod init;
 
-pub use config::{Driver, XOrmConfig, XORM_CONFIG_KEY};
+pub use config::{Driver, XORM_CONFIG_KEY, XOrmConfig};
 pub use init::{get_driver, get_dsn, get_pool_config, get_pool_names};
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,5 +27,8 @@ pub fn register_hook() {
 
     crate::before_start!(init::init_xorm, crate::xhook::HookOptions::with_order(5));
 
-    crate::before_stop!(init::shutdown_xorm, crate::xhook::HookOptions::with_order(3));
+    crate::before_stop!(
+        init::shutdown_xorm,
+        crate::xhook::HookOptions::with_order(3)
+    );
 }

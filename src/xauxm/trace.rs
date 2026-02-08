@@ -5,10 +5,9 @@
 
 use axum::{extract::Request, middleware::Next, response::Response};
 use opentelemetry::{
-    global,
+    Context, KeyValue, global,
     propagation::Extractor,
     trace::{SpanKind, Status, TraceContextExt, Tracer},
-    Context, KeyValue,
 };
 use std::future::Future;
 use std::pin::Pin;

@@ -82,11 +82,7 @@ macro_rules! before_start {
         )
     };
     ($f:expr, $opts:expr) => {
-        $crate::xhook::_before_start(
-            concat!(file!(), ":", line!()),
-            $f,
-            $opts,
-        )
+        $crate::xhook::_before_start(concat!(file!(), ":", line!()), $f, $opts)
     };
 }
 
@@ -113,21 +109,12 @@ macro_rules! before_stop {
         )
     };
     ($f:expr, $opts:expr) => {
-        $crate::xhook::_before_stop(
-            concat!(file!(), ":", line!()),
-            $f,
-            $opts,
-        )
+        $crate::xhook::_before_stop(concat!(file!(), ":", line!()), $f, $opts)
     };
 }
 
-fn register_hook<F>(
-    mgr: &mut HookManager,
-    is_start: bool,
-    name: &str,
-    f: F,
-    opts: HookOptions,
-) where
+fn register_hook<F>(mgr: &mut HookManager, is_start: bool, name: &str, f: F, opts: HookOptions)
+where
     F: FnOnce() -> Result<(), XOneError> + Send + 'static,
 {
     let (hooks, label) = if is_start {
@@ -238,10 +225,7 @@ fn take_sorted_hooks(is_start: bool) -> Vec<Hook> {
 }
 
 /// 带超时执行 Hook 函数，同时捕获 panic
-fn invoke_hook_with_timeout(
-    f: HookFunc,
-    timeout: Duration,
-) -> Result<(), XOneError> {
+fn invoke_hook_with_timeout(f: HookFunc, timeout: Duration) -> Result<(), XOneError> {
     let (tx, rx) = std::sync::mpsc::channel();
 
     std::thread::spawn(move || {
@@ -251,9 +235,7 @@ fn invoke_hook_with_timeout(
 
     match rx.recv_timeout(timeout) {
         Ok(result) => result,
-        Err(_) => Err(XOneError::Hook(format!(
-            "timeout after {timeout:?}"
-        ))),
+        Err(_) => Err(XOneError::Hook(format!("timeout after {timeout:?}"))),
     }
 }
 

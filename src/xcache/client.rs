@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use super::cache::Cache;
-use super::init::{cache_store, DEFAULT_CACHE_NAME};
+use super::init::{DEFAULT_CACHE_NAME, cache_store};
+use std::sync::Arc;
 
 /// 获取指定名称的缓存实例
 pub fn c(name: &str) -> Option<Arc<Cache>> {

@@ -120,5 +120,3 @@ fn parse_go_duration(s: &str) -> Result<Duration, String> {
 
     Ok(total)
 }
-
-

@@ -26,5 +26,3 @@ pub fn file_exist(path: &str) -> bool {
 pub fn dir_exist(path: &str) -> bool {
     std::fs::metadata(path).map(|m| m.is_dir()).unwrap_or(false)
 }
-
-

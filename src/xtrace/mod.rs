@@ -30,4 +30,3 @@ pub fn register_hook() {
 
     crate::before_stop!(init::shutdown_xtrace, xhook::HookOptions::with_order(1));
 }
-

@@ -50,5 +50,3 @@ pub fn to_json_string_indent<T: serde::Serialize>(v: &T) -> String {
         }
     }
 }
-
-

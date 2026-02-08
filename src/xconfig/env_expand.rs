@@ -48,5 +48,3 @@ pub fn expand_env_placeholders_in_value(value: &mut serde_yaml::Value) {
         _ => {}
     }
 }
-
-
