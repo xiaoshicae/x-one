@@ -31,3 +31,4 @@ moka = { version = "0.12", features = ["sync"] }
 tokio-test = { version = "0.4" }
 tempfile = { version = "3" }
 serial_test = { version = "3" }
+tower = { version = "0.5.3", features = ["util"] }

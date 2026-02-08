@@ -33,21 +33,7 @@ pub fn del(key: &str) {
 }
 
 pub fn register_hook() {
-    crate::xhook::before_start(
-        "xcache::init",
-        init::init_xcache,
-        crate::xhook::HookOptions {
-            order: 6,
-            ..Default::default()
-        },
-    );
+    crate::before_start!(init::init_xcache, crate::xhook::HookOptions::with_order(6));
 
-    crate::xhook::before_stop(
-        "xcache::shutdown",
-        init::shutdown_xcache,
-        crate::xhook::HookOptions {
-            order: 2,
-            ..Default::default()
-        },
-    );
+    crate::before_stop!(init::shutdown_xcache, crate::xhook::HookOptions::with_order(2));
 }

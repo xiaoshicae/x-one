@@ -9,7 +9,6 @@ pub mod init;
 pub use config::{Driver, XOrmConfig, XORM_CONFIG_KEY};
 pub use init::{get_driver, get_dsn, get_pool_config, get_pool_names};
 
-use crate::xhook;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// 幂等注册标志
@@ -26,15 +25,7 @@ pub fn register_hook() {
         return;
     }
 
-    xhook::before_start(
-        "xorm::init",
-        init::init_xorm,
-        xhook::HookOptions::with_order(5),
-    );
+    crate::before_start!(init::init_xorm, crate::xhook::HookOptions::with_order(5));
 
-    xhook::before_stop(
-        "xorm::shutdown",
-        init::shutdown_xorm,
-        xhook::HookOptions::with_order(3),
-    );
+    crate::before_stop!(init::shutdown_xorm, crate::xhook::HookOptions::with_order(3));
 }

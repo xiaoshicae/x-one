@@ -4,6 +4,7 @@
 
 use crate::error::XOneError;
 use super::Server;
+use super::trace;
 use crate::xconfig;
 use crate::xutil;
 use std::net::SocketAddr;
@@ -31,6 +32,11 @@ impl AuxmServer {
         xutil::info_if_enable_debug(&format!("auxm server listen at: {addr}"));
 
         let (shutdown_tx, _) = tokio::sync::watch::channel(false);
+
+        // 自动注入 trace 中间件
+        let router = router.layer(axum::middleware::from_fn::<_, (axum::extract::Request,)>(
+            trace::trace_middleware,
+        ));
 
         Self {
             router,

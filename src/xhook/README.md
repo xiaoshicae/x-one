@@ -18,27 +18,25 @@
 ## API 接口
 
 ```rust
-use x_one::xhook;
+use x_one::xhook::HookOptions;
 
-// 注册启动前钩子
-xhook::before_start(
-    "init_cache", 
-    || {
-        println!("Initializing cache...");
-        Ok(())
-    }, 
-    xhook::HookOptions { order: 10, ..Default::default() }
-);
+// 最简用法：仅传函数，使用默认选项
+x_one::before_start!(|| {
+    println!("Initializing cache...");
+    Ok(())
+});
+
+// 指定选项：控制执行顺序
+x_one::before_start!(|| {
+    println!("Initializing cache...");
+    Ok(())
+}, HookOptions::with_order(10));
 
 // 注册停止前钩子
-xhook::before_stop(
-    "close_db",
-    || {
-        println!("Closing database...");
-        Ok(())
-    },
-    xhook::HookOptions { order: 1, ..Default::default() }
-);
+x_one::before_stop!(|| {
+    println!("Closing database...");
+    Ok(())
+}, HookOptions::with_order(1));
 ```
 
 ## 执行顺序

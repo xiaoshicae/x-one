@@ -3,6 +3,7 @@
 
 pub mod auxm;
 pub mod blocking;
+pub mod trace;
 
 use crate::error::XOneError;
 use crate::xhook;
