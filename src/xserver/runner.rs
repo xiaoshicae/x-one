@@ -1,6 +1,6 @@
 //! 服务运行和生命周期管理
 //!
-//! 提供 `start()` / `stop()` 对称生命周期 API 和服务运行逻辑。
+//! 提供 `init()` / `shutdown()` 对称生命周期 API 和服务运行逻辑。
 
 use super::server::Server;
 use crate::error::XOneError;
@@ -9,13 +9,13 @@ use crate::xutil;
 use std::sync::OnceLock;
 
 // ---------------------------------------------------------------------------
-// 生命周期 API（start / stop 对称）
+// 生命周期 API（init / shutdown 对称）
 // ---------------------------------------------------------------------------
 
 /// 缓存初始化结果（成功为 Ok，失败为 Err(错误消息)）
 static INIT_RESULT: OnceLock<Result<(), String>> = OnceLock::new();
 
-/// 启动框架（幂等）
+/// 初始化框架（幂等）
 ///
 /// 注册内置模块 hook 并执行 before_start hooks：
 /// 1. xconfig（order=1）：加载配置文件
@@ -28,7 +28,7 @@ static INIT_RESULT: OnceLock<Result<(), String>> = OnceLock::new();
 ///
 /// 只执行一次，后续调用直接返回缓存的结果。
 /// 使用 server 时框架自动调用；不使用 server 时可手动调用。
-pub fn start() -> Result<(), XOneError> {
+pub fn init() -> Result<(), XOneError> {
     INIT_RESULT
         .get_or_init(|| {
             register_builtin_hooks();
@@ -40,10 +40,10 @@ pub fn start() -> Result<(), XOneError> {
         .map_err(|msg| XOneError::Hook(msg.clone()))
 }
 
-/// 停止框架，执行 before_stop hooks
+/// 关闭框架，执行 before_stop hooks 清理资源
 ///
 /// 使用 server 时框架自动调用；不使用 server 时可手动调用。
-pub fn stop() -> Result<(), XOneError> {
+pub fn shutdown() -> Result<(), XOneError> {
     invoke_hooks_with_log("before stop", xhook::invoke_before_stop_hooks)
 }
 
@@ -54,9 +54,9 @@ pub fn stop() -> Result<(), XOneError> {
 /// 以用户自定义 Server 实现运行
 ///
 /// 初始化所有模块后，以异步方式运行传入的 Server 实现，
-/// 阻塞等待退出信号（SIGINT/SIGTERM），退出时自动调用 stop hooks。
+/// 阻塞等待退出信号（SIGINT/SIGTERM），退出时自动调用 shutdown hooks。
 pub async fn run_server<S: Server>(server: &S) -> Result<(), XOneError> {
-    start()?;
+    init()?;
     run_with_signal(server).await
 }
 
@@ -129,7 +129,7 @@ async fn run_with_signal<S: Server>(server: &S) -> Result<(), XOneError> {
         }
     };
 
-    let stop_result = stop();
+    let stop_result = shutdown();
     merge_results(server_result, stop_result)
 }
 

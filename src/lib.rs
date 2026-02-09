@@ -22,11 +22,11 @@ pub use xaxum::{AxumOptions, AxumServer, AxumTlsServer};
 pub use xaxum::{run_axum, run_axum_tls, run_axum_with_options};
 pub use xserver::Server;
 pub use xserver::blocking::BlockingServer;
-pub use xserver::{run_blocking_server, run_server, start, stop};
+pub use xserver::{init, run_blocking_server, run_server, shutdown};
 
 #[ctor::ctor]
 fn auto_init() {
-    if let Err(e) = xserver::start() {
+    if let Err(e) = xserver::init() {
         eprintln!("x-one auto init failed: {e}");
     }
 }

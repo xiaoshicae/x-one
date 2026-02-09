@@ -41,8 +41,8 @@ async fn test_server_stop() {
 }
 
 #[test]
-fn test_stop_empty() {
+fn test_shutdown_empty() {
     // 没有注册任何 hook 时应成功
-    let result: Result<(), XOneError> = stop();
+    let result: Result<(), XOneError> = shutdown();
     assert!(result.is_ok());
 }

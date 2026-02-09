@@ -4,5 +4,5 @@ pub mod blocking;
 pub mod runner;
 pub mod server;
 
-pub use runner::{run_blocking_server, run_server, start, stop};
+pub use runner::{init, run_blocking_server, run_server, shutdown};
 pub use server::Server;
