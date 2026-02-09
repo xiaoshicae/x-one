@@ -9,9 +9,8 @@ pub fn get_value(key: &str) -> Option<serde_yaml::Value> {
     let store = config_store().read();
     let config = store.as_ref()?;
 
-    let keys: Vec<&str> = key.split('.').collect();
     let mut current = config;
-    for k in keys {
+    for k in key.split('.') {
         match current.get(k) {
             Some(v) => current = v,
             None => return None,
@@ -73,11 +72,23 @@ pub fn parse_config<T: serde::de::DeserializeOwned>(
 
 /// 解析配置值为单个或列表
 pub(crate) fn parse_config_list<T: serde::de::DeserializeOwned>(key: &str) -> Vec<T> {
-    if let Ok(config) = parse_config::<T>(key) {
-        return vec![config];
+    match parse_config::<T>(key) {
+        Ok(config) => return vec![config],
+        Err(crate::error::XOneError::Config(ref msg)) if !msg.contains("not found") => {
+            crate::xutil::info_if_enable_debug(&format!(
+                "parse config [{key}] as single failed: {msg}"
+            ));
+        }
+        _ => {}
     }
-    if let Ok(configs) = parse_config::<Vec<T>>(key) {
-        return configs;
+    match parse_config::<Vec<T>>(key) {
+        Ok(configs) => return configs,
+        Err(crate::error::XOneError::Config(ref msg)) if !msg.contains("not found") => {
+            crate::xutil::info_if_enable_debug(&format!(
+                "parse config [{key}] as list failed: {msg}"
+            ));
+        }
+        _ => {}
     }
     Vec::new()
 }

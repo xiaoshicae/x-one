@@ -9,7 +9,7 @@
 async fn main() {
     // 初始化所有模块
     // 注册顺序：xconfig → xlog → xtrace → xhttp → xorm → xcache
-    x_one::init_all();
+    x_one::init_all().expect("初始化失败");
 
     // 使用 xcache 进行缓存操作
     x_one::xcache::set("greeting", "hello from x-one".to_string());

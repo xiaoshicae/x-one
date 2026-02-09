@@ -3,6 +3,7 @@
 use super::env_expand;
 use super::location;
 use super::profiles;
+use crate::error::XOneError;
 use crate::xutil;
 use std::path::Path;
 
@@ -12,7 +13,7 @@ const DOT_ENV_FILENAME: &str = ".env";
 /// 初始化配置系统
 ///
 /// 检测配置文件位置、加载 .env 文件、解析配置
-pub fn init_xconfig() -> Result<Option<serde_yaml::Value>, String> {
+pub fn init_xconfig() -> Result<Option<serde_yaml::Value>, XOneError> {
     let config_location = match location::detect_config_location() {
         Some(loc) => loc,
         None => {
@@ -33,21 +34,22 @@ pub fn init_xconfig() -> Result<Option<serde_yaml::Value>, String> {
 }
 
 /// 加载 .env 文件（如果存在）
-fn load_dot_env_if_exist(config_location: &str) -> Result<(), String> {
+fn load_dot_env_if_exist(config_location: &str) -> Result<(), XOneError> {
     let dot_env_path = Path::new(config_location)
         .parent()
         .unwrap_or_else(|| Path::new(""))
         .join(DOT_ENV_FILENAME);
 
     if xutil::file_exist(&dot_env_path.to_string_lossy()) {
-        dotenvy::from_filename(&dot_env_path)
-            .map_err(|e| format!("XOne initXConfig load .env failed, err=[{e}]"))?;
+        dotenvy::from_filename(&dot_env_path).map_err(|e| {
+            XOneError::Config(format!("XOne initXConfig load .env failed, err=[{e}]"))
+        })?;
     }
     Ok(())
 }
 
 /// 解析配置文件
-fn parse_config(config_location: &str) -> Result<serde_yaml::Value, String> {
+fn parse_config(config_location: &str) -> Result<serde_yaml::Value, XOneError> {
     // 加载基础配置
     let mut base_config = load_local_config(config_location)?;
 
@@ -87,11 +89,14 @@ fn parse_config(config_location: &str) -> Result<serde_yaml::Value, String> {
 }
 
 /// 加载本地配置文件
-pub fn load_local_config(path: &str) -> Result<serde_yaml::Value, String> {
-    let content =
-        std::fs::read_to_string(path).map_err(|e| format!("load config file failed, err=[{e}]"))?;
-    serde_yaml::from_str(&content)
-        .map_err(|e| format!("parse config file failed, path=[{path}], err=[{e}]"))
+pub fn load_local_config(path: &str) -> Result<serde_yaml::Value, XOneError> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| XOneError::Config(format!("load config file failed, err=[{e}]")))?;
+    serde_yaml::from_str(&content).map_err(|e| {
+        XOneError::Config(format!(
+            "parse config file failed, path=[{path}], err=[{e}]"
+        ))
+    })
 }
 
 /// 合并环境配置到基础配置

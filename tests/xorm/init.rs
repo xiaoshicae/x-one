@@ -3,11 +3,6 @@ use x_one::xorm::client::*;
 use x_one::xorm::init::*;
 use x_one::xorm::*;
 
-fn reset_pool_configs() {
-    let mut store = pool_configs_store().write();
-    store.clear();
-}
-
 #[test]
 #[serial]
 fn test_init_xorm_no_config() {
@@ -35,9 +30,8 @@ fn test_get_pool_config_none() {
 #[serial]
 fn test_get_pool_config_named() {
     reset_pool_configs();
-    let mut store = pool_configs_store().write();
-    store.insert(
-        "test_db".to_string(),
+    set_pool_entry(
+        "test_db",
         PoolEntry {
             config: XOrmConfig {
                 name: "test_db".to_string(),
@@ -46,7 +40,6 @@ fn test_get_pool_config_named() {
             },
         },
     );
-    drop(store);
 
     let config = get_pool_config(Some("test_db"));
     assert!(config.is_some());
@@ -58,20 +51,18 @@ fn test_get_pool_config_named() {
 #[serial]
 fn test_get_pool_names() {
     reset_pool_configs();
-    let mut store = pool_configs_store().write();
-    store.insert(
-        "db1".to_string(),
+    set_pool_entry(
+        "db1",
         PoolEntry {
             config: XOrmConfig::default(),
         },
     );
-    store.insert(
-        "db2".to_string(),
+    set_pool_entry(
+        "db2",
         PoolEntry {
             config: XOrmConfig::default(),
         },
     );
-    drop(store);
 
     let names = get_pool_names();
     assert_eq!(names.len(), 2);
@@ -84,9 +75,8 @@ fn test_get_pool_names() {
 #[serial]
 fn test_get_driver() {
     reset_pool_configs();
-    let mut store = pool_configs_store().write();
-    store.insert(
-        DEFAULT_POOL_NAME.to_string(),
+    set_pool_entry(
+        DEFAULT_POOL_NAME,
         PoolEntry {
             config: XOrmConfig {
                 driver: Driver::Mysql,
@@ -94,7 +84,6 @@ fn test_get_driver() {
             },
         },
     );
-    drop(store);
 
     let driver = get_driver(None);
     assert_eq!(driver, Some(Driver::Mysql));
@@ -105,9 +94,8 @@ fn test_get_driver() {
 #[serial]
 fn test_get_dsn() {
     reset_pool_configs();
-    let mut store = pool_configs_store().write();
-    store.insert(
-        DEFAULT_POOL_NAME.to_string(),
+    set_pool_entry(
+        DEFAULT_POOL_NAME,
         PoolEntry {
             config: XOrmConfig {
                 dsn: "postgres://localhost/mydb".to_string(),
@@ -115,7 +103,6 @@ fn test_get_dsn() {
             },
         },
     );
-    drop(store);
 
     let dsn = get_dsn(None);
     assert_eq!(dsn, Some("postgres://localhost/mydb".to_string()));

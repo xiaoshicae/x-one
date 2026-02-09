@@ -22,7 +22,8 @@ impl BlockingServer {
         Self { tx, rx }
     }
 
-    /// 获取 receiver channel (用于测试)
+    /// 获取 receiver channel（仅测试用）
+    #[doc(hidden)]
     pub fn rx(&self) -> watch::Receiver<bool> {
         self.rx.clone()
     }

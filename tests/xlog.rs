@@ -1,6 +1,3 @@
-#[path = "xlog/async_writer.rs"]
-mod async_writer;
-
 #[path = "xlog/config.rs"]
 mod config;
 
@@ -12,6 +9,9 @@ mod init;
 
 #[path = "xlog/mod.rs"]
 mod main;
+
+#[path = "xlog/kv_layer.rs"]
+mod kv_layer;
 
 #[path = "xlog/otel_fmt.rs"]
 mod otel_fmt;

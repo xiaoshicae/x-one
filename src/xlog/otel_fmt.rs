@@ -36,8 +36,17 @@ pub fn get_otel_trace_ids() -> (String, String) {
 }
 
 /// JSON 字段收集 Visitor
-struct JsonFieldVisitor<'a> {
+///
+/// 将 tracing 事件/span 的字段收集到 `Map<String, Value>` 中。
+pub(crate) struct JsonFieldVisitor<'a> {
     fields: &'a mut Map<String, Value>,
+}
+
+impl<'a> JsonFieldVisitor<'a> {
+    /// 创建新的字段收集器
+    pub(crate) fn new(fields: &'a mut Map<String, Value>) -> Self {
+        Self { fields }
+    }
 }
 
 impl<'a> Visit for JsonFieldVisitor<'a> {
@@ -116,10 +125,20 @@ where
         }
 
         // 事件字段（包括 message）
+        // 先从 span extensions 提取 KV（外层 → 内层，后者覆盖前者同名 key）
         let mut fields = Map::new();
-        let mut visitor = JsonFieldVisitor {
-            fields: &mut fields,
-        };
+        if let Some(scope) = ctx.event_scope() {
+            for span in scope.from_root() {
+                let extensions = span.extensions();
+                if let Some(kv) = extensions.get::<super::kv_layer::SpanKvFields>() {
+                    for (k, v) in &kv.0 {
+                        fields.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        // event 字段最后写入，覆盖同名 span 字段
+        let mut visitor = JsonFieldVisitor::new(&mut fields);
         event.record(&mut visitor);
         root.insert("fields".to_string(), Value::Object(fields));
 
@@ -159,17 +178,26 @@ where
 {
     fn format_event(
         &self,
-        _ctx: &FmtContext<'_, S, N>,
+        ctx: &FmtContext<'_, S, N>,
         mut writer: format::Writer<'_>,
         event: &Event<'_>,
     ) -> fmt::Result {
         let meta = event.metadata();
 
-        // 收集字段
+        // 先从 span extensions 提取 KV
         let mut fields = Map::new();
-        let mut visitor = JsonFieldVisitor {
-            fields: &mut fields,
-        };
+        if let Some(scope) = ctx.event_scope() {
+            for span in scope.from_root() {
+                let extensions = span.extensions();
+                if let Some(kv) = extensions.get::<super::kv_layer::SpanKvFields>() {
+                    for (k, v) in &kv.0 {
+                        fields.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        // event 字段最后写入，覆盖同名 span 字段
+        let mut visitor = JsonFieldVisitor::new(&mut fields);
         event.record(&mut visitor);
 
         // 提取 message

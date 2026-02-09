@@ -2,8 +2,10 @@
 //!
 //! 提供基于 Axum 的 HTTP/HTTPS 服务器。
 
+use super::banner;
 use super::config;
-use super::trace;
+use super::middleware;
+use super::options::AxumOptions;
 use crate::error::XOneError;
 use crate::xserver::Server;
 use crate::xutil;
@@ -11,9 +13,33 @@ use std::net::SocketAddr;
 
 /// 解析 host:port 为 SocketAddr，失败时回退到 0.0.0.0:port
 fn parse_addr(host: &str, port: u16) -> SocketAddr {
-    format!("{host}:{port}")
-        .parse()
-        .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], port)))
+    format!("{host}:{port}").parse().unwrap_or_else(|e| {
+        xutil::warn_if_enable_debug(&format!(
+            "parse addr [{host}:{port}] failed, fallback to 0.0.0.0:{port}, err=[{e}]"
+        ));
+        SocketAddr::from(([0, 0, 0, 0], port))
+    })
+}
+
+/// 根据选项注册中间件
+///
+/// axum layer 后注册先执行，请求流向：log → trace → handler → trace → log
+fn register_middleware(router: axum::Router, opts: &AxumOptions) -> axum::Router {
+    let mut router = router;
+
+    if opts.enable_trace_middleware {
+        router = router.layer(axum::middleware::from_fn::<_, (axum::extract::Request,)>(
+            middleware::trace_middleware,
+        ));
+    }
+
+    if opts.enable_log_middleware {
+        router = router.layer(axum::middleware::from_fn::<_, (axum::extract::Request,)>(
+            middleware::log_middleware,
+        ));
+    }
+
+    router
 }
 
 /// Axum HTTP 服务器
@@ -25,7 +51,16 @@ pub struct AxumServer {
 
 impl AxumServer {
     /// 创建新的 Axum HTTP 服务器
+    ///
+    /// 使用默认选项（所有中间件启用），从 xconfig 读取地址配置。
     pub fn new(router: axum::Router) -> Self {
+        Self::with_options(router, AxumOptions::default())
+    }
+
+    /// 使用自定义选项创建 Axum HTTP 服务器
+    ///
+    /// 根据 `AxumOptions` 控制中间件的启用/禁用。
+    pub fn with_options(router: axum::Router, opts: AxumOptions) -> Self {
         let axum_config = config::load_config();
 
         if axum_config.use_http2 {
@@ -38,10 +73,7 @@ impl AxumServer {
 
         let (shutdown_tx, _) = tokio::sync::watch::channel(false);
 
-        // 自动注入 trace 中间件
-        let router = router.layer(axum::middleware::from_fn::<_, (axum::extract::Request,)>(
-            trace::trace_middleware,
-        ));
+        let router = register_middleware(router, &opts);
 
         Self {
             router,
@@ -68,6 +100,8 @@ impl AxumServer {
 
 impl Server for AxumServer {
     async fn run(&self) -> Result<(), XOneError> {
+        banner::print_banner();
+
         let listener = tokio::net::TcpListener::bind(self.addr)
             .await
             .map_err(|e| XOneError::Server(format!("bind failed: {e}")))?;
@@ -94,7 +128,8 @@ impl Server for AxumServer {
 
 /// Axum TLS (HTTPS) 服务器
 ///
-/// TLS 完整实现将在 Phase 2 提供。
+/// **注意**：TLS 尚未实现，`run()` 会立即返回错误。
+#[deprecated(note = "TLS 尚未实现，请勿在生产环境使用")]
 #[allow(dead_code)]
 pub struct AxumTlsServer {
     router: axum::Router,
@@ -104,6 +139,7 @@ pub struct AxumTlsServer {
     shutdown_tx: tokio::sync::watch::Sender<bool>,
 }
 
+#[allow(deprecated)]
 impl AxumTlsServer {
     /// 创建新的 Axum HTTPS 服务器
     pub fn new(router: axum::Router, cert_file: &str, key_file: &str) -> Self {
@@ -125,6 +161,7 @@ impl AxumTlsServer {
     }
 }
 
+#[allow(deprecated)]
 impl Server for AxumTlsServer {
     async fn run(&self) -> Result<(), XOneError> {
         // TLS 支持需要额外的 crate（如 axum-server 或 rustls）

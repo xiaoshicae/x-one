@@ -15,8 +15,14 @@ pub const DEFAULT_CACHE_NAME: &str = "_default_";
 /// 全局缓存实例存储
 static CACHE_STORE: OnceLock<RwLock<HashMap<String, Arc<Cache>>>> = OnceLock::new();
 
-pub fn cache_store() -> &'static RwLock<HashMap<String, Arc<Cache>>> {
+pub(crate) fn cache_store() -> &'static RwLock<HashMap<String, Arc<Cache>>> {
     CACHE_STORE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+/// 重置缓存存储（仅测试用）
+#[doc(hidden)]
+pub fn reset_cache_store() {
+    cache_store().write().clear();
 }
 
 /// 获取指定名称的缓存实例

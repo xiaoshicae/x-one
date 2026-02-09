@@ -27,15 +27,16 @@ run_axum(app).await?;
 - **特性**: 启动后阻塞主线程，直到收到 `SIGINT` / `SIGTERM` 信号。
 
 ```rust
-use x_one::run_blocking_server;
+use x_one::{run_server, BlockingServer};
 
 // 在其他线程启动 Consumer
 tokio::spawn(async {
     // consume_loop().await;
 });
 
-// 阻塞等待退出信号
-run_blocking_server().await?;
+// 以 BlockingServer 阻塞等待退出信号
+let server = BlockingServer::new();
+run_server(&server).await?;
 ```
 
 ## 优雅停机流程

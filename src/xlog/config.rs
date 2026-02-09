@@ -42,14 +42,20 @@ pub struct XLogConfig {
     pub console_format_is_raw: bool,
 
     /// 日志保存最大时间（默认 "7d"）
+    ///
+    /// **注意**：当前版本未实现自动清理，保留此字段仅为配置兼容。
     #[serde(rename = "MaxAge")]
     pub max_age: String,
 
     /// 日志切割时长（默认 "1d"）
+    ///
+    /// **注意**：当前版本固定按天切割，此字段仅为配置兼容。
     #[serde(rename = "RotateTime")]
     pub rotate_time: String,
 
     /// 日志时间的时区（默认 "Asia/Shanghai"）
+    ///
+    /// **注意**：当前版本使用 UTC 时间戳，此字段仅为配置兼容。
     #[serde(rename = "Timezone")]
     pub timezone: String,
 }

@@ -12,6 +12,7 @@ fn test_axum_server_with_addr() {
 }
 
 #[tokio::test]
+#[allow(deprecated)]
 async fn test_axum_tls_server_not_implemented() {
     let router = axum::Router::new();
     let server = AxumTlsServer::new(router, "cert.pem", "key.pem");

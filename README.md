@@ -145,8 +145,9 @@ async fn main() -> x_one::Result<()> {
     // 方式二：Axum HTTPS 服务
     // x_one::run_axum_tls(app, "cert.pem", "key.pem").await
 
-    // 方式三：阻塞服务（适用于 Consumer/Job）
-    x_one::run_blocking_server().await
+    // 方式三：自定义 Server 实现（适用于 Consumer/Job）
+    let server = x_one::BlockingServer::new();
+    x_one::run_server(&server).await
 }
 ```
 

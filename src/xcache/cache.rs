@@ -1,18 +1,51 @@
 //! Cache 封装结构体
 
+use crate::xutil;
+use moka::Expiry;
 use moka::sync::Cache as MokaCache;
 use std::any::Any;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-/// 缓存值类型（类型擦除，Arc 实现 Clone）
-type CacheValue = Arc<dyn Any + Send + Sync>;
+/// 缓存条目（值 + 可选 per-entry TTL）
+#[derive(Clone)]
+struct CacheEntry {
+    value: Arc<dyn Any + Send + Sync>,
+    /// 自定义 TTL，None 时使用全局 time_to_live
+    custom_ttl: Option<Duration>,
+}
+
+/// Per-entry 过期策略
+///
+/// 有自定义 TTL 时使用它，否则返回 None 使用全局 time_to_live。
+struct PerEntryExpiry;
+
+impl Expiry<String, CacheEntry> for PerEntryExpiry {
+    fn expire_after_create(
+        &self,
+        _key: &String,
+        value: &CacheEntry,
+        _current_time: Instant,
+    ) -> Option<Duration> {
+        value.custom_ttl
+    }
+
+    fn expire_after_update(
+        &self,
+        _key: &String,
+        value: &CacheEntry,
+        _updated_at: Instant,
+        _duration_until_expiry: Option<Duration>,
+    ) -> Option<Duration> {
+        value.custom_ttl
+    }
+}
 
 /// Cache 封装
 ///
-/// 包装 moka::sync::Cache，提供泛型 API。
+/// 包装 moka::sync::Cache，提供泛型 API，支持 per-entry TTL。
 pub struct Cache {
-    inner: MokaCache<String, CacheValue>,
+    inner: MokaCache<String, CacheEntry>,
     default_ttl: Duration,
 }
 
@@ -22,6 +55,7 @@ impl Cache {
         let inner = MokaCache::builder()
             .max_capacity(max_capacity)
             .time_to_live(default_ttl)
+            .expire_after(PerEntryExpiry)
             .build();
 
         Self { inner, default_ttl }
@@ -31,41 +65,45 @@ impl Cache {
     ///
     /// 如果 key 存在但类型不匹配，返回 None。
     pub fn get<V: Any + Clone + Send + Sync>(&self, key: &str) -> Option<V> {
-        let val = self.inner.get(&key.to_string())?;
-        let result = val.downcast_ref::<V>().cloned();
+        let entry = self.inner.get(key)?;
+        let result = entry.value.downcast_ref::<V>().cloned();
         if result.is_none() {
-            eprintln!(
+            xutil::warn_if_enable_debug(&format!(
                 "xcache: type mismatch for key=[{key}], expected=[{}]",
                 std::any::type_name::<V>()
-            );
+            ));
         }
         result
     }
 
     /// 设置缓存值（使用默认 TTL）
     pub fn set<V: Any + Send + Sync + 'static>(&self, key: &str, value: V) {
-        self.inner
-            .insert(key.to_string(), Arc::new(value) as CacheValue);
+        self.inner.insert(
+            key.to_string(),
+            CacheEntry {
+                value: Arc::new(value),
+                custom_ttl: None,
+            },
+        );
     }
 
     /// 设置缓存值（指定 TTL）
     ///
-    /// 注意：moka 0.12 的 per-entry TTL 需要通过 Expiry trait 实现，
-    /// 当前简化为使用全局 TTL。后续可按需扩展。
-    pub fn set_with_ttl<V: Any + Send + Sync + 'static>(
-        &self,
-        key: &str,
-        value: V,
-        _ttl: Duration,
-    ) {
-        // TODO: 支持 per-entry TTL
-        self.inner
-            .insert(key.to_string(), Arc::new(value) as CacheValue);
+    /// 通过 moka Expiry trait 实现 per-entry TTL，
+    /// 该条目会在指定 TTL 后过期，而非使用全局默认 TTL。
+    pub fn set_with_ttl<V: Any + Send + Sync + 'static>(&self, key: &str, value: V, ttl: Duration) {
+        self.inner.insert(
+            key.to_string(),
+            CacheEntry {
+                value: Arc::new(value),
+                custom_ttl: Some(ttl),
+            },
+        );
     }
 
     /// 删除缓存条目
     pub fn del(&self, key: &str) {
-        self.inner.invalidate(&key.to_string());
+        self.inner.invalidate(key);
     }
 
     /// 获取缓存条目数

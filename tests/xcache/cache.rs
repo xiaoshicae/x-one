@@ -61,6 +61,32 @@ fn test_cache_set_with_ttl() {
 }
 
 #[test]
+fn test_cache_set_with_ttl_expires_independently() {
+    // 全局 TTL 300s，per-entry TTL 100ms
+    let cache = Cache::new(1000, Duration::from_secs(300));
+    cache.set("long_lived", "stays".to_string());
+    cache.set_with_ttl(
+        "short_lived",
+        "goes".to_string(),
+        Duration::from_millis(100),
+    );
+
+    // 两个 key 都存在
+    assert!(cache.get::<String>("long_lived").is_some());
+    assert!(cache.get::<String>("short_lived").is_some());
+
+    // 等待 per-entry TTL 过期
+    std::thread::sleep(Duration::from_millis(200));
+
+    // 短 TTL 条目已过期，长 TTL 条目仍存在
+    assert!(cache.get::<String>("long_lived").is_some());
+    assert!(
+        cache.get::<String>("short_lived").is_none(),
+        "per-entry TTL 应使条目过期"
+    );
+}
+
+#[test]
 fn test_cache_overwrite() {
     let cache = Cache::new(1000, Duration::from_secs(300));
     cache.set("key", "v1".to_string());

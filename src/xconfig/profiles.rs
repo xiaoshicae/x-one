@@ -66,17 +66,17 @@ pub fn get_profiles_active_from_config(config: &serde_yaml::Value) -> Option<Str
 pub fn to_profiles_active_config_location(
     config_location: &str,
     profile_active: &str,
-) -> Result<String, String> {
+) -> Result<String, crate::error::XOneError> {
     let path = std::path::Path::new(config_location);
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .ok_or_else(|| "config file name is invalid, no extension found".to_string())?;
+    let ext = path.extension().and_then(|e| e.to_str()).ok_or_else(|| {
+        crate::error::XOneError::Config(
+            "config file name is invalid, no extension found".to_string(),
+        )
+    })?;
 
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .ok_or_else(|| "config file name is invalid, no stem found".to_string())?;
+    let stem = path.file_stem().and_then(|s| s.to_str()).ok_or_else(|| {
+        crate::error::XOneError::Config("config file name is invalid, no stem found".to_string())
+    })?;
 
     let file_name = format!("{stem}-{profile_active}.{ext}");
     let result = path

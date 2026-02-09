@@ -44,11 +44,16 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
 
     // 防止 guard 被 drop（需要保持活跃直到程序结束）
     // 通过 xhook 的 before_stop 来管理生命周期
+    // order=100 确保在其他 hook（xtrace=1, xcache=2, xorm=3）之后执行，
+    // 使其他 hook 的 stop 过程仍可使用日志系统
     let guard = Box::new(guard);
-    crate::before_stop!(move || {
-        drop(guard);
-        Ok(())
-    });
+    crate::before_stop!(
+        move || {
+            drop(guard);
+            Ok(())
+        },
+        crate::xhook::HookOptions::with_order(100)
+    );
 
     // 解析日志级别
     let level_filter = match c.level {
@@ -60,7 +65,12 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
     };
 
     // 构建 env filter
-    let env_filter = EnvFilter::try_new(level_filter).unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_new(level_filter).unwrap_or_else(|e| {
+        xutil::warn_if_enable_debug(&format!(
+            "XLog invalid level filter [{level_filter}], fallback to info, err=[{e}]"
+        ));
+        EnvFilter::new("info")
+    });
 
     // 文件输出：JSON 格式（自动注入 trace_id）
     let file_layer = tracing_subscriber::fmt::layer()
@@ -70,6 +80,9 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
     fn init_err(e: impl std::fmt::Display) -> crate::error::XOneError {
         crate::error::XOneError::Log(format!("init tracing subscriber failed, err=[{e}]"))
     }
+
+    // Span KV 字段收集 Layer
+    let kv_layer = super::kv_layer::KvLayer;
 
     // 组装 subscriber
     if c.console {
@@ -81,6 +94,7 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
 
             tracing_subscriber::registry()
                 .with(env_filter)
+                .with(kv_layer)
                 .with(file_layer)
                 .with(console_layer)
                 .try_init()
@@ -93,6 +107,7 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
 
             tracing_subscriber::registry()
                 .with(env_filter)
+                .with(kv_layer)
                 .with(file_layer)
                 .with(console_layer)
                 .try_init()
@@ -101,6 +116,7 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
     } else {
         tracing_subscriber::registry()
             .with(env_filter)
+            .with(kv_layer)
             .with(file_layer)
             .try_init()
             .map_err(init_err)?;

@@ -1,12 +1,6 @@
 use serial_test::serial;
-use x_one::xcache::client::cache_store;
 use x_one::xcache::init::*;
 use x_one::xcache::*;
-
-fn reset_cache_store() {
-    let mut store = cache_store().write();
-    store.clear();
-}
 
 #[test]
 #[serial]

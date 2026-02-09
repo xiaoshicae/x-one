@@ -20,8 +20,20 @@ pub struct PoolEntry {
 /// 存储所有数据库连接池配置信息（不实际连接，仅保存配置）
 static POOL_CONFIGS: OnceLock<RwLock<HashMap<String, PoolEntry>>> = OnceLock::new();
 
-pub fn pool_configs_store() -> &'static RwLock<HashMap<String, PoolEntry>> {
+pub(crate) fn pool_configs_store() -> &'static RwLock<HashMap<String, PoolEntry>> {
     POOL_CONFIGS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+/// 重置连接池配置存储（仅测试用）
+#[doc(hidden)]
+pub fn reset_pool_configs() {
+    pool_configs_store().write().clear();
+}
+
+/// 设置连接池配置条目（仅测试用）
+#[doc(hidden)]
+pub fn set_pool_entry(name: &str, entry: PoolEntry) {
+    pool_configs_store().write().insert(name.to_string(), entry);
 }
 
 /// 获取连接池配置

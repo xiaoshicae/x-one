@@ -36,7 +36,7 @@ async fn test_server_run_failure() {
 #[tokio::test]
 async fn test_server_stop() {
     let server = MockServer { should_fail: false };
-    let result: Result<(), XOneError> = safe_invoke_server_stop(&server).await;
+    let result: Result<(), XOneError> = server.stop().await;
     assert!(result.is_ok());
 }
 

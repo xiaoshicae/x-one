@@ -39,7 +39,7 @@ pub fn register_hook() {
 
 /// 初始化配置存储（供框架内部自动初始化使用）
 pub fn init_store() -> Result<(), crate::error::XOneError> {
-    let config = init::init_xconfig().map_err(crate::error::XOneError::Config)?;
+    let config = init::init_xconfig()?;
     let mut store = config_store().write();
     *store = config;
     Ok(())

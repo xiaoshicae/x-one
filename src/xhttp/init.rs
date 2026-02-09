@@ -16,8 +16,11 @@ pub fn init_xhttp() -> Result<(), crate::error::XOneError> {
     let config = load_config();
     let http_client = build_client(&config)?;
 
-    // OnceLock::set 如果已初始化则忽略
-    let _ = HTTP_CLIENT.set(http_client);
+    if HTTP_CLIENT.set(http_client).is_err() {
+        xutil::warn_if_enable_debug(
+            "XHttp client already initialized (accessed before init), config may not take effect",
+        );
+    }
 
     xutil::info_if_enable_debug(&format!("XHttp init success, timeout=[{}]", config.timeout));
     Ok(())

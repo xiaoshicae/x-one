@@ -3,15 +3,12 @@ use std::time::Duration;
 use x_one::xcache::*;
 
 fn reset_and_init() {
-    let mut store = client::cache_store().write();
-    store.clear();
-    drop(store);
+    reset_cache_store();
     init::init_xcache().unwrap();
 }
 
 fn cleanup() {
-    let mut store = client::cache_store().write();
-    store.clear();
+    reset_cache_store();
 }
 
 #[test]

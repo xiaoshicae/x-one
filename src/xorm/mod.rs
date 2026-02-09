@@ -9,7 +9,7 @@ pub mod init;
 
 pub use client::{
     DEFAULT_POOL_NAME, PoolEntry, get_driver, get_dsn, get_pool_config, get_pool_names,
-    pool_configs_store,
+    reset_pool_configs, set_pool_entry,
 };
 pub use config::{Driver, XORM_CONFIG_KEY, XOrmConfig};
 

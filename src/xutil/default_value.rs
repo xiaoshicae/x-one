@@ -55,5 +55,9 @@ pub fn default_if_empty<'a, T: IsZero + ?Sized>(value: &'a T, fallback: &'a T) -
 /// assert_eq!(x_one::xutil::take_or_default(0_u64, 100_u64), 100);
 /// ```
 pub fn take_or_default<T: IsZero, F: Into<T>>(value: T, fallback: F) -> T {
-    if value.is_zero() { fallback.into() } else { value }
+    if value.is_zero() {
+        fallback.into()
+    } else {
+        value
+    }
 }

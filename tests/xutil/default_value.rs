@@ -63,10 +63,7 @@ fn test_take_or_default_string_empty() {
 
 #[test]
 fn test_take_or_default_string_non_empty() {
-    assert_eq!(
-        take_or_default(String::from("hello"), "fallback"),
-        "hello"
-    );
+    assert_eq!(take_or_default(String::from("hello"), "fallback"), "hello");
 }
 
 #[test]
