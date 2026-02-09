@@ -35,9 +35,7 @@ pub fn detect_profiles_active(config: &serde_yaml::Value) -> Option<String> {
 }
 
 fn get_profiles_active_from_arg() -> Option<String> {
-    xutil::get_config_from_args(PROFILES_ACTIVE_ARG_KEY)
-        .ok()
-        .filter(|s| !s.is_empty())
+    xutil::get_config_from_args(PROFILES_ACTIVE_ARG_KEY).filter(|s| !s.is_empty())
 }
 
 pub fn get_profiles_active_from_env() -> Option<String> {

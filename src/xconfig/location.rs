@@ -46,7 +46,7 @@ pub fn detect_config_location() -> Option<String> {
 }
 
 fn get_location_from_arg() -> Option<String> {
-    xutil::get_config_from_args(CONFIG_LOCATION_ARG_KEY).ok()
+    xutil::get_config_from_args(CONFIG_LOCATION_ARG_KEY)
 }
 
 pub fn get_location_from_env() -> Option<String> {
