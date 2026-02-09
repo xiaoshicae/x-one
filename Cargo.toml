@@ -17,7 +17,6 @@ chrono-tz = { version = "0.10" }
 dotenvy = { version = "0.15" }
 regex = { version = "1" }
 thiserror = { version = "2" }
-local-ip-address = { version = "0.6" }
 parking_lot = { version = "0.12" }
 ctor = { version = "0.2" }
 opentelemetry = { version = "0.28" }
