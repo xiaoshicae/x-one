@@ -63,6 +63,6 @@ pub fn get_config_from_args_with(key: &str, args: &[String]) -> Option<String> {
 }
 
 /// 获取进程启动参数（跳过第一个可执行文件路径）
-pub fn get_os_args() -> Vec<String> {
+fn get_os_args() -> Vec<String> {
     std::env::args().skip(1).collect()
 }
