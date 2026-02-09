@@ -19,24 +19,13 @@ fn is_valid_arg_key(key: &str) -> bool {
 /// - 等号分隔：`--key=value`
 ///
 /// key 不合法或找不到对应参数时返回 `None`。
-///
-/// # Examples
-///
-/// ```
-/// let args = vec![
-///     "--config".to_string(),
-///     "app.yml".to_string(),
-/// ];
-/// let result = x_one::xutil::get_config_from_args_with("config", &args);
-/// assert_eq!(result, Some("app.yml".to_string()));
-/// ```
 pub fn get_config_from_args(key: &str) -> Option<String> {
     let args = get_os_args();
-    get_config_from_args_with(key, &args)
+    find_arg_value(key, &args)
 }
 
-/// 使用给定的参数列表获取指定 key 的值（方便测试）
-pub fn get_config_from_args_with(key: &str, args: &[String]) -> Option<String> {
+/// 在参数列表中查找指定 key 的值
+fn find_arg_value(key: &str, args: &[String]) -> Option<String> {
     if !is_valid_arg_key(key) {
         return None;
     }
