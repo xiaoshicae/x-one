@@ -45,12 +45,8 @@ fn test_to_duration_complex() {
 }
 
 #[test]
-fn test_to_duration_invalid_day_fallback() {
-    // "abcd12h" -> 天数解析失败，回退解析 "12h"
-    assert_eq!(
-        to_duration("abcd12h").unwrap(),
-        Duration::from_secs(12 * 3600)
-    );
+fn test_to_duration_invalid_returns_error() {
+    assert!(to_duration("abcd12h").is_err());
 }
 
 #[test]

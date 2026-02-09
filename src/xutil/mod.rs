@@ -11,7 +11,7 @@ pub mod file;
 pub mod json;
 pub mod net;
 pub mod retry;
-pub mod string;
+pub mod default_value;
 
 // Re-export 常用 API，方便外部使用 xutil::xxx 调用
 pub use cmd::get_config_from_args;
@@ -22,4 +22,4 @@ pub use file::{dir_exist, file_exist};
 pub use json::{to_json_string, to_json_string_indent};
 pub use net::{extract_real_ip, get_local_ip};
 pub use retry::{retry, retry_async};
-pub use string::{default_if_empty, take_or_default};
+pub use default_value::{IsEmpty, default_if_empty, take_or_default};
