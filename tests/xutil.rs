@@ -16,9 +16,6 @@ mod file;
 #[path = "xutil/json.rs"]
 mod json;
 
-#[path = "xutil/net.rs"]
-mod net;
-
 #[path = "xutil/retry.rs"]
 mod retry;
 

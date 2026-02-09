@@ -1,13 +1,26 @@
 # XUtil - 工具函数库
 
-💡 提供常用的基础工具函数，涵盖网络、文件、JSON 处理等。
+提供常用的基础工具函数，涵盖文件、JSON、重试、时长转换等。
 
 ## 功能列表
 
-### 网络 (Net)
-- `get_local_ip`: 获取本机局域网 IP。
-- `extract_real_ip`: 从请求 Header 或地址字符串中提取真实 IP，过滤 IPv6 括号。
-- `validate_ip`: 校验 IP 格式。
+### 命令行 (Cmd)
+- `get_config_from_args`: 从启动命令行参数中获取指定 key 的值。
+
+### 时长转换 (Convert)
+- `to_duration`: 将字符串 (如 `"1d"`, `"5m"`, `"1h30m"`) 转换为 `std::time::Duration`。
+
+### 默认值 (DefaultValue)
+- `default_if_empty`: 若值为空则返回 fallback（借用版本，支持泛型）。
+- `take_or_default`: 若值为空则返回 fallback（所有权版本，支持泛型）。
+
+### 调试日志 (DebugLog)
+- `info_if_enable_debug`: 调试模式下打印 info 日志。
+- `warn_if_enable_debug`: 调试模式下打印 warn 日志。
+- `error_if_enable_debug`: 调试模式下打印 error 日志。
+
+### 环境变量 (Env)
+- `enable_debug`: 判断是否启用了调试模式。
 
 ### 文件 (File)
 - `file_exist`: 判断文件是否存在。
@@ -18,23 +31,22 @@
 - `to_json_string_indent`: 序列化为带缩进的 JSON。
 
 ### 重试 (Retry)
-- `retry`: 同步函数重试。
-- `retry_async`: 异步函数重试。
+- `retry`: 同步函数重试（指数退避）。
+- `retry_async`: 异步函数重试（指数退避）。
 
-### 时间/单位转换 (Convert)
-- `to_duration`: 将字符串 (如 "1d", "5m") 转换为 `std::time::Duration`。
-
-## 使用 Demo
+## 使用示例
 
 ```rust
 use x_one::xutil;
 
 fn main() {
-    let ip = xutil::get_local_ip().unwrap();
     let duration = xutil::to_duration("1h30m").unwrap();
-    
+
     if xutil::file_exist("config.yml") {
         println!("Config found");
     }
+
+    let name = xutil::default_if_empty("", "default_name");
+    assert_eq!(name, "default_name");
 }
 ```
