@@ -1,4 +1,5 @@
 use serial_test::serial;
+use x_one::xorm::client::*;
 use x_one::xorm::init::*;
 use x_one::xorm::*;
 
@@ -43,7 +44,6 @@ fn test_get_pool_config_named() {
                 dsn: "postgres://localhost/test".to_string(),
                 ..XOrmConfig::default()
             },
-            connected: false,
         },
     );
     drop(store);
@@ -63,14 +63,12 @@ fn test_get_pool_names() {
         "db1".to_string(),
         PoolEntry {
             config: XOrmConfig::default(),
-            connected: false,
         },
     );
     store.insert(
         "db2".to_string(),
         PoolEntry {
             config: XOrmConfig::default(),
-            connected: false,
         },
     );
     drop(store);
@@ -94,7 +92,6 @@ fn test_get_driver() {
                 driver: Driver::Mysql,
                 ..XOrmConfig::default()
             },
-            connected: false,
         },
     );
     drop(store);
@@ -116,7 +113,6 @@ fn test_get_dsn() {
                 dsn: "postgres://localhost/mydb".to_string(),
                 ..XOrmConfig::default()
             },
-            connected: false,
         },
     );
     drop(store);

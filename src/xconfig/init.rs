@@ -57,7 +57,7 @@ fn parse_config(config_location: &str) -> Result<serde_yaml::Value, String> {
     // 加载基础配置
     let mut base_config = load_local_config(config_location)?;
 
-    // 先展开基础配置中的环境变量占位符
+    // 先展开基础配置中的环境变量占位符，使 profiles.active 可引用环境变量
     env_expand::expand_env_placeholders_in_value(&mut base_config);
 
     // 检测激活的环境
@@ -92,7 +92,7 @@ fn parse_config(config_location: &str) -> Result<serde_yaml::Value, String> {
         );
     }
 
-    // 最终展开环境变量占位符
+    // 合并 profile 配置后再次展开，处理 profile 配置中的环境变量占位符
     env_expand::expand_env_placeholders_in_value(&mut base_config);
 
     Ok(base_config)

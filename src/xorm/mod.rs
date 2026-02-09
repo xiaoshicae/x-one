@@ -3,11 +3,15 @@
 //! 基于 sqlx 封装，提供数据库连接池管理，
 //! 支持 PostgreSQL/MySQL，单/多实例模式。
 
+pub mod client;
 pub mod config;
 pub mod init;
 
+pub use client::{
+    DEFAULT_POOL_NAME, PoolEntry, get_driver, get_dsn, get_pool_config, get_pool_names,
+    pool_configs_store,
+};
 pub use config::{Driver, XORM_CONFIG_KEY, XOrmConfig};
-pub use init::{get_driver, get_dsn, get_pool_config, get_pool_names};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 

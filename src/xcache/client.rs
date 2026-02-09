@@ -1,10 +1,23 @@
 //! 缓存客户端 API
+//!
+//! 提供缓存实例获取、缓存值读写等对外功能。
 
 use super::cache::Cache;
-use super::init::{DEFAULT_CACHE_NAME, cache_store};
+use parking_lot::RwLock;
 use std::any::Any;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
+
+/// 默认实例名
+pub const DEFAULT_CACHE_NAME: &str = "_default_";
+
+/// 全局缓存实例存储
+static CACHE_STORE: OnceLock<RwLock<HashMap<String, Arc<Cache>>>> = OnceLock::new();
+
+pub fn cache_store() -> &'static RwLock<HashMap<String, Arc<Cache>>> {
+    CACHE_STORE.get_or_init(|| RwLock::new(HashMap::new()))
+}
 
 /// 获取指定名称的缓存实例
 pub fn c(name: &str) -> Option<Arc<Cache>> {
@@ -15,6 +28,12 @@ pub fn c(name: &str) -> Option<Arc<Cache>> {
 /// 获取默认缓存实例
 pub fn default() -> Option<Arc<Cache>> {
     c(DEFAULT_CACHE_NAME)
+}
+
+/// 获取所有缓存实例名称
+pub fn get_cache_names() -> Vec<String> {
+    let store = cache_store().read();
+    store.keys().cloned().collect()
 }
 
 /// 设置缓存值（使用默认缓存实例和默认 TTL）

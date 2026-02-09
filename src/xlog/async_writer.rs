@@ -33,9 +33,13 @@ impl AsyncWriter {
         let join_handle = std::thread::spawn(move || {
             let mut writer = writer;
             while let Ok(buf) = rx.recv() {
-                let _ = writer.write_all(&buf);
+                if let Err(e) = writer.write_all(&buf) {
+                    eprintln!("AsyncWriter: write failed: {e}");
+                }
             }
-            let _ = writer.flush();
+            if let Err(e) = writer.flush() {
+                eprintln!("AsyncWriter: flush failed: {e}");
+            }
         });
 
         Self {

@@ -28,10 +28,18 @@ impl Cache {
     }
 
     /// 获取缓存值（泛型，通过 downcast 类型转换）
+    ///
+    /// 如果 key 存在但类型不匹配，返回 None。
     pub fn get<V: Any + Clone + Send + Sync>(&self, key: &str) -> Option<V> {
-        self.inner
-            .get(&key.to_string())
-            .and_then(|v| v.downcast_ref::<V>().cloned())
+        let val = self.inner.get(&key.to_string())?;
+        let result = val.downcast_ref::<V>().cloned();
+        if result.is_none() {
+            eprintln!(
+                "xcache: type mismatch for key=[{key}], expected=[{}]",
+                std::any::type_name::<V>()
+            );
+        }
+        result
     }
 
     /// 设置缓存值（使用默认 TTL）

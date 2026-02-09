@@ -24,15 +24,14 @@ pub trait Server: Send + Sync {
 }
 
 /// 以异步方式运行服务，阻塞等待退出信号
+#[cfg(unix)]
 pub async fn run_with_server<S: Server>(server: &S) -> Result<(), XOneError> {
-    // 监听退出信号
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|e| XOneError::Server(format!("failed to register SIGTERM: {e}")))?;
 
     let run_fut = server.run();
 
     let server_result = tokio::select! {
-        // 服务运行结果
         result = run_fut => {
             match result {
                 Ok(()) => {
@@ -44,16 +43,49 @@ pub async fn run_with_server<S: Server>(server: &S) -> Result<(), XOneError> {
                 }
             }
         }
-        // SIGINT (Ctrl+C)
         _ = tokio::signal::ctrl_c() => {
             xutil::info_if_enable_debug("********** XOne Stop server begin (SIGINT) **********");
             safe_invoke_server_stop(server).await?;
             xutil::info_if_enable_debug("********** XOne Stop server success **********");
             Ok(())
         }
-        // SIGTERM
         _ = sigterm.recv() => {
             xutil::info_if_enable_debug("********** XOne Stop server begin (SIGTERM) **********");
+            safe_invoke_server_stop(server).await?;
+            xutil::info_if_enable_debug("********** XOne Stop server success **********");
+            Ok(())
+        }
+    };
+
+    let stop_hook_result = invoke_before_stop_hooks_safe();
+
+    match (server_result, stop_hook_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(e), Ok(())) => Err(e),
+        (Ok(()), Err(e)) => Err(e),
+        (Err(server_err), Err(hook_err)) => Err(XOneError::Multi(vec![server_err, hook_err])),
+    }
+}
+
+/// 以异步方式运行服务，阻塞等待退出信号（Windows 仅支持 Ctrl+C）
+#[cfg(not(unix))]
+pub async fn run_with_server<S: Server>(server: &S) -> Result<(), XOneError> {
+    let run_fut = server.run();
+
+    let server_result = tokio::select! {
+        result = run_fut => {
+            match result {
+                Ok(()) => {
+                    xutil::warn_if_enable_debug("XOne Run server unexpected stopped");
+                    Ok(())
+                }
+                Err(e) => {
+                    Err(XOneError::Server(format!("XOne Run server failed, err=[{e}]")))
+                }
+            }
+        }
+        _ = tokio::signal::ctrl_c() => {
+            xutil::info_if_enable_debug("********** XOne Stop server begin (SIGINT) **********");
             safe_invoke_server_stop(server).await?;
             xutil::info_if_enable_debug("********** XOne Stop server success **********");
             Ok(())

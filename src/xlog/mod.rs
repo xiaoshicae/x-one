@@ -4,17 +4,18 @@
 //! 提供 JSON 格式文件日志、控制台彩色输出、异步写入等功能。
 
 pub mod async_writer;
+pub mod client;
 pub mod config;
 pub mod console;
 pub mod init;
 pub mod otel_fmt;
 
+pub use client::{get_config, xlog_level};
 pub use config::{LogLevel, XLOG_CONFIG_KEY, XLogConfig};
-pub use init::xlog_level;
 
 /// 注册日志初始化 Hook
 pub fn register_hook() {
-    crate::before_start!(init::init_xlog, crate::xhook::HookOptions::with_order(100));
+    crate::before_start!(init::init_xlog, crate::xhook::HookOptions::with_order(2));
 }
 
 // ============ 日志宏 ============

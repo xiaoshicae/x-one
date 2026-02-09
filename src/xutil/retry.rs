@@ -33,7 +33,8 @@ where
         }
     }
 
-    Err(last_err.expect("at least one attempt"))
+    // actual_attempts >= 1 保证 last_err 一定有值
+    Err(last_err.expect("actual_attempts >= 1, last_err must be Some"))
 }
 
 /// 异步重试执行函数指定次数
@@ -60,5 +61,6 @@ where
         }
     }
 
-    Err(last_err.expect("at least one attempt"))
+    // actual_attempts >= 1 保证 last_err 一定有值
+    Err(last_err.expect("actual_attempts >= 1, last_err must be Some"))
 }

@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 
 /// 环境变量占位符正则
 static ENV_PLACEHOLDER_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\$\{([^}:]+)(?::-([^}]*))?\}").unwrap());
+    LazyLock::new(|| Regex::new(r"\$\{([^}:]+)(?::-([^}]*))?\}").expect("硬编码正则表达式无效"));
 
 /// 展开字符串中的环境变量占位符
 ///

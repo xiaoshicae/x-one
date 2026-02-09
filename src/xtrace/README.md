@@ -20,16 +20,19 @@ XTrace:
 
 ```rust
 use x_one::xtrace;
+use opentelemetry::global;
 use opentelemetry::trace::{Tracer, TraceContextExt};
 
-// 获取 Tracer
-let tracer = xtrace::get_tracer("my-lib");
+// 检查 trace 是否启用
+if xtrace::is_trace_enabled() {
+    let tracer = global::tracer("my-lib");
 
-// 创建 Span
-tracer.in_span("operation_name", |cx| {
-    // 业务逻辑
-    // ...
-});
+    // 创建 Span
+    tracer.in_span("operation_name", |cx| {
+        // 业务逻辑
+        // ...
+    });
+}
 ```
 
 ## 自动集成

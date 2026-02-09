@@ -3,23 +3,14 @@ use x_one::xtrace::config::*;
 #[test]
 fn test_default_config() {
     let config = XTraceConfig::default();
-    assert!(config.enable.is_none());
+    assert!(config.enable);
     assert!(!config.console);
-}
-
-#[test]
-fn test_is_enabled_none_returns_true() {
-    let config = XTraceConfig {
-        enable: None,
-        console: false,
-    };
-    assert!(config.is_enabled());
 }
 
 #[test]
 fn test_is_enabled_true() {
     let config = XTraceConfig {
-        enable: Some(true),
+        enable: true,
         console: false,
     };
     assert!(config.is_enabled());
@@ -28,7 +19,7 @@ fn test_is_enabled_true() {
 #[test]
 fn test_is_enabled_false() {
     let config = XTraceConfig {
-        enable: Some(false),
+        enable: false,
         console: false,
     };
     assert!(!config.is_enabled());
@@ -41,7 +32,7 @@ Enable: true
 Console: true
 "#;
     let config: XTraceConfig = serde_yaml::from_str(yaml).unwrap();
-    assert_eq!(config.enable, Some(true));
+    assert!(config.enable);
     assert!(config.console);
 }
 
@@ -49,6 +40,7 @@ Console: true
 fn test_deserialize_minimal_yaml() {
     let yaml = "{}";
     let config: XTraceConfig = serde_yaml::from_str(yaml).unwrap();
-    assert!(config.enable.is_none());
+    // 未配置时默认启用
+    assert!(config.enable);
     assert!(!config.console);
 }

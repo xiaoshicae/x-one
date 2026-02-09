@@ -14,7 +14,7 @@ pub fn init_xlog() -> Result<(), crate::error::XOneError> {
         return Ok(());
     }
 
-    let c = get_config()?;
+    let c = super::client::get_config();
     xutil::info_if_enable_debug(&format!(
         "XOne initXLog got config: {}",
         xutil::to_json_string(&c)
@@ -112,17 +112,4 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
     ));
 
     Ok(())
-}
-
-/// 从配置中获取日志配置
-pub fn get_config() -> Result<XLogConfig, crate::error::XOneError> {
-    Ok(xconfig::parse_config::<XLogConfig>(XLOG_CONFIG_KEY).unwrap_or_default())
-}
-
-/// 获取当前日志级别
-pub fn xlog_level() -> String {
-    crate::xutil::take_or_default(
-        xconfig::get_string(&format!("{XLOG_CONFIG_KEY}.Level")),
-        "info",
-    )
 }

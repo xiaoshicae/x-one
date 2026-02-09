@@ -13,20 +13,33 @@ pub const XTRACE_CONFIG_KEY: &str = "XTrace";
 ///   Enable: true
 ///   Console: false
 /// ```
-#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct XTraceConfig {
-    /// 是否启用链路追踪（默认 true，None 视为 true）
-    #[serde(rename = "Enable")]
-    pub enable: Option<bool>,
+    /// 是否启用链路追踪（默认 true）
+    #[serde(rename = "Enable", default = "default_enable")]
+    pub enable: bool,
 
     /// 是否输出到控制台（默认 false）
     #[serde(rename = "Console", default)]
     pub console: bool,
 }
 
+fn default_enable() -> bool {
+    true
+}
+
+impl Default for XTraceConfig {
+    fn default() -> Self {
+        Self {
+            enable: default_enable(),
+            console: false,
+        }
+    }
+}
+
 impl XTraceConfig {
-    /// 判断是否启用 trace（None 视为 true）
+    /// 判断是否启用 trace
     pub fn is_enabled(&self) -> bool {
-        self.enable.unwrap_or(true)
+        self.enable
     }
 }

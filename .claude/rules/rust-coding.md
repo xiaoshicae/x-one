@@ -35,3 +35,11 @@
 - 宏定义（`#[macro_export]`）可以放在 `mod.rs` 中
 - 业务逻辑应拆到对应的子模块：配置访问 → `accessor.rs`，服务器实现 → `server.rs`，客户端 API → `client.rs`
 - 参考标杆：`xorm/mod.rs`（纯 mod 管理 + register_hook）
+
+## init.rs 规范
+- `init.rs` 只负责初始化和关闭逻辑（`init_xxx`、`shutdown_xxx`、`load_configs`）
+- 对外查询 API（`get_xxx`、`is_xxx_enabled`）必须放在 `client.rs` 中
+- 全局状态（`OnceLock`/`static`）和存储访问函数放在 `client.rs` 中，`init.rs` 通过 `super::client::` 引用
+- 配置构建工具函数（如 `build_client`）属于对外 API，放在 `client.rs` 而非 `init.rs`
+- `init.rs` 中的函数保持 `pub`（供集成测试调用），但主要 API 入口在 `client.rs`
+- 标准子模块职责划分：`config.rs`（配置结构体）、`init.rs`（初始化/关闭）、`client.rs`（对外 API + 全局状态）

@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 
 /// 合法的参数 key 正则
 static ARG_KEY_PATTERN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_.\-]*$").unwrap());
+    LazyLock::new(|| Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_.\-]*$").expect("硬编码正则表达式无效"));
 
 /// 从启动命令行参数中获取指定 key 的值
 ///

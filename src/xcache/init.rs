@@ -2,22 +2,11 @@
 
 use crate::xconfig;
 use crate::xutil;
-use parking_lot::RwLock;
-use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use super::cache::Cache;
+use super::client::{DEFAULT_CACHE_NAME, cache_store};
 use super::config::{XCACHE_CONFIG_KEY, XCacheConfig};
-
-/// 默认实例名
-pub const DEFAULT_CACHE_NAME: &str = "_default_";
-
-/// 全局缓存实例存储
-static CACHE_STORE: OnceLock<RwLock<HashMap<String, Arc<Cache>>>> = OnceLock::new();
-
-pub fn cache_store() -> &'static RwLock<HashMap<String, Arc<Cache>>> {
-    CACHE_STORE.get_or_init(|| RwLock::new(HashMap::new()))
-}
 
 /// 初始化 xcache
 pub fn init_xcache() -> Result<(), crate::error::XOneError> {
@@ -57,8 +46,13 @@ pub fn create_cache_instance(config: &XCacheConfig) -> Result<(), crate::error::
         100_000
     };
 
-    let default_ttl = xutil::to_duration(&config.default_ttl)
-        .unwrap_or_else(|_| std::time::Duration::from_secs(300));
+    let default_ttl = xutil::to_duration(&config.default_ttl).unwrap_or_else(|e| {
+        xutil::warn_if_enable_debug(&format!(
+            "XCache invalid default_ttl=[{}], err=[{e}], using 300s",
+            config.default_ttl
+        ));
+        std::time::Duration::from_secs(300)
+    });
 
     let cache_instance = Arc::new(Cache::new(max_capacity, default_ttl));
 
@@ -82,23 +76,7 @@ pub fn shutdown_xcache() -> Result<(), crate::error::XOneError> {
     Ok(())
 }
 
-/// 获取所有缓存实例名称
-pub fn get_cache_names() -> Vec<String> {
-    let store = cache_store().read();
-    store.keys().cloned().collect()
-}
-
-/// 加载 XCache 配置
+/// 加载 XCache 配置（支持单实例和多实例模式）
 pub fn load_configs() -> Vec<XCacheConfig> {
-    // 先尝试加载为单个配置
-    if let Ok(config) = xconfig::parse_config::<XCacheConfig>(XCACHE_CONFIG_KEY) {
-        return vec![config];
-    }
-
-    // 再尝试加载为配置数组
-    if let Ok(configs) = xconfig::parse_config::<Vec<XCacheConfig>>(XCACHE_CONFIG_KEY) {
-        return configs;
-    }
-
-    Vec::new()
+    xconfig::parse_config_list::<XCacheConfig>(XCACHE_CONFIG_KEY)
 }

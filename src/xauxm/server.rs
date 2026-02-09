@@ -13,7 +13,7 @@ use std::net::SocketAddr;
 pub struct AuxmServer {
     router: axum::Router,
     addr: SocketAddr,
-    shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
+    shutdown_tx: tokio::sync::watch::Sender<bool>,
 }
 
 impl AuxmServer {
@@ -41,7 +41,7 @@ impl AuxmServer {
         Self {
             router,
             addr,
-            shutdown_tx: Some(shutdown_tx),
+            shutdown_tx,
         }
     }
 
@@ -51,7 +51,7 @@ impl AuxmServer {
         Self {
             router,
             addr,
-            shutdown_tx: Some(shutdown_tx),
+            shutdown_tx,
         }
     }
 
@@ -69,11 +69,7 @@ impl Server for AuxmServer {
 
         xutil::info_if_enable_debug(&format!("auxm server listening on {}", self.addr));
 
-        let mut shutdown_rx = self
-            .shutdown_tx
-            .as_ref()
-            .map(|tx| tx.subscribe())
-            .ok_or_else(|| XOneError::Server("shutdown channel not available".to_string()))?;
+        let mut shutdown_rx = self.shutdown_tx.subscribe();
 
         axum::serve(listener, self.router.clone())
             .with_graceful_shutdown(async move {
@@ -86,9 +82,7 @@ impl Server for AuxmServer {
     }
 
     async fn stop(&self) -> Result<(), XOneError> {
-        if let Some(tx) = &self.shutdown_tx {
-            let _ = tx.send(true);
-        }
+        let _ = self.shutdown_tx.send(true);
         Ok(())
     }
 }
@@ -102,7 +96,7 @@ pub struct AuxmTlsServer {
     addr: SocketAddr,
     cert_file: String,
     key_file: String,
-    shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
+    shutdown_tx: tokio::sync::watch::Sender<bool>,
 }
 
 impl AuxmTlsServer {
@@ -123,7 +117,7 @@ impl AuxmTlsServer {
             addr,
             cert_file: cert_file.to_string(),
             key_file: key_file.to_string(),
-            shutdown_tx: Some(shutdown_tx),
+            shutdown_tx,
         }
     }
 }
@@ -138,9 +132,7 @@ impl Server for AuxmTlsServer {
     }
 
     async fn stop(&self) -> Result<(), XOneError> {
-        if let Some(tx) = &self.shutdown_tx {
-            let _ = tx.send(true);
-        }
+        let _ = self.shutdown_tx.send(true);
         Ok(())
     }
 }

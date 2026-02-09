@@ -1,16 +1,10 @@
+use x_one::xtrace::client::*;
 use x_one::xtrace::init::*;
 
 #[test]
 fn test_is_trace_enabled_default_false() {
     // 未初始化前默认为 false
     let _ = is_trace_enabled();
-}
-
-#[test]
-fn test_get_tracer() {
-    let tracer = get_tracer("test-tracer");
-    // 能获取到 tracer 即可（可能是 noop）
-    let _ = tracer;
 }
 
 #[test]

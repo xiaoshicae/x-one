@@ -4,8 +4,6 @@ use serde::Deserialize;
 
 /// XOrm 配置 key
 pub const XORM_CONFIG_KEY: &str = "XOrm";
-/// 兼容旧配置 key（XGorm）
-pub const LEGACY_XGORM_CONFIG_KEY: &str = "XGorm";
 
 /// 数据库驱动类型
 #[derive(Debug, Default, Deserialize, Clone, PartialEq)]

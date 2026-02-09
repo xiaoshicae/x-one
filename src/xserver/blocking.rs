@@ -11,7 +11,7 @@ use tokio::sync::watch;
 /// 通过 watch channel 实现简单的阻塞等待，
 /// 调用 `stop()` 时触发 `run()` 返回。
 pub struct BlockingServer {
-    tx: Option<watch::Sender<bool>>,
+    tx: watch::Sender<bool>,
     rx: watch::Receiver<bool>,
 }
 
@@ -19,7 +19,7 @@ impl BlockingServer {
     /// 创建新的阻塞式服务器
     pub fn new() -> Self {
         let (tx, rx) = watch::channel(false);
-        Self { tx: Some(tx), rx }
+        Self { tx, rx }
     }
 
     /// 获取 receiver channel (用于测试)
@@ -47,9 +47,7 @@ impl Server for BlockingServer {
     }
 
     async fn stop(&self) -> Result<(), XOneError> {
-        if let Some(tx) = &self.tx {
-            let _ = tx.send(true);
-        }
+        let _ = self.tx.send(true);
         Ok(())
     }
 }

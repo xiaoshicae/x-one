@@ -7,11 +7,8 @@ pub mod client;
 pub mod config;
 pub mod init;
 
-pub use client::{c, default, del, get, set, set_with_ttl};
+pub use client::{DEFAULT_CACHE_NAME, c, default, del, get, get_cache_names, set, set_with_ttl};
 pub use config::XCacheConfig;
-pub use init::{
-    cache_store, create_cache_instance, get_cache_names, init_xcache, load_configs, shutdown_xcache,
-};
 
 /// 注册缓存初始化和关闭 Hook
 pub fn register_hook() {

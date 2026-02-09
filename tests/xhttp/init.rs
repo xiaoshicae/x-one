@@ -1,4 +1,4 @@
-use x_one::xhttp::init::*;
+use x_one::xhttp::client::*;
 use x_one::xhttp::*;
 
 #[test]

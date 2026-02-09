@@ -124,7 +124,10 @@ where
     };
 
     if hooks.len() >= MAX_HOOK_NUM {
-        panic!("XOne {label} hook can not be more than {MAX_HOOK_NUM}");
+        xutil::error_if_enable_debug(&format!(
+            "XOne {label} hook limit reached ({MAX_HOOK_NUM}), skip register: {name}"
+        ));
+        return;
     }
 
     hooks.push(Hook {
