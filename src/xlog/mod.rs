@@ -3,14 +3,12 @@
 //! 基于 `tracing` + `tracing-subscriber` 实现，
 //! 提供 JSON 格式文件日志、控制台彩色输出、异步写入等功能。
 
-pub mod client;
 pub mod config;
 pub mod console;
 pub mod init;
 pub mod kv_layer;
 pub mod otel_fmt;
 
-pub use client::{get_config, xlog_level};
 pub use config::{LogLevel, XLOG_CONFIG_KEY, XLogConfig};
 pub use kv_layer::SpanKvFields;
 

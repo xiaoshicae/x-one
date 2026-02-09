@@ -60,6 +60,11 @@ pub struct XLogConfig {
     pub timezone: String,
 }
 
+/// 从配置中获取日志配置
+pub(crate) fn load_config() -> XLogConfig {
+    crate::xconfig::parse_config::<XLogConfig>(XLOG_CONFIG_KEY).unwrap_or_default()
+}
+
 impl Default for XLogConfig {
     fn default() -> Self {
         Self {

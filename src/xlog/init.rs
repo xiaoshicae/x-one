@@ -23,7 +23,7 @@ pub fn init_xlog() -> Result<(), crate::error::XOneError> {
         return Ok(());
     }
 
-    let c = super::client::get_config();
+    let c = super::config::load_config();
     xutil::info_if_enable_debug(&format!(
         "XOne initXLog got config: {}",
         xutil::to_json_string(&c)

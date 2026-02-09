@@ -149,11 +149,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 除了通过 `run_axum` / `run_server` 自动管理，也可手动控制：
 
 ```rust
-// 不启动 HTTP 服务，仅使用框架能力
+// 服务启动前准备工作(触发xhook管理的before hook，初始化资源)
+// 触发 xconfig、xlog、xorm 等模块初始化
 x_one::init().await?;
 
-// 使用 xconfig、xlog、xorm 等模块...
+// 你自己的处理逻辑(服务启动或一次性脚本等)
+// ...
 
+// 服务退出前清理(触发xhook管理的after hook，释放资源等)
 x_one::shutdown().ok();
 ```
 
