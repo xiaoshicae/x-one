@@ -11,8 +11,9 @@
 - `to_duration`: 将字符串 (如 `"1d"`, `"5m"`, `"1h30m"`) 转换为 `std::time::Duration`。
 
 ### 默认值 (DefaultValue)
-- `default_if_empty`: 若值为空则返回 fallback（借用版本，支持泛型）。
-- `take_or_default`: 若值为空则返回 fallback（所有权版本，支持泛型）。
+- `default_if_empty`: 若值为零值则返回 fallback（借用版本）。
+- `take_or_default`: 若值为零值则返回 fallback（所有权版本）。
+- 基于 `IsZero` trait（`Default + PartialEq` blanket impl），自动覆盖 `String`、`Vec`、`Option`、数值、`bool` 等类型。
 
 ### 调试日志 (DebugLog)
 - `info_if_enable_debug`: 调试模式下打印 info 日志。
@@ -48,5 +49,8 @@ fn main() {
 
     let name = xutil::default_if_empty("", "default_name");
     assert_eq!(name, "default_name");
+
+    // 数值零值也适用
+    assert_eq!(xutil::take_or_default(0_u64, 100_u64), 100);
 }
 ```
