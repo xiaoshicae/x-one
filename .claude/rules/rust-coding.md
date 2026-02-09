@@ -26,3 +26,12 @@
 - 单一职责：每个模块只做一件事
 - 公开接口最小化：默认私有，只暴露必要的 API
 - 避免循环依赖
+
+## mod.rs 规范
+- `mod.rs` 只负责三件事：子模块声明（`pub mod`）、公开 API 重导出（`pub use`）、`register_hook()` 幂等注册
+- 禁止在 `mod.rs` 中放置业务逻辑实现（struct 定义、方法实现、数据处理等）
+- 全局状态（`OnceLock`/`static`）和对应的存储访问函数可以放在 `mod.rs` 中
+- 测试辅助函数（`reset_config`、`set_config` 等）可以放在 `mod.rs` 中
+- 宏定义（`#[macro_export]`）可以放在 `mod.rs` 中
+- 业务逻辑应拆到对应的子模块：配置访问 → `accessor.rs`，服务器实现 → `server.rs`，客户端 API → `client.rs`
+- 参考标杆：`xorm/mod.rs`（纯 mod 管理 + register_hook）

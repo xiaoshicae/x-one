@@ -118,3 +118,11 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
 pub fn get_config() -> Result<XLogConfig, crate::error::XOneError> {
     Ok(xconfig::parse_config::<XLogConfig>(XLOG_CONFIG_KEY).unwrap_or_default())
 }
+
+/// 获取当前日志级别
+pub fn xlog_level() -> String {
+    crate::xutil::take_or_default(
+        xconfig::get_string(&format!("{XLOG_CONFIG_KEY}.Level")),
+        "info",
+    )
+}

@@ -10,18 +10,11 @@ pub mod init;
 pub mod otel_fmt;
 
 pub use config::{LogLevel, XLOG_CONFIG_KEY, XLogConfig};
+pub use init::xlog_level;
 
 /// 注册日志初始化 Hook
 pub fn register_hook() {
     crate::before_start!(init::init_xlog, crate::xhook::HookOptions::with_order(100));
-}
-
-/// 获取当前日志级别
-pub fn xlog_level() -> String {
-    crate::xutil::take_or_default(
-        crate::xconfig::get_string(&format!("{XLOG_CONFIG_KEY}.Level")),
-        "info",
-    )
 }
 
 // ============ 日志宏 ============
