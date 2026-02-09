@@ -2,19 +2,19 @@
 
 开箱即用的 Rust 微服务框架 SDK
 
-## 💡 功能特性
+## 功能特性
 
-- **统一集成**：集成常用三方库（Axum〔基于 axum〕, Sqlx, Moka, Reqwest, OpenTelemetry），降低维护成本
+- **统一集成**：集成常用三方库（Axum、Sqlx、Moka、Reqwest、OpenTelemetry），降低维护成本
 - **配置驱动**：通过 YAML 配置启用能力，开箱即用，支持多环境 Profile
 - **最佳实践**：提供生产级默认参数配置（连接池、超时、日志轮转等）
-- **生命周期**：支持 Hook 机制（BeforeStart/BeforeStop），灵活扩展
-- **可观测性**：全链路 Trace 集成（HTTP -> DB/Client）
+- **生命周期**：支持 Hook 机制（BeforeStart / BeforeStop），灵活扩展
+- **可观测性**：结构化 JSON 日志 + 全链路 Trace 集成（自动注入 trace_id / span_id）
 
-## 🛠 环境要求
+## 环境要求
 
-- Rust >= 1.75
+- Rust edition 2024（rustc >= 1.85）
 
-## 🚀 快速开始
+## 快速开始
 
 ### 1. 安装
 
@@ -22,9 +22,9 @@
 
 ```toml
 [dependencies]
-x-one = { path = "." } # 或 git 依赖
+x-one = { path = "." }  # 或 git 依赖
 tokio = { version = "1", features = ["full"] }
-axum = "0.7"
+axum = "0.8"
 serde = { version = "1", features = ["derive"] }
 ```
 
@@ -38,7 +38,8 @@ Server:
   Version: "v1.0.0"
   Profiles:
     Active: "dev"
-XAxum: # 对应 Axum HTTP 服务（基于 axum）
+
+XAxum:
   Port: 8000
 
 XLog:
@@ -47,7 +48,7 @@ XLog:
 
 XOrm:
   Driver: "mysql"
-  DSN: "user:password@tcp(127.0.0.1:3306)/dbname"
+  DSN: "mysql://user:password@127.0.0.1:3306/dbname"
 
 XHttp:
   Timeout: "30s"
@@ -61,101 +62,106 @@ XCache:
 ### 3. 启动服务
 
 ```rust
-use x_one::xaxum::AxumServer;
 use axum::{Router, routing::get};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. 初始化框架
-    x_one::init()?;
-
-    // 2. 构建路由
     let app = Router::new().route("/ping", get(|| async { "pong" }));
 
-    // 3. 启动服务（自动处理平滑关闭）
-    x_one::run_axum(app).await?;
-
-    Ok(())
+    // 自动初始化所有模块 + 启动 HTTP 服务 + 优雅停机
+    x_one::run_axum(app).await
 }
 ```
 
 ### 4. 使用模块
 
 ```rust
-use x_one::{xorm, xhttp, xlog, xcache, xconfig};
-use x_one::xlog::xlog_info;
+use x_one::{xconfig, xcache, xhttp};
+use x_one::{xlog_info, xlog_error};
+use std::time::Duration;
 
 async fn handler() {
-    // 数据库操作 (sqlx)
-    // let pool = xorm::get_pool("default"); 
-    
-    // HTTP 请求 (reqwest)
-    // let client = xhttp::client();
-    // let resp = client.get("https://api.example.com").send().await?;
-
-    // 本地缓存 (moka)
-    xcache::set_with_ttl("key", "value", std::time::Duration::from_secs(60));
-
-    // 日志记录
-    xlog_info!("request handled");
-
     // 读取配置
     let port = xconfig::get_int("XAxum.Port");
+
+    // HTTP 请求（reqwest 封装）
+    let resp = xhttp::get("https://httpbin.org/get").send().await.unwrap();
+
+    // 本地缓存（moka 封装，支持 per-entry TTL）
+    xcache::set("key", "value".to_string());
+    xcache::set_with_ttl("temp", 42, Duration::from_secs(60));
+    let val: Option<String> = xcache::get("key");
+
+    // 结构化日志（自动注入 trace_id）
+    xlog_info!(user_id = 123, action = "login", "request handled");
 }
 ```
 
-## 🧩 模块清单
+## 模块清单
 
-| 模块 | 底层库 | 文档 | Log | Trace | 说明 |
-|---|---|---|---|---|---|
-| [xconfig](./src/xconfig/README.md) | [serde_yaml](https://github.com/dtolnay/serde-yaml) | 配置管理 | - | - | YAML配置/环境变量/Profile |
-| [xlog](./src/xlog/README.md) | [tracing](https://github.com/tokio-rs/tracing) | 日志记录 | - | ✅ | 结构化日志/文件轮转 |
-| [xtrace](./src/xtrace/README.md) | [opentelemetry](https://github.com/open-telemetry/opentelemetry-rust) | 链路追踪 | - | - | 分布式链路追踪 |
-| [xorm](./src/xorm/README.md) | [sqlx](https://github.com/launchbadge/sqlx) | 数据库 | ✅ | ✅ | MySQL/PostgreSQL 连接池 |
-| [xhttp](./src/xhttp/README.md) | [reqwest](https://github.com/seanmonstar/reqwest) | HTTP客户端 | - | - | 支持重试/连接池配置 |
-| [xcache](./src/xcache/README.md) | [moka](https://github.com/moka-rs/moka) | 本地缓存 | - | - | 高性能本地缓存(TTL/LFU) |
-| [xserver](./src/xserver/README.md) | [axum](https://github.com/tokio-rs/axum) | HTTP服务 | ✅ | ✅ | Web服务启动封装 |
+| 模块 | 底层库 | 说明 | 文档 |
+|---|---|---|---|
+| [xconfig](./src/xconfig/README.md) | serde_yaml | YAML 配置 / 环境变量 / Profile | 配置管理 |
+| [xlog](./src/xlog/README.md) | tracing | 结构化 JSON 日志 / 文件轮转 / KV 注入 | 日志 |
+| [xtrace](./src/xtrace/README.md) | opentelemetry | 分布式链路追踪 | Trace |
+| [xhttp](./src/xhttp/README.md) | reqwest | HTTP 客户端 / 重试 / 连接池 | HTTP |
+| [xorm](./src/xorm/README.md) | sqlx | MySQL / PostgreSQL 连接池配置 | 数据库 |
+| [xcache](./src/xcache/README.md) | moka | 高性能本地缓存 / TTL / TinyLFU | 缓存 |
+| [xhook](./src/xhook/README.md) | - | 生命周期钩子 / 排序执行 / 超时 | Hook |
+| [xserver](./src/xserver/README.md) | axum | 服务启动 / 优雅停机 / 中间件 | 服务 |
+| [xutil](./src/xutil/README.md) | humantime / backon | 工具函数库 | 工具 |
 
-## 🏗 服务启动方式
+## 服务启动方式
 
 ```rust
-use x_one::xhook;
-
-fn init_hooks() {
-    // 注册启动前钩子
-    xhook::before_start("custom_init", || {
-        println!("Custom initialization...");
-        Ok(())
-    }, Default::default());
-
-    // 注册停止前钩子
-    xhook::before_stop("custom_cleanup", || {
-        println!("Cleaning up resources...");
-        Ok(())
-    }, Default::default());
-}
+use x_one::xhook::HookOptions;
 
 #[tokio::main]
-async fn main() -> x_one::Result<()> {
-    init_hooks();
-    
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 注册自定义启动钩子（order >= 100 避免与内置模块冲突）
+    x_one::before_start!(|| {
+        println!("Custom initialization...");
+        Ok(())
+    }, HookOptions::with_order(100));
+
+    // 注册自定义停止钩子
+    x_one::before_stop!(|| {
+        println!("Cleaning up resources...");
+        Ok(())
+    }, HookOptions::with_order(50));
+
     // 方式一：Axum Web 服务
-    // x_one::run_axum(app).await
+    let app = axum::Router::new();
+    x_one::run_axum(app).await
 
-    // 方式二：Axum HTTPS 服务
-    // x_one::run_axum_tls(app, "cert.pem", "key.pem").await
+    // 方式二：自定义中间件选项
+    // let opts = x_one::AxumOptions::new().with_log_middleware(false);
+    // x_one::run_axum_with_options(app, opts).await
 
-    // 方式三：自定义 Server 实现（适用于 Consumer/Job）
-    let server = x_one::BlockingServer::new();
-    x_one::run_server(&server).await
+    // 方式三：阻塞服务（适用于 Consumer / Job）
+    // let server = x_one::BlockingServer::new();
+    // x_one::run_server(&server).await
 }
 ```
 
-## 🔧 环境变量
+## 生命周期 API
+
+除了通过 `run_axum` / `run_server` 自动管理，也可手动控制：
+
+```rust
+// 不启动 HTTP 服务，仅使用框架能力
+x_one::init().await?;
+
+// 使用 xconfig、xlog、xorm 等模块...
+
+x_one::shutdown().ok();
+```
+
+## 环境变量
 
 | 环境变量 | 说明 | 示例 |
 |---|---|---|
-| `SERVER_ENABLE_DEBUG` | 启用 XOne 内部调试日志 | `true` |
+| `SERVER_ENABLE_DEBUG` | 启用框架内部调试日志 | `true` |
 | `SERVER_PROFILES_ACTIVE` | 指定激活的配置环境 | `dev`, `prod` |
 | `SERVER_CONFIG_LOCATION` | 指定配置文件路径 | `/app/config.yml` |
 
@@ -165,8 +171,3 @@ async fn main() -> x_one::Result<()> {
 XOrm:
   DSN: "${DB_DSN:-mysql://user:pass@localhost:3306/db}"
 ```
-
-## 📝 更新日志
-
-- **v0.1.0** (2026-02-07) - 初始版本移植自 Go xone 框架
-- **v0.1.1** (2026-02-07) - Axum 命名统一（破坏性变更，见 `MIGRATION.md`）

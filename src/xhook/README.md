@@ -1,47 +1,68 @@
 # XHook - 生命周期钩子模块
 
-💡 提供应用生命周期管理，支持启动前 (`BeforeStart`) 和停止前 (`BeforeStop`) 钩子，支持排序、依赖管理和优雅停机。
+提供应用生命周期管理，支持启动前（BeforeStart）和停止前（BeforeStop）钩子，支持排序执行、超时控制和 Panic 恢复。
 
 ## 核心特性
 
-- **有序执行**：支持通过 `order` 参数控制钩子执行顺序。
-- **优雅停机**：集成信号监听，在服务退出前执行资源清理（如关闭 DB 连接、刷新日志）。
-- **Panic 恢复**：钩子执行过程中的 panic 会被自动捕获，避免进程意外崩溃。
-- **超时控制**：支持配置 Shutdown 超时时间，防止清理逻辑卡死。
+- **有序执行**：通过 `order` 参数控制执行顺序（从小到大）
+- **Panic 恢复**：钩子中的 panic 会被自动捕获，避免进程崩溃
+- **超时控制**：每个钩子独立超时（默认 5 秒），防止卡死
+- **宏注册**：通过 `before_start!` / `before_stop!` 宏注册，自动记录调用位置
 
-## 配置
-
-```yaml
-# 可通过代码配置超时时间，暂无 YAML 配置项
-```
-
-## API 接口
+## API
 
 ```rust
 use x_one::xhook::HookOptions;
 
-// 最简用法：仅传函数，使用默认选项
+// 最简用法：使用默认选项（order=100, timeout=5s）
 x_one::before_start!(|| {
-    println!("Initializing cache...");
+    println!("Initializing...");
     Ok(())
 });
 
-// 指定选项：控制执行顺序
+// 指定 order
 x_one::before_start!(|| {
-    println!("Initializing cache...");
+    println!("Early init...");
     Ok(())
-}, HookOptions::with_order(10));
+}, HookOptions::with_order(50));
 
 // 注册停止前钩子
 x_one::before_stop!(|| {
-    println!("Closing database...");
+    println!("Closing connections...");
     Ok(())
-}, HookOptions::with_order(1));
+}, HookOptions::with_order(10));
 ```
 
-## 执行顺序
+## HookOptions
 
-1.  **BeforeStart**: 按 `order` **从小到大** 执行。
-2.  **BeforeStop**: 按 `order` **从小到大** 执行（通常用于逆序关闭，建议手动控制 order）。
+| 字段 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `order` | `i32` | `100` | 执行顺序，越小越先执行 |
+| `must_invoke_success` | `bool` | `true` | 失败时是否中断后续 hook |
+| `timeout` | `Duration` | `5s` | 单个 hook 执行超时 |
 
-> 注意：框架内部模块（Config, Log, Trace 等）占用了 order 1-10 的位置，用户自定义钩子建议从 100 开始。
+## 内置模块 Hook 顺序
+
+### BeforeStart
+
+| 模块 | Order |
+|---|---|
+| xconfig | 1 |
+| xlog | 2 |
+| xtrace | 3 |
+| xhttp | 4 |
+| xorm | 5 |
+| xcache | 6 |
+| 用户自定义 | 100（默认） |
+
+### BeforeStop
+
+| 模块 | Order |
+|---|---|
+| xtrace | 1 |
+| xcache | 2 |
+| xorm | 3 |
+| 用户自定义 | 100（默认） |
+| xlog guard | 100（最后关闭日志） |
+
+> 用户自定义钩子建议使用 order >= 10（start）/ order >= 10（stop），避免与内置模块冲突。

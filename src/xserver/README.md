@@ -16,11 +16,22 @@ shutdown() ── 执行 before_stop hooks（失败只 warn）────┘
 - **`init()`**：幂等，注册内置模块 hook 并执行 `before_start` hooks。使用 `run_server` 时自动调用；不使用 server 时可手动调用。
 - **`shutdown()`**：执行 `before_stop` hooks 清理资源。单个 hook 失败不中断后续执行。使用 `run_server` 时自动调用；不使用 server 时可手动调用。
 
+### Server Trait
+
+所有服务必须实现 `Server` trait：
+
+```rust
+pub trait Server: Send + Sync {
+    async fn run(&self) -> Result<(), XOneError>;
+    async fn stop(&self) -> Result<(), XOneError>;
+}
+```
+
 ### 手动调用示例
 
 ```rust
 // 不启动 HTTP 服务，仅使用框架能力
-x_one::init().expect("init failed");
+x_one::init().await?;
 
 // 使用 xconfig、xlog、xorm 等模块...
 
@@ -31,12 +42,23 @@ x_one::shutdown().ok();
 
 ### 1. AxumServer（HTTP 服务）
 
+适用于 Web 服务，集成了 axum 框架。
+
+- 通过 `XAxum` 配置端口和 Host
+- 内置 log / trace 中间件（可通过 `AxumOptions` 控制开关）
+- 启动时打印 ASCII art Banner
+
 ```rust
-use x_one::run_axum;
 use axum::{Router, routing::get};
 
 let app = Router::new().route("/", get(|| async { "Hello" }));
-run_axum(app).await?;
+
+// 默认启用所有中间件
+x_one::run_axum(app).await?;
+
+// 自定义中间件选项
+let opts = x_one::AxumOptions::new().with_log_middleware(false);
+x_one::run_axum_with_options(app, opts).await?;
 ```
 
 ### 2. BlockingServer（后台服务）
@@ -44,15 +66,14 @@ run_axum(app).await?;
 适用于消息队列消费者、定时任务等无需监听端口的服务。
 
 ```rust
-use x_one::run_blocking_server;
-
 // 在其他线程启动 Consumer
 tokio::spawn(async {
     // consume_loop().await;
 });
 
-// 阻塞等待退出信号
-run_blocking_server().await?;
+// 以 BlockingServer 阻塞等待退出信号
+let server = x_one::BlockingServer::new();
+x_one::run_server(&server).await?;
 ```
 
 ### 3. 自定义 Server
@@ -74,8 +95,11 @@ run_server(&MyServer).await?;
 
 ## 优雅停机流程
 
-1. 收到 `SIGINT`（Ctrl+C）或 `SIGTERM` 信号
+1. 收到 `SIGINT` (Ctrl+C) 或 `SIGTERM` 信号
 2. 调用 `server.stop()` 停止接收新请求
-3. 执行所有 `before_stop` hooks（关闭数据库连接、刷新日志等）
-4. 单个 hook 失败只 warn，保证所有清理逻辑都执行
-5. 进程退出
+3. 执行所有 `before_stop` 钩子（按 order 从小到大）：
+   - xtrace（order=1）：刷新链路数据
+   - xcache（order=2）：清理缓存实例
+   - xorm（order=3）：关闭数据库连接
+   - xlog guard（order=100）：刷新并关闭日志写入器
+4. 合并 server 结果和 hook 结果后返回
