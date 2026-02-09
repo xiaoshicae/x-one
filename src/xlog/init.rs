@@ -1,11 +1,20 @@
-//! 日志系统初始化
+//! 日志系统初始化与关闭
 
 use super::config::{LogLevel, XLOG_CONFIG_KEY, XLogConfig};
 use super::otel_fmt::{OtelConsoleFormat, OtelJsonFormat};
 use crate::{xconfig, xutil};
+use parking_lot::Mutex;
 use std::path::Path;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::*;
+
+/// 全局日志写入器 guard（drop 时刷新并关闭日志）
+static LOG_GUARD: std::sync::OnceLock<Mutex<Option<tracing_appender::non_blocking::WorkerGuard>>> =
+    std::sync::OnceLock::new();
+
+fn guard_store() -> &'static Mutex<Option<tracing_appender::non_blocking::WorkerGuard>> {
+    LOG_GUARD.get_or_init(|| Mutex::new(None))
+}
 
 /// 初始化日志系统
 pub fn init_xlog() -> Result<(), crate::error::XOneError> {
@@ -42,18 +51,9 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
     // 创建异步文件写入器
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
-    // 防止 guard 被 drop（需要保持活跃直到程序结束）
-    // 通过 xhook 的 before_stop 来管理生命周期
-    // order=100 确保在其他 hook（xtrace=1, xcache=2, xorm=3）之后执行，
-    // 使其他 hook 的 stop 过程仍可使用日志系统
-    let guard = Box::new(guard);
-    crate::before_stop!(
-        move || {
-            drop(guard);
-            Ok(())
-        },
-        crate::xhook::HookOptions::with_order(100)
-    );
+    // 将 guard 存入全局状态，由 shutdown_xlog 统一管理生命周期
+    let mut store = guard_store().lock();
+    *store = Some(guard);
 
     // 解析日志级别
     let level_filter = match c.level {
@@ -127,5 +127,25 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
         log_file_path.display()
     ));
 
+    Ok(())
+}
+
+/// 关闭日志系统
+///
+/// 释放异步写入器 guard，确保缓冲区中的日志全部刷写到文件。
+/// order 设为 `i32::MAX`，保证在所有其他 hook 之后执行，
+/// 使其他模块（xtrace、xcache、xorm 等）的 shutdown 过程仍可使用日志。
+pub fn shutdown_xlog() -> Result<(), crate::error::XOneError> {
+    let guard = {
+        let mut store = guard_store().lock();
+        store.take()
+    };
+
+    if let Some(guard) = guard {
+        xutil::info_if_enable_debug("XLog shutdown: flushing and closing log writer");
+        drop(guard);
+    }
+
+    xutil::info_if_enable_debug("XLog shutdown complete");
     Ok(())
 }

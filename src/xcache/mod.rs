@@ -14,10 +14,10 @@ pub use config::XCacheConfig;
 
 /// 注册缓存初始化和关闭 Hook
 pub fn register_hook() {
-    crate::before_start!(init::init_xcache, crate::xhook::HookOptions::with_order(6));
+    crate::before_start!(init::init_xcache, crate::xhook::HookOptions::new().order(6));
 
     crate::before_stop!(
         init::shutdown_xcache,
-        crate::xhook::HookOptions::with_order(2)
+        crate::xhook::HookOptions::new().order(2)
     );
 }

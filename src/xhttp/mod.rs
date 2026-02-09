@@ -10,5 +10,5 @@ pub use client::{build_client, c, delete, get, head, load_config, patch, post, p
 pub use config::XHttpConfig;
 
 pub fn register_hook() {
-    crate::before_start!(init::init_xhttp, crate::xhook::HookOptions::with_order(4));
+    crate::before_start!(init::init_xhttp, crate::xhook::HookOptions::new().order(4));
 }

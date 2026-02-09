@@ -22,7 +22,7 @@ pub use options::HookOptions;
 /// x_one::before_start!(|| Ok(()));
 ///
 /// // 指定选项
-/// x_one::before_start!(|| Ok(()), HookOptions::with_order(10));
+/// x_one::before_start!(|| Ok(()), HookOptions::new().order(10));
 /// ```
 #[macro_export]
 macro_rules! before_start {
@@ -50,7 +50,7 @@ macro_rules! before_start {
 /// x_one::before_stop!(|| Ok(()));
 ///
 /// // 指定选项
-/// x_one::before_stop!(|| Ok(()), HookOptions::with_order(1));
+/// x_one::before_stop!(|| Ok(()), HookOptions::new().order(1));
 /// ```
 #[macro_export]
 macro_rules! before_stop {

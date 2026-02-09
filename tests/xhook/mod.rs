@@ -25,7 +25,7 @@ fn test_before_start_hook_order() {
             log1.lock().push(3);
             Ok(())
         },
-        HookOptions::with_order(3)
+        HookOptions::new().order(3)
     );
 
     let log2 = order_log.clone();
@@ -34,7 +34,7 @@ fn test_before_start_hook_order() {
             log2.lock().push(1);
             Ok(())
         },
-        HookOptions::with_order(1)
+        HookOptions::new().order(1)
     );
 
     let log3 = order_log.clone();
@@ -43,7 +43,7 @@ fn test_before_start_hook_order() {
             log3.lock().push(2);
             Ok(())
         },
-        HookOptions::with_order(2)
+        HookOptions::new().order(2)
     );
 
     let result = invoke_before_start_hooks();
@@ -69,7 +69,7 @@ fn test_before_start_hook_error_not_must_success() {
 
     x_one::before_start!(
         || Err(XOneError::Other("test error".to_string())),
-        HookOptions::with_order_and_must(1, false)
+        HookOptions::new().order(1).must_success(false)
     );
 
     let exec = executed.clone();
@@ -78,7 +78,7 @@ fn test_before_start_hook_error_not_must_success() {
             exec.store(true, std::sync::atomic::Ordering::SeqCst);
             Ok(())
         },
-        HookOptions::with_order(2)
+        HookOptions::new().order(2)
     );
 
     let result = invoke_before_start_hooks();
@@ -125,10 +125,7 @@ fn test_before_stop_hook_timeout_ignored() {
             std::thread::sleep(Duration::from_secs(5));
             Ok(())
         },
-        HookOptions {
-            timeout: Duration::from_millis(100),
-            ..HookOptions::default()
-        }
+        HookOptions::new().timeout(Duration::from_millis(100))
     );
     let result = invoke_before_stop_hooks();
     assert!(result.is_ok());
@@ -161,7 +158,7 @@ fn test_before_stop_hook_error_continues_next() {
 
     x_one::before_stop!(
         || Err(XOneError::Other("stop error".to_string())),
-        HookOptions::with_order(1)
+        HookOptions::new().order(1)
     );
 
     let exec = executed.clone();
@@ -170,7 +167,7 @@ fn test_before_stop_hook_error_continues_next() {
             exec.store(true, std::sync::atomic::Ordering::SeqCst);
             Ok(())
         },
-        HookOptions::with_order(2)
+        HookOptions::new().order(2)
     );
 
     let result = invoke_before_stop_hooks();
@@ -187,10 +184,7 @@ fn test_before_start_hook_timeout() {
             std::thread::sleep(Duration::from_secs(5));
             Ok(())
         },
-        HookOptions {
-            timeout: Duration::from_millis(100),
-            ..HookOptions::default()
-        }
+        HookOptions::new().timeout(Duration::from_millis(100))
     );
     let result = invoke_before_start_hooks();
     assert!(result.is_err());

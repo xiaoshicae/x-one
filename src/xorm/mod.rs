@@ -29,10 +29,10 @@ pub fn register_hook() {
         return;
     }
 
-    crate::before_start!(init::init_xorm, crate::xhook::HookOptions::with_order(5));
+    crate::before_start!(init::init_xorm, crate::xhook::HookOptions::new().order(5));
 
     crate::before_stop!(
         init::shutdown_xorm,
-        crate::xhook::HookOptions::with_order(3)
+        crate::xhook::HookOptions::new().order(3)
     );
 }

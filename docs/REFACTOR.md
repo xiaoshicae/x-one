@@ -106,9 +106,9 @@ Rust 中直接传结构体更自然、零开销。
 
 | 原代码 | 新代码 |
 |--------|--------|
-| `vec![]` | `HookOptions::default()` |
-| `vec![order(N)]` | `HookOptions { order: N, ..Default::default() }` |
-| `vec![must_invoke_success(false), order(N)]` | `HookOptions { order: N, must_invoke_success: false }` |
+| `vec![]` | `HookOptions::new()` |
+| `vec![order(N)]` | `HookOptions::new().order(N)` |
+| `vec![must_invoke_success(false), order(N)]` | `HookOptions::new().order(N).must_success(false)` |
 
 | 文件 | 说明 |
 |------|------|

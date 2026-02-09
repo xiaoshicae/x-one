@@ -34,7 +34,7 @@ pub(crate) fn config_store() -> &'static RwLock<Option<serde_yaml::Value>> {
 
 /// 初始化配置系统，注册到 xhook
 pub fn register_hook() {
-    crate::before_start!(init_store, crate::xhook::HookOptions::with_order(1));
+    crate::before_start!(init_store, crate::xhook::HookOptions::new().order(1));
 }
 
 /// 初始化配置存储（供框架内部自动初始化使用）

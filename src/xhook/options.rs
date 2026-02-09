@@ -27,20 +27,26 @@ impl Default for HookOptions {
 }
 
 impl HookOptions {
-    /// 便捷构造：仅设置执行顺序
-    pub fn with_order(order: i32) -> Self {
-        Self {
-            order,
-            ..Default::default()
-        }
+    /// 创建默认选项（order=100, must_invoke_success=true, timeout=5s）
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    /// 便捷构造：设置执行顺序和失败是否必须返回错误
-    pub fn with_order_and_must(order: i32, must_invoke_success: bool) -> Self {
-        Self {
-            order,
-            must_invoke_success,
-            ..Default::default()
-        }
+    /// 设置执行顺序（数字越小越先执行）
+    pub fn order(mut self, order: i32) -> Self {
+        self.order = order;
+        self
+    }
+
+    /// 设置失败时是否必须返回错误
+    pub fn must_success(mut self, must: bool) -> Self {
+        self.must_invoke_success = must;
+        self
+    }
+
+    /// 设置执行超时时间
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 }

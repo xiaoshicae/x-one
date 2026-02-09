@@ -14,9 +14,13 @@ pub use client::{get_config, xlog_level};
 pub use config::{LogLevel, XLOG_CONFIG_KEY, XLogConfig};
 pub use kv_layer::SpanKvFields;
 
-/// 注册日志初始化 Hook
+/// 注册日志 Hook
 pub fn register_hook() {
-    crate::before_start!(init::init_xlog, crate::xhook::HookOptions::with_order(2));
+    crate::before_start!(init::init_xlog, crate::xhook::HookOptions::new().order(2));
+    crate::before_stop!(
+        init::shutdown_xlog,
+        crate::xhook::HookOptions::new().order(i32::MAX)
+    );
 }
 
 // ============ KV 注入宏 ============

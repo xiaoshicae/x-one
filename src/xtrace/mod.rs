@@ -26,7 +26,7 @@ pub fn register_hook() {
         return;
     }
 
-    crate::before_start!(init::init_xtrace, xhook::HookOptions::with_order(3));
+    crate::before_start!(init::init_xtrace, xhook::HookOptions::new().order(3));
 
-    crate::before_stop!(init::shutdown_xtrace, xhook::HookOptions::with_order(1));
+    crate::before_stop!(init::shutdown_xtrace, xhook::HookOptions::new().order(1));
 }

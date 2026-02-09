@@ -24,13 +24,13 @@ x_one::before_start!(|| {
 x_one::before_start!(|| {
     println!("Early init...");
     Ok(())
-}, HookOptions::with_order(50));
+}, HookOptions::new().order(50));
 
 // 注册停止前钩子
 x_one::before_stop!(|| {
     println!("Closing connections...");
     Ok(())
-}, HookOptions::with_order(10));
+}, HookOptions::new().order(10));
 ```
 
 ## HookOptions
@@ -63,6 +63,6 @@ x_one::before_stop!(|| {
 | xcache | 2 |
 | xorm | 3 |
 | 用户自定义 | 100（默认） |
-| xlog guard | 100（最后关闭日志） |
+| xlog guard | i32::MAX（最后关闭日志） |
 
 > 用户自定义钩子建议使用 order >= 10（start）/ order >= 10（stop），避免与内置模块冲突。

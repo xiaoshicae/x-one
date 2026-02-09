@@ -122,13 +122,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     x_one::before_start!(|| {
         println!("Custom initialization...");
         Ok(())
-    }, HookOptions::with_order(100));
+    }, HookOptions::new().order(100));
 
     // 注册自定义停止钩子
     x_one::before_stop!(|| {
         println!("Cleaning up resources...");
         Ok(())
-    }, HookOptions::with_order(50));
+    }, HookOptions::new().order(50));
 
     // 方式一：Axum Web 服务
     let app = axum::Router::new();
