@@ -13,18 +13,16 @@ use crate::xserver;
 /// 初始化所有模块后，创建 AxumServer 并以异步方式运行，
 /// 阻塞等待退出信号（SIGINT/SIGTERM）。
 pub async fn run_axum(router: axum::Router) -> Result<()> {
-    crate::xserver::ensure_init()?;
     let server = AxumServer::new(router);
-    xserver::run_with_server(&server).await
+    xserver::run_server(&server).await
 }
 
 /// 以 Axum HTTP 服务器运行（自定义选项）
 ///
 /// 通过 `AxumOptions` 控制中间件启用/禁用。
 pub async fn run_axum_with_options(router: axum::Router, opts: AxumOptions) -> Result<()> {
-    crate::xserver::ensure_init()?;
     let server = AxumServer::with_options(router, opts);
-    xserver::run_with_server(&server).await
+    xserver::run_server(&server).await
 }
 
 /// 以 Axum HTTPS 服务器运行
@@ -33,7 +31,6 @@ pub async fn run_axum_with_options(router: axum::Router, opts: AxumOptions) -> R
 #[deprecated(note = "TLS 尚未实现，请勿在生产环境使用")]
 #[allow(deprecated)]
 pub async fn run_axum_tls(router: axum::Router, cert_file: &str, key_file: &str) -> Result<()> {
-    crate::xserver::ensure_init()?;
     let server = AxumTlsServer::new(router, cert_file, key_file);
-    xserver::run_with_server(&server).await
+    xserver::run_server(&server).await
 }

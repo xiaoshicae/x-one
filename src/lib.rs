@@ -22,19 +22,11 @@ pub use xaxum::{AxumOptions, AxumServer, AxumTlsServer};
 pub use xaxum::{run_axum, run_axum_tls, run_axum_with_options};
 pub use xserver::Server;
 pub use xserver::blocking::BlockingServer;
-pub use xserver::{run_blocking_server, run_server};
-
-/// 初始化所有模块
-///
-/// 注册内置模块 hook 并执行 before_start hooks。
-/// 通常由框架自动调用，也可手动调用确保初始化完成。
-pub fn init_all() -> Result<()> {
-    xserver::ensure_init()
-}
+pub use xserver::{run_blocking_server, run_server, start, stop};
 
 #[ctor::ctor]
 fn auto_init() {
-    if let Err(e) = xserver::ensure_init() {
+    if let Err(e) = xserver::start() {
         eprintln!("x-one auto init failed: {e}");
     }
 }

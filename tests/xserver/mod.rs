@@ -41,8 +41,8 @@ async fn test_server_stop() {
 }
 
 #[test]
-fn test_invoke_before_stop_hooks_safe_empty() {
+fn test_stop_empty() {
     // 没有注册任何 hook 时应成功
-    let result: Result<(), XOneError> = invoke_before_stop_hooks_safe();
+    let result: Result<(), XOneError> = stop();
     assert!(result.is_ok());
 }
