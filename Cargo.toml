@@ -18,7 +18,6 @@ dotenvy = { version = "0.15" }
 regex = { version = "1" }
 thiserror = { version = "2" }
 parking_lot = { version = "0.12" }
-ctor = { version = "0.2" }
 opentelemetry = { version = "0.28" }
 opentelemetry_sdk = { version = "0.28", features = ["rt-tokio"] }
 opentelemetry-stdout = { version = "0.28", features = ["trace"] }
