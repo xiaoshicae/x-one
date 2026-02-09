@@ -32,6 +32,20 @@ impl<T> IsEmpty for Option<T> {
     }
 }
 
+macro_rules! impl_is_empty_for_numeric {
+    ($($t:ty),*) => {
+        $(
+            impl IsEmpty for $t {
+                fn is_empty(&self) -> bool {
+                    *self == 0 as $t
+                }
+            }
+        )*
+    };
+}
+
+impl_is_empty_for_numeric!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, f32, f64);
+
 /// 若值为空则返回 fallback（借用版本）
 ///
 /// # Examples
