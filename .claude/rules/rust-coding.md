@@ -17,6 +17,10 @@
 - 常量：`SCREAMING_SNAKE_CASE`
 - 生命周期参数：简短有意义，如 `'a`, `'input`
 
+## 消息与文案
+- 错误消息（`XOneError`、`expect`、`tracing::info/warn/error` 等）使用英文
+- 代码注释（`//`、`///`、`//!`）使用中文
+
 ## 文档
 - 公开 API 必须有 `///` 文档注释
 - 文档注释使用中文

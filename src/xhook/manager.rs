@@ -114,14 +114,11 @@ pub fn invoke_before_start_hooks() -> Result<(), XOneError> {
 }
 
 /// 执行所有 BeforeStop Hook（带逐个超时控制）
+///
+/// 清理阶段保证每个 hook 都会被执行，单个失败只 warn 不中断。
+/// `must_invoke_success` 在 stop 阶段被忽略。
 pub fn invoke_before_stop_hooks() -> Result<(), XOneError> {
     let hooks = take_sorted_hooks(false);
-
-    if hooks.is_empty() {
-        return Ok(());
-    }
-
-    let mut err_msgs: Vec<String> = Vec::new();
 
     for h in hooks {
         match invoke_hook_with_timeout(h.func, h.options.timeout) {
@@ -132,30 +129,15 @@ pub fn invoke_before_stop_hooks() -> Result<(), XOneError> {
                 ));
             }
             Err(e) => {
-                if h.options.must_invoke_success {
-                    xutil::error_if_enable_debug(&format!(
-                        "XOne invoke before stop hook failed, func=[{}], err=[{e}]",
-                        h.name,
-                    ));
-                    err_msgs.push(format!("func=[{}], err=[{e}]", h.name));
-                } else {
-                    xutil::warn_if_enable_debug(&format!(
-                        "XOne invoke before stop hook failed, case MustInvokeSuccess=false, func=[{}], err=[{e}]",
-                        h.name,
-                    ));
-                }
+                xutil::warn_if_enable_debug(&format!(
+                    "XOne invoke before stop hook failed (ignored), func=[{}], err=[{e}]",
+                    h.name,
+                ));
             }
         }
     }
 
-    if err_msgs.is_empty() {
-        Ok(())
-    } else {
-        Err(XOneError::Hook(format!(
-            "invoke before stop hook failed, {}",
-            err_msgs.join("; ")
-        )))
-    }
+    Ok(())
 }
 
 /// 从管理器中取出排序后的 hooks
