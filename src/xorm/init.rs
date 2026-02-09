@@ -31,7 +31,7 @@ pub fn init_xorm() -> Result<(), crate::error::XOneError> {
             continue;
         }
 
-        let name = xutil::default_if_empty(&config.name, DEFAULT_POOL_NAME).to_string();
+        let name = xutil::default_if_empty(config.name.as_str(), DEFAULT_POOL_NAME).to_string();
 
         xutil::info_if_enable_debug(&format!(
             "XOrm register pool name=[{}], driver=[{}], max_open=[{}], max_idle=[{}]",

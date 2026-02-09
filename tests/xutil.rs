@@ -21,3 +21,6 @@ mod net;
 
 #[path = "xutil/retry.rs"]
 mod retry;
+
+#[path = "xutil/default_value.rs"]
+mod default_value;
