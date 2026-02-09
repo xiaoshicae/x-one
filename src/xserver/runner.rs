@@ -53,16 +53,15 @@ pub fn shutdown() -> Result<(), XOneError> {
 
 /// 以用户自定义 Server 实现运行
 ///
-/// 初始化所有模块后，以异步方式运行传入的 Server 实现，
-/// 阻塞等待退出信号（SIGINT/SIGTERM），退出时自动调用 shutdown hooks。
+/// 完整生命周期：`init()` → `server.run()` → 信号监听 → `shutdown()`。
+/// 阻塞等待退出信号（SIGINT/SIGTERM），退出时自动清理资源。
 pub async fn run_server<S: Server>(server: &S) -> Result<(), XOneError> {
-    init()?;
     run_with_signal(server).await
 }
 
 /// 以 BlockingServer 运行
 ///
-/// 初始化所有模块后，创建 BlockingServer 阻塞等待退出信号。
+/// 完整生命周期：`init()` → 阻塞等待退出信号 → `shutdown()`。
 /// 适用于 consumer/job 等无需监听端口的后台服务。
 pub async fn run_blocking_server() -> Result<(), XOneError> {
     let server = super::blocking::BlockingServer::new();
@@ -107,8 +106,12 @@ fn invoke_hooks_with_log(
     }
 }
 
-/// 以异步方式运行服务，监听退出信号并自动执行 stop hooks
+/// 完整生命周期：init → run → signal → shutdown
+///
+/// init 和 shutdown 对称包裹 server 运行逻辑。
 async fn run_with_signal<S: Server>(server: &S) -> Result<(), XOneError> {
+    init()?;
+
     let server_result = tokio::select! {
         result = server.run() => {
             match result {
@@ -122,37 +125,27 @@ async fn run_with_signal<S: Server>(server: &S) -> Result<(), XOneError> {
             }
         }
         _ = tokio::signal::ctrl_c() => {
-            shutdown_server(server, "SIGINT").await
+            stop_server(server, "SIGINT").await
         }
         _ = wait_for_terminate_signal() => {
-            shutdown_server(server, "SIGTERM").await
+            stop_server(server, "SIGTERM").await
         }
     };
 
-    let stop_result = shutdown();
-    merge_results(server_result, stop_result)
+    // 清理资源（stop hooks 失败只 warn 不中断）
+    let _ = shutdown();
+
+    server_result
 }
 
 /// 停止服务并记录日志
-async fn shutdown_server<S: Server>(server: &S, signal: &str) -> Result<(), XOneError> {
+async fn stop_server<S: Server>(server: &S, signal: &str) -> Result<(), XOneError> {
     xutil::info_if_enable_debug(&format!(
         "********** XOne Stop server begin ({signal}) **********"
     ));
     server.stop().await?;
     xutil::info_if_enable_debug("********** XOne Stop server success **********");
     Ok(())
-}
-
-/// 合并 server 结果和 stop hook 结果
-fn merge_results(
-    server_result: Result<(), XOneError>,
-    hook_result: Result<(), XOneError>,
-) -> Result<(), XOneError> {
-    match (server_result, hook_result) {
-        (Ok(()), Ok(())) => Ok(()),
-        (Err(e), Ok(())) | (Ok(()), Err(e)) => Err(e),
-        (Err(se), Err(he)) => Err(XOneError::Multi(vec![se, he])),
-    }
 }
 
 /// 等待 SIGTERM 信号（仅 unix）

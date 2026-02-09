@@ -107,17 +107,18 @@ fn test_before_stop_hook_success() {
 
 #[test]
 #[serial]
-fn test_before_stop_hook_error() {
+fn test_before_stop_hook_error_ignored() {
+    // stop hooks 失败只 warn 不返回 Err
     reset_hooks();
     x_one::before_stop!(|| Err(XOneError::Other("stop error".to_string())));
     let result = invoke_before_stop_hooks();
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("stop error"));
+    assert!(result.is_ok());
 }
 
 #[test]
 #[serial]
-fn test_before_stop_hook_timeout() {
+fn test_before_stop_hook_timeout_ignored() {
+    // stop hooks 超时只 warn 不返回 Err
     reset_hooks();
     x_one::before_stop!(
         || {
@@ -130,18 +131,17 @@ fn test_before_stop_hook_timeout() {
         }
     );
     let result = invoke_before_stop_hooks();
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("timeout"));
+    assert!(result.is_ok());
 }
 
 #[test]
 #[serial]
-fn test_before_stop_hook_panic_recovery() {
+fn test_before_stop_hook_panic_ignored() {
+    // stop hooks panic 只 warn 不返回 Err
     reset_hooks();
     x_one::before_stop!(|| panic!("stop panic"));
     let result = invoke_before_stop_hooks();
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("panic occurred"));
+    assert!(result.is_ok());
 }
 
 #[test]
@@ -154,13 +154,14 @@ fn test_before_stop_empty_hooks() {
 
 #[test]
 #[serial]
-fn test_before_stop_hook_error_not_must_success() {
+fn test_before_stop_hook_error_continues_next() {
+    // 前一个 hook 失败不影响后续 hook 执行
     reset_hooks();
     let executed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     x_one::before_stop!(
         || Err(XOneError::Other("stop error".to_string())),
-        HookOptions::with_order_and_must(1, false)
+        HookOptions::with_order(1)
     );
 
     let exec = executed.clone();

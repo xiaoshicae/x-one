@@ -218,7 +218,7 @@ pub async fn log_middleware(req: Request, next: Next) -> Response {
         http.request_body = %req_body_str,
         http.response_headers = %resp_headers_str,
         http.response_body = %resp_body_str,
-        "HTTP 请求完成"
+        "HTTP request completed"
     );
 
     response

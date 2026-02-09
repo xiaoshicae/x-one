@@ -40,7 +40,8 @@ macro_rules! before_start {
 
 /// 注册 BeforeStop Hook
 ///
-/// 自动以调用位置（file:line）作为 Hook 名称，`HookOptions` 可选(会直接忽略must_invoke_success=true，即失败也不影响后续其它hook的stop)。
+/// 自动以调用位置（file:line）作为 Hook 名称，`HookOptions` 可选。
+/// 清理阶段 `must_invoke_success` 被忽略，单个失败不影响后续 hook 执行。
 ///
 /// # Examples
 ///
