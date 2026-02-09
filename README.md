@@ -66,8 +66,8 @@ use axum::{Router, routing::get};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. 初始化配置和模块
-    x_one::init_all();
+    // 1. 初始化框架
+    x_one::init()?;
 
     // 2. 构建路由
     let app = Router::new().route("/ping", get(|| async { "pong" }));

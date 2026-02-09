@@ -41,4 +41,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## 注意事项
 
 - **线程安全**：底层 `reqwest::Client` 是线程安全的，建议全局复用。
-- **配置生效**：必须调用 `x_one::init_all()` 或 `xhttp::init()` 后，配置才会生效，否则使用默认配置。
+- **配置生效**：必须调用 `x_one::init()` 或 `xhttp::init()` 后，配置才会生效，否则使用默认配置。

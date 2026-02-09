@@ -7,9 +7,9 @@
 
 #[tokio::main]
 async fn main() {
-    // 初始化所有模块
+    // 初始化框架（注册 hook 并执行 before_start hooks）
     // 注册顺序：xconfig → xlog → xtrace → xhttp → xorm → xcache
-    x_one::init_all().expect("初始化失败");
+    x_one::init().expect("初始化失败");
 
     // 使用 xcache 进行缓存操作
     x_one::xcache::set("greeting", "hello from x-one".to_string());

@@ -4,7 +4,5 @@ pub mod blocking;
 pub mod runner;
 pub mod server;
 
-pub use runner::{
-    ensure_init, invoke_before_stop_hooks_safe, run_blocking_server, run_server, run_with_server,
-};
+pub use runner::{init, run_blocking_server, run_server, shutdown};
 pub use server::Server;
