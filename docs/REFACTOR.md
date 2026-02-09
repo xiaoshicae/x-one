@@ -16,8 +16,8 @@ Rust 2024 edition 原生支持 async fn in trait，不再需要 `async_trait` �
 |------|------|------|
 | `src/xserver/mod.rs` | trait Server 定义 | 删除 trait 上的注解 |
 | `src/xserver/mod.rs` | tests 中 MockServer impl | 删除 impl 上的注解 |
-| `src/xserver/auxm.rs` | AuxmServer impl | 删除 impl 上的注解 |
-| `src/xserver/auxm.rs` | AuxmTlsServer impl | 删除 impl 上的注解 |
+| `src/xserver/axum.rs` | AxumServer impl | 删除 impl 上的注解 |
+| `src/xserver/axum.rs` | AxumTlsServer impl | 删除 impl 上的注解 |
 | `src/xserver/blocking.rs` | BlockingServer impl | 删除 impl 上的注解 |
 
 ---
@@ -145,8 +145,8 @@ pub fn parse_config<T: DeserializeOwned>(key: &str) -> Result<T, XOneError>
 | 结构体 | 默认值 | 删除的函数 |
 |--------|--------|-----------|
 | `XLogConfig` | 实际默认值 | `config_merge_default()` |
-| `AuxmConfig` | host="0.0.0.0", port=8000 | `auxm_config_merge_default` |
-| `AuxmSwaggerConfig` | schemes=["https","http"] | `auxm_swagger_config_merge_default` |
+| `AxumConfig` | host="0.0.0.0", port=8000 | `axum_config_merge_default` |
+| `AxumSwaggerConfig` | schemes=["https","http"] | `axum_swagger_config_merge_default` |
 | `ServerConfig` | version="v0.0.1" | `server_config_merge_default` |
 
 调用方改为：`parse_config().unwrap_or_default()`
@@ -164,8 +164,8 @@ pub enum LogLevel {
 - `XLogConfig.level: String` → `level: LogLevel`
 
 **端口类型**:
-- `AuxmConfig.port: i32` → `port: u16`
-- `src/xserver/auxm.rs`: 删除 `auxm_config.port as u16`，直接用 `auxm_config.port`
+- `AxumConfig.port: i32` → `port: u16`
+- `src/xserver/axum.rs`: 删除 `axum_config.port as u16`，直接用 `axum_config.port`
 
 ---
 

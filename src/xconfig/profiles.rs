@@ -80,14 +80,10 @@ pub fn to_profiles_active_config_location(
         .and_then(|s| s.to_str())
         .ok_or_else(|| "config file name is invalid, no stem found".to_string())?;
 
-    let parent = path
+    let file_name = format!("{stem}-{profile_active}.{ext}");
+    let result = path
         .parent()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default();
-
-    if parent.is_empty() {
-        Ok(format!("{stem}-{profile_active}.{ext}"))
-    } else {
-        Ok(format!("{parent}/{stem}-{profile_active}.{ext}"))
-    }
+        .unwrap_or_else(|| std::path::Path::new(""))
+        .join(&file_name);
+    Ok(result.to_string_lossy().to_string())
 }

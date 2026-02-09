@@ -16,10 +16,10 @@ pub use accessor::{
     contain_key, get_bool, get_float64, get_int, get_string, get_string_slice, get_value,
     parse_config,
 };
-pub use config::{AuxmConfig, AuxmSwaggerConfig, ProfilesConfig, SERVER_CONFIG_KEY, ServerConfig};
+pub use config::{ProfilesConfig, SERVER_CONFIG_KEY, ServerConfig};
 pub use server_config::{
-    DEFAULT_SERVER_NAME, DEFAULT_SERVER_VERSION, get_auxm_config, get_auxm_swagger_config,
-    get_raw_server_name, get_server_name, get_server_version,
+    DEFAULT_SERVER_NAME, DEFAULT_SERVER_VERSION, get_raw_server_name, get_server_name,
+    get_server_version,
 };
 
 use parking_lot::RwLock;

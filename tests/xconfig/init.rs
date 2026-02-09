@@ -8,15 +8,14 @@ Server:
   Version: v1.0.0
   Profiles:
     Active: dev
-  Auxm:
-    Host: "0.0.0.0"
-    Port: 8000
+XAxum:
+  Host: "0.0.0.0"
+  Port: 8000
 CustomKey: base_value
 "#;
     let env_yaml = r#"
-Server:
-  Auxm:
-    Port: 9090
+XAxum:
+  Port: 9090
 CustomKey: env_value
 "#;
     let base: serde_yaml::Value = serde_yaml::from_str(base_yaml).unwrap();
@@ -36,12 +35,10 @@ CustomKey: env_value
         "test-app"
     );
 
-    // Server.Auxm 应被环境覆盖
+    // XAxum.Port 应被环境覆盖
     assert_eq!(
         merged
-            .get("Server")
-            .unwrap()
-            .get("Auxm")
+            .get("XAxum")
             .unwrap()
             .get("Port")
             .unwrap()

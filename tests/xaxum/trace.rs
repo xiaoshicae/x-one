@@ -21,7 +21,7 @@ fn build_app() -> Router {
             }),
         )
         .layer(axum::middleware::from_fn::<_, (axum::extract::Request,)>(
-            x_one::xauxm::trace::trace_middleware,
+            x_one::xaxum::trace::trace_middleware,
         ))
 }
 
@@ -95,7 +95,7 @@ async fn test_trace_middleware_disabled_passthrough() {
     let app = Router::new()
         .route("/ping", get(|| async { "pong" }))
         .layer(axum::middleware::from_fn::<_, (axum::extract::Request,)>(
-            x_one::xauxm::trace::trace_middleware,
+            x_one::xaxum::trace::trace_middleware,
         ));
 
     let response = app

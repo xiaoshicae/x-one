@@ -34,18 +34,12 @@ pub fn init_xconfig() -> Result<Option<serde_yaml::Value>, String> {
 
 /// 加载 .env 文件（如果存在）
 fn load_dot_env_if_exist(config_location: &str) -> Result<(), String> {
-    let dir = Path::new(config_location)
+    let dot_env_path = Path::new(config_location)
         .parent()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default();
+        .unwrap_or_else(|| Path::new(""))
+        .join(DOT_ENV_FILENAME);
 
-    let dot_env_path = if dir.is_empty() {
-        DOT_ENV_FILENAME.to_string()
-    } else {
-        format!("{dir}/{DOT_ENV_FILENAME}")
-    };
-
-    if xutil::file_exist(&dot_env_path) {
+    if xutil::file_exist(&dot_env_path.to_string_lossy()) {
         dotenvy::from_filename(&dot_env_path)
             .map_err(|e| format!("XOne initXConfig load .env failed, err=[{e}]"))?;
     }
@@ -76,17 +70,11 @@ fn parse_config(config_location: &str) -> Result<serde_yaml::Value, String> {
     }
 
     // 检查 Server.Name 是否为空
-    if let Some(name) = base_config
+    let name = base_config
         .get("Server")
         .and_then(|s| s.get("Name"))
-        .and_then(|n| n.as_str())
-    {
-        if name.is_empty() {
-            xutil::warn_if_enable_debug(
-                "config Server.Name should not be empty, as it is used by many modules",
-            );
-        }
-    } else {
+        .and_then(|n| n.as_str());
+    if name.is_none_or(str::is_empty) {
         xutil::warn_if_enable_debug(
             "config Server.Name should not be empty, as it is used by many modules",
         );

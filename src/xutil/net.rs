@@ -38,7 +38,7 @@ pub fn get_local_ip() -> Result<String, String> {
 /// assert_eq!(ip, "192.168.1.1");
 /// ```
 pub fn extract_real_ip(addr: &str) -> Result<String, String> {
-    if !addr.is_empty() && addr != "0.0.0.0" && addr != "[::]" && addr != "::" {
+    if !addr.is_empty() && !matches!(addr, "0.0.0.0" | "[::]" | "::") {
         let candidate = addr.trim();
 
         // 尝试分离 host:port

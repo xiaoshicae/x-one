@@ -13,27 +13,27 @@
           "properties": {
             "Active": { "type": "string" }
           }
-        },
-        "Auxm": {
-          "type": "object",
-          "properties": {
-            "Host": { "type": "string", "default": "0.0.0.0" },
-            "Port": { "type": "integer", "default": 8000 },
-            "UseHttp2": { "type": "boolean", "default": false },
-            "Swagger": {
-              "type": "object",
-              "properties": {
-                "Host": { "type": "string" },
-                "BasePath": { "type": "string" },
-                "Title": { "type": "string" },
-                "Description": { "type": "string" },
-                "Schemes": { "type": "array", "items": { "type": "string" }, "default": ["https", "http"] }
-              }
-            }
-          }
         }
       },
       "required": ["Name"]
+    },
+    "XAxum": {
+      "type": "object",
+      "properties": {
+        "Host": { "type": "string", "default": "0.0.0.0" },
+        "Port": { "type": "integer", "default": 8000 },
+        "UseHttp2": { "type": "boolean", "default": false },
+        "Swagger": {
+          "type": "object",
+          "properties": {
+            "Host": { "type": "string" },
+            "BasePath": { "type": "string" },
+            "Title": { "type": "string" },
+            "Description": { "type": "string" },
+            "Schemes": { "type": "array", "items": { "type": "string" }, "default": ["https", "http"] }
+          }
+        }
+      }
     },
     "XLog": {
       "type": "object",

@@ -37,22 +37,15 @@
 Server:
   Name: "my-service" # 服务名 (必填)
   Version: "v1.0.0"
-  
+
   Profiles:
     Active: "dev"    # 激活 dev 环境配置 (application-dev.yml)
-  
-  Auxm:
-    Port: 8000
-    Host: "0.0.0.0"
 ```
 
 ## 使用 Demo
 
 ```rust
 use x_one::xconfig;
-
-// 读取内置配置（Auxm）
-let port = xconfig::get_auxm_config().port;
 
 // 读取自定义配置
 let my_val = xconfig::get_string("MyConfig.Key");

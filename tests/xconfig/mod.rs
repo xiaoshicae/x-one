@@ -33,26 +33,24 @@ fn test_get_server_version_default() {
 #[test]
 fn test_get_int() {
     reset_config();
-    let yaml = "Server:
-  Auxm:
-    Port: 9090
+    let yaml = "XAxum:
+  Port: 9090
 ";
     let config: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
     set_config(config);
-    assert_eq!(get_int("Server.Auxm.Port"), 9090);
+    assert_eq!(get_int("XAxum.Port"), 9090);
     reset_config();
 }
 
 #[test]
 fn test_get_bool() {
     reset_config();
-    let yaml = "Server:
-  Auxm:
-    UseHttp2: true
+    let yaml = "XAxum:
+  UseHttp2: true
 ";
     let config: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
     set_config(config);
-    assert!(get_bool("Server.Auxm.UseHttp2"));
+    assert!(get_bool("XAxum.UseHttp2"));
     reset_config();
 }
 
@@ -86,30 +84,14 @@ fn test_get_string_slice() {
 #[test]
 fn test_parse_config() {
     reset_config();
-    let yaml = "Server:
-  Auxm:
-    Host: '127.0.0.1'
-    Port: 3000
+    let yaml = "XAxum:
+  Host: '127.0.0.1'
+  Port: 3000
 ";
     let config: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
     set_config(config);
-    let auxm: AuxmConfig = parse_config("Server.Auxm").unwrap();
-    assert_eq!(auxm.host, "127.0.0.1");
-    assert_eq!(auxm.port, 3000);
+    let cfg: x_one::xaxum::AxumConfig = parse_config("XAxum").unwrap();
+    assert_eq!(cfg.host, "127.0.0.1");
+    assert_eq!(cfg.port, 3000);
     reset_config();
-}
-
-#[test]
-fn test_get_auxm_config_default() {
-    reset_config();
-    let auxm = get_auxm_config();
-    assert_eq!(auxm.host, "0.0.0.0");
-    assert_eq!(auxm.port, 8000);
-}
-
-#[test]
-fn test_get_auxm_swagger_config_default() {
-    reset_config();
-    let swagger = get_auxm_swagger_config();
-    assert_eq!(swagger.schemes, vec!["https", "http"]);
 }
