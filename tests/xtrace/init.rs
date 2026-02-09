@@ -1,4 +1,3 @@
-use x_one::xtrace::client::*;
 use x_one::xtrace::init::*;
 
 #[test]

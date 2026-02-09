@@ -1,4 +1,4 @@
-//! xtrace 初始化和关闭逻辑
+//! xtrace 初始化、关闭和对外查询 API
 
 use crate::xconfig;
 use crate::xutil;
@@ -7,10 +7,17 @@ use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use parking_lot::Mutex;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::client::TRACE_ENABLED;
 use super::config::{XTRACE_CONFIG_KEY, XTraceConfig};
+
+/// 全局 trace 启用标志
+static TRACE_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// 判断 trace 是否启用
+pub fn is_trace_enabled() -> bool {
+    TRACE_ENABLED.load(Ordering::Acquire)
+}
 
 /// 全局 TracerProvider（需要在 shutdown 时用到）
 static PROVIDER: std::sync::OnceLock<Mutex<Option<SdkTracerProvider>>> = std::sync::OnceLock::new();

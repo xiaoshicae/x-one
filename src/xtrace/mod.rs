@@ -3,11 +3,10 @@
 //! 基于 OpenTelemetry 实现，提供 TracerProvider 初始化、
 //! Tracer 获取、Trace 启用判断等功能。
 
-pub mod client;
 pub mod config;
 pub mod init;
 
-pub use client::is_trace_enabled;
+pub use init::is_trace_enabled;
 pub use config::XTraceConfig;
 
 use crate::xhook;
