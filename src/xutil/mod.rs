@@ -14,7 +14,7 @@ pub mod retry;
 pub mod string;
 
 // Re-export 常用 API，方便外部使用 xutil::xxx 调用
-pub use cmd::{get_config_from_args, get_config_from_args_with, get_os_args};
+pub use cmd::get_config_from_args;
 pub use convert::to_duration;
 pub use debug_log::{error_if_enable_debug, info_if_enable_debug, warn_if_enable_debug};
 pub use env::{DEBUG_KEY, enable_debug};
