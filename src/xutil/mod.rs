@@ -16,7 +16,7 @@ pub mod retry;
 pub use cmd::get_config_from_args;
 pub use convert::to_duration;
 pub use debug_log::{error_if_enable_debug, info_if_enable_debug, warn_if_enable_debug};
-pub use default_value::{IsEmpty, default_if_empty, take_or_default};
+pub use default_value::{IsZero, default_if_empty, take_or_default};
 pub use env::{DEBUG_KEY, enable_debug};
 pub use file::{dir_exist, file_exist};
 pub use json::{to_json_string, to_json_string_indent};

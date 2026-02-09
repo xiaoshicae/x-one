@@ -46,9 +46,9 @@ pub fn create_cache_instance(config: &XCacheConfig) -> Result<(), crate::error::
         100_000
     };
 
-    let default_ttl = xutil::to_duration(&config.default_ttl).unwrap_or_else(|e| {
+    let default_ttl = xutil::to_duration(&config.default_ttl).unwrap_or_else(|| {
         xutil::warn_if_enable_debug(&format!(
-            "XCache invalid default_ttl=[{}], err=[{e}], using 300s",
+            "XCache invalid default_ttl=[{}], using 300s",
             config.default_ttl
         ));
         std::time::Duration::from_secs(300)

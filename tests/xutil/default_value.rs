@@ -90,3 +90,35 @@ fn test_take_or_default_option_none() {
 fn test_take_or_default_option_some() {
     assert_eq!(take_or_default(Some(42), Some(99)), Some(42));
 }
+
+// ---- 数值类型 ----
+
+#[test]
+fn test_default_if_empty_i32_zero() {
+    assert_eq!(default_if_empty(&0_i32, &42), &42);
+}
+
+#[test]
+fn test_default_if_empty_i32_non_zero() {
+    assert_eq!(default_if_empty(&10_i32, &42), &10);
+}
+
+#[test]
+fn test_take_or_default_u64_zero() {
+    assert_eq!(take_or_default(0_u64, 100_u64), 100);
+}
+
+#[test]
+fn test_take_or_default_u64_non_zero() {
+    assert_eq!(take_or_default(50_u64, 100_u64), 50);
+}
+
+#[test]
+fn test_default_if_empty_f64_zero() {
+    assert_eq!(default_if_empty(&0.0_f64, &3.14), &3.14);
+}
+
+#[test]
+fn test_default_if_empty_f64_non_zero() {
+    assert_eq!(default_if_empty(&2.7_f64, &3.14), &2.7);
+}
