@@ -1,66 +1,65 @@
 //! 重试工具
+//!
+//! 基于 `backon` 封装，内部使用指数退避策略。
 
 use std::time::Duration;
 
-/// 重试执行函数指定次数
+use backon::ExponentialBuilder;
+
+/// 重试执行函数（同步）
 ///
-/// 如果 `attempts` 为 0，则只执行一次（不重试）。
-/// 每次失败后等待 `sleep` 时长再重试。
+/// 内部使用指数退避策略，`delay` 为初始间隔，每次翻倍。
+/// `max_retries` 为最大重试次数（不含首次执行）。
 ///
 /// # Examples
 ///
 /// ```
 /// use std::time::Duration;
-/// let result = x_one::xutil::retry(|| Ok::<(), String>(()), 3, Duration::from_millis(10));
-/// assert!(result.is_ok());
+/// let result = x_one::xutil::retry(|| Ok::<_, String>("ok"), 3, Duration::from_millis(10));
+/// assert_eq!(result.unwrap(), "ok");
 /// ```
-pub fn retry<F, E>(f: F, attempts: usize, sleep: Duration) -> Result<(), E>
+pub fn retry<F, T, E>(f: F, max_retries: usize, delay: Duration) -> Result<T, E>
 where
-    F: Fn() -> Result<(), E>,
+    F: FnMut() -> Result<T, E>,
 {
-    let actual_attempts = attempts.max(1);
+    use backon::BlockingRetryable;
 
-    let mut last_err = None;
-    for i in 0..actual_attempts {
-        match f() {
-            Ok(()) => return Ok(()),
-            Err(e) => {
-                last_err = Some(e);
-                if i + 1 < actual_attempts && !sleep.is_zero() {
-                    std::thread::sleep(sleep);
-                }
-            }
-        }
-    }
-
-    // actual_attempts >= 1 保证 last_err 一定有值
-    Err(last_err.expect("actual_attempts >= 1, last_err must be Some"))
+    f.retry(backoff(max_retries, delay))
+        .sleep(std::thread::sleep)
+        .call()
 }
 
-/// 异步重试执行函数指定次数
+/// 重试执行函数（异步）
 ///
-/// 如果 `attempts` 为 0，则只执行一次（不重试）。
-/// 每次失败后等待 `sleep` 时长再重试。
-pub async fn retry_async<F, Fut, E>(f: F, attempts: usize, sleep: Duration) -> Result<(), E>
+/// 内部使用指数退避策略，`delay` 为初始间隔，每次翻倍。
+/// `max_retries` 为最大重试次数（不含首次执行）。
+///
+/// # Examples
+///
+/// ```
+/// # tokio_test::block_on(async {
+/// use std::time::Duration;
+/// let result = x_one::xutil::retry_async(|| async { Ok::<_, String>("ok") }, 3, Duration::from_millis(10)).await;
+/// assert_eq!(result.unwrap(), "ok");
+/// # });
+/// ```
+pub async fn retry_async<F, Fut, T, E>(f: F, max_retries: usize, delay: Duration) -> Result<T, E>
 where
-    F: Fn() -> Fut,
-    Fut: std::future::Future<Output = Result<(), E>>,
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
 {
-    let actual_attempts = attempts.max(1);
+    use backon::Retryable;
 
-    let mut last_err = None;
-    for i in 0..actual_attempts {
-        match f().await {
-            Ok(()) => return Ok(()),
-            Err(e) => {
-                last_err = Some(e);
-                if i + 1 < actual_attempts && !sleep.is_zero() {
-                    tokio::time::sleep(sleep).await;
-                }
-            }
-        }
-    }
+    f.retry(backoff(max_retries, delay))
+        .sleep(tokio::time::sleep)
+        .await
+}
 
-    // actual_attempts >= 1 保证 last_err 一定有值
-    Err(last_err.expect("actual_attempts >= 1, last_err must be Some"))
+// ---- 以下为私有实现 ----
+
+/// 构建指数退避策略
+fn backoff(max_retries: usize, delay: Duration) -> ExponentialBuilder {
+    ExponentialBuilder::default()
+        .with_min_delay(delay)
+        .with_max_times(max_retries)
 }
