@@ -1,6 +1,17 @@
 //! 服务运行和生命周期管理
 //!
 //! 提供 `init()` / `shutdown()` 对称生命周期 API 和服务运行逻辑。
+//!
+//! ```ignore
+//! // 方式一：通过 run_server 自动管理完整生命周期
+//! let server = x_one::XAxum::new().build();
+//! x_one::run_server(&server).await?;
+//!
+//! // 方式二：手动调用 init / shutdown（不启动 server）
+//! x_one::init()?;
+//! // ... 使用框架能力 ...
+//! x_one::shutdown().ok();
+//! ```
 
 use super::server::Server;
 use crate::error::XOneError;

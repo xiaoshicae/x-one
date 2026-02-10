@@ -1,4 +1,6 @@
-//! Cache 封装结构体
+//! 本地缓存封装
+//!
+//! 基于 moka 的类型安全缓存，支持泛型存取和 per-entry TTL。
 
 use crate::xutil;
 use moka::Expiry;
@@ -41,9 +43,22 @@ impl Expiry<String, CacheEntry> for PerEntryExpiry {
     }
 }
 
-/// Cache 封装
+/// 本地缓存实例
 ///
-/// 包装 moka::sync::Cache，提供泛型 API，支持 per-entry TTL。
+/// 基于 moka::sync::Cache 封装，通过类型擦除支持任意类型的存取。
+///
+/// ```ignore
+/// use x_one::xcache;
+///
+/// // 通过全局便捷 API 操作默认缓存
+/// xcache::set("user:123", "Alice".to_string());
+/// let name: Option<String> = xcache::get("user:123");
+///
+/// // 获取命名缓存实例做更精细操作
+/// if let Some(cache) = xcache::c("session") {
+///     cache.set_with_ttl("token", "abc", Duration::from_secs(300));
+/// }
+/// ```
 pub struct Cache {
     inner: MokaCache<String, CacheEntry>,
     default_ttl: Duration,

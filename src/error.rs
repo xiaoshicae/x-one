@@ -1,6 +1,11 @@
 //! 统一错误类型
+//!
+//! 定义 `XOneError` 枚举和 `Result<T>` 类型别名，
+//! 所有模块通过 `Result<T, XOneError>` 传播错误。
 
 /// x-one 框架统一错误类型
+///
+/// 各变体对应不同的错误来源，便于调用方按类型匹配处理。
 #[derive(Debug, thiserror::Error)]
 pub enum XOneError {
     /// Hook 执行错误

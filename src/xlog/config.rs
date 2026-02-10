@@ -1,4 +1,14 @@
 //! 日志配置结构体
+//!
+//! 对应 `application.yml` 中的 `XLog` 节点。
+//!
+//! ```yaml
+//! XLog:
+//!   Level: "info"
+//!   Name: "app"
+//!   Path: "./log"
+//!   Console: true
+//! ```
 
 use serde::{Deserialize, Serialize};
 

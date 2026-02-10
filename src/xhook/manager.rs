@@ -1,6 +1,7 @@
 //! Hook 管理器
 //!
 //! 提供 Hook 注册、排序执行、超时控制和 panic 恢复。
+//! 通常无需直接使用，请使用 [`before_start!`] 和 [`before_stop!`] 宏。
 
 use crate::error::XOneError;
 use crate::xutil;

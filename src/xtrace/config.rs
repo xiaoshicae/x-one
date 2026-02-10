@@ -1,4 +1,12 @@
 //! xtrace 配置结构体
+//!
+//! 对应 `application.yml` 中的 `XTrace` 节点。
+//!
+//! ```yaml
+//! XTrace:
+//!   Enable: true
+//!   Console: false
+//! ```
 
 use serde::{Deserialize, Serialize};
 

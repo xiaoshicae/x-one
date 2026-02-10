@@ -1,6 +1,16 @@
 //! xorm 对外 API
 //!
 //! 提供数据库连接池管理，支持 Postgres / MySQL 类型化连接池。
+//!
+//! ```ignore
+//! // 获取默认 Postgres 连接池
+//! let pool = x_one::xorm::db().unwrap();
+//! let pg = pool.as_postgres().unwrap();
+//! let row = sqlx::query("SELECT 1").fetch_one(pg).await?;
+//!
+//! // 多数据源：获取命名连接池
+//! let analytics = x_one::xorm::db_with_name("analytics").unwrap();
+//! ```
 
 use super::config::Driver;
 use parking_lot::RwLock;
@@ -12,7 +22,8 @@ pub const DEFAULT_POOL_NAME: &str = "_default_";
 
 /// 数据库连接池（类型化）
 ///
-/// Pool 内部基于 Arc，Clone 轻量。
+/// 通过 `as_postgres()` / `as_mysql()` 获取对应类型的连接池引用。
+/// Pool 内部基于 Arc，Clone 开销极小。
 #[derive(Clone, Debug)]
 pub enum DbPool {
     /// PostgreSQL 连接池
