@@ -45,19 +45,21 @@ pub fn detect_config_location() -> Option<String> {
     None
 }
 
-fn get_location_from_arg() -> Option<String> {
-    xutil::get_config_from_args(CONFIG_LOCATION_ARG_KEY)
-}
-
+#[doc(hidden)]
 pub fn get_location_from_env() -> Option<String> {
     std::env::var(CONFIG_LOCATION_ENV_KEY)
         .ok()
         .filter(|s| !s.is_empty())
 }
 
+#[doc(hidden)]
 pub fn get_location_from_current_dir() -> Option<String> {
     CONFIG_LOCATION_PATHS
         .iter()
         .find(|loc| xutil::file_exist(loc))
         .map(|loc| loc.to_string())
+}
+
+fn get_location_from_arg() -> Option<String> {
+    xutil::get_config_from_args(CONFIG_LOCATION_ARG_KEY)
 }

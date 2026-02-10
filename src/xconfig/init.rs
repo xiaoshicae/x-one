@@ -33,6 +33,56 @@ pub fn init_xconfig() -> Result<Option<serde_yaml::Value>, XOneError> {
     Ok(Some(config))
 }
 
+/// 加载本地配置文件
+#[doc(hidden)]
+pub fn load_local_config(path: &str) -> Result<serde_yaml::Value, XOneError> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| XOneError::Config(format!("load config file failed, err=[{e}]")))?;
+    serde_yaml::from_str(&content).map_err(|e| {
+        XOneError::Config(format!(
+            "parse config file failed, path=[{path}], err=[{e}]"
+        ))
+    })
+}
+
+/// 合并环境配置到基础配置
+///
+/// 环境配置中的顶层 key 会覆盖基础配置中的对应 key，
+/// Server 下的二级 key 也会单独覆盖
+#[doc(hidden)]
+pub fn merge_profiles_config(
+    mut base: serde_yaml::Value,
+    env: serde_yaml::Value,
+) -> serde_yaml::Value {
+    if let (Some(base_map), Some(env_map)) = (base.as_mapping_mut(), env.as_mapping()) {
+        for (key, value) in env_map {
+            // Server 下进行二级 key 合并（跳过 Profiles）
+            if key.as_str() == Some("Server") {
+                if let Some(env_server) = value.as_mapping() {
+                    // base 缺少 Server 时先插入空 Mapping
+                    if !base_map.contains_key(key) {
+                        base_map
+                            .insert(key.clone(), serde_yaml::Value::Mapping(Default::default()));
+                    }
+                    if let Some(base_server) =
+                        base_map.get_mut(key).and_then(|v| v.as_mapping_mut())
+                    {
+                        for (sk, sv) in env_server {
+                            if sk.as_str() == Some("Profiles") {
+                                continue;
+                            }
+                            base_server.insert(sk.clone(), sv.clone());
+                        }
+                    }
+                }
+                continue;
+            }
+            base_map.insert(key.clone(), value.clone());
+        }
+    }
+    base
+}
+
 /// 加载 .env 文件（如果存在）
 fn load_dot_env_if_exist(config_location: &str) -> Result<(), XOneError> {
     let dot_env_path = Path::new(config_location)
@@ -86,54 +136,6 @@ fn parse_config(config_location: &str) -> Result<serde_yaml::Value, XOneError> {
     env_expand::expand_env_placeholders_in_value(&mut base_config);
 
     Ok(base_config)
-}
-
-/// 加载本地配置文件
-pub fn load_local_config(path: &str) -> Result<serde_yaml::Value, XOneError> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| XOneError::Config(format!("load config file failed, err=[{e}]")))?;
-    serde_yaml::from_str(&content).map_err(|e| {
-        XOneError::Config(format!(
-            "parse config file failed, path=[{path}], err=[{e}]"
-        ))
-    })
-}
-
-/// 合并环境配置到基础配置
-///
-/// 环境配置中的顶层 key 会覆盖基础配置中的对应 key，
-/// Server 下的二级 key 也会单独覆盖
-pub fn merge_profiles_config(
-    mut base: serde_yaml::Value,
-    env: serde_yaml::Value,
-) -> serde_yaml::Value {
-    if let (Some(base_map), Some(env_map)) = (base.as_mapping_mut(), env.as_mapping()) {
-        for (key, value) in env_map {
-            // Server 下进行二级 key 合并（跳过 Profiles）
-            if key.as_str() == Some("Server") {
-                if let Some(env_server) = value.as_mapping() {
-                    // base 缺少 Server 时先插入空 Mapping
-                    if !base_map.contains_key(key) {
-                        base_map
-                            .insert(key.clone(), serde_yaml::Value::Mapping(Default::default()));
-                    }
-                    if let Some(base_server) =
-                        base_map.get_mut(key).and_then(|v| v.as_mapping_mut())
-                    {
-                        for (sk, sv) in env_server {
-                            if sk.as_str() == Some("Profiles") {
-                                continue;
-                            }
-                            base_server.insert(sk.clone(), sv.clone());
-                        }
-                    }
-                }
-                continue;
-            }
-            base_map.insert(key.clone(), value.clone());
-        }
-    }
-    base
 }
 
 /// 打印最终配置（debug 模式下）

@@ -32,6 +32,7 @@ pub fn init_xcache() -> Result<(), crate::error::XOneError> {
 }
 
 /// 创建缓存实例
+#[doc(hidden)]
 pub fn create_cache_instance(config: &XCacheConfig) -> Result<(), crate::error::XOneError> {
     let name = if config.name.is_empty() {
         DEFAULT_CACHE_NAME.to_string()

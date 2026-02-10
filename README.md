@@ -188,6 +188,7 @@ XOrm:
 
 ## 更新日志
 
+- **v0.2.4** (2026-02-10) - 日志中间件性能优化（异步记录、手动 JSON 拼接）+ 全局 pub 可见性治理
 - **v0.2.2** (2026-02-10) - 完善 /publish 发布流程（版本 tag 检测）
 - **v0.2.1** (2026-02-10) - 修复 graceful shutdown 被绕过、profile 合并丢失 Server 配置、空字符串 Duration 解析绕过默认值
 - **v0.2.0** (2026-02-10) - xaxum 支持 h2c (HTTP/2 cleartext)、日志增加 caller/threadName 字段、HTTP 请求耗时人性化显示、幂等 Hook 注册

@@ -34,16 +34,14 @@ pub fn detect_profiles_active(config: &serde_yaml::Value) -> Option<String> {
     None
 }
 
-fn get_profiles_active_from_arg() -> Option<String> {
-    xutil::get_config_from_args(PROFILES_ACTIVE_ARG_KEY).filter(|s| !s.is_empty())
-}
-
+#[doc(hidden)]
 pub fn get_profiles_active_from_env() -> Option<String> {
     std::env::var(PROFILES_ACTIVE_ENV_KEY)
         .ok()
         .filter(|s| !s.is_empty())
 }
 
+#[doc(hidden)]
 pub fn get_profiles_active_from_config(config: &serde_yaml::Value) -> Option<String> {
     // 按照 "Server.Profiles.Active" 的点分路径访问
     let keys: Vec<&str> = PROFILES_ACTIVE_CONFIG_KEY.split('.').collect();
@@ -84,4 +82,8 @@ pub fn to_profiles_active_config_location(
         .unwrap_or_else(|| std::path::Path::new(""))
         .join(&file_name);
     Ok(result.to_string_lossy().to_string())
+}
+
+fn get_profiles_active_from_arg() -> Option<String> {
+    xutil::get_config_from_args(PROFILES_ACTIVE_ARG_KEY).filter(|s| !s.is_empty())
 }

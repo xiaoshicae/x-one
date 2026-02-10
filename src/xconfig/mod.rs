@@ -57,12 +57,14 @@ pub fn init_store() -> Result<(), crate::error::XOneError> {
 }
 
 /// 重置配置存储（仅测试用）
+#[doc(hidden)]
 pub fn reset_config() {
     let mut store = config_store().write();
     *store = None;
 }
 
 /// 设置配置（仅测试用）
+#[doc(hidden)]
 pub fn set_config(config: serde_yaml::Value) {
     let mut store = config_store().write();
     *store = Some(config);

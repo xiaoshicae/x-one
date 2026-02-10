@@ -53,6 +53,7 @@ pub fn init_xorm() -> Result<(), crate::error::XOneError> {
 /// 根据配置构建 lazy 连接池
 ///
 /// 使用 `connect_lazy` 创建连接池，只解析 URL 不建立真实连接。
+#[doc(hidden)]
 pub fn build_pool(config: &XOrmConfig) -> Result<DbPool, crate::error::XOneError> {
     let max_lifetime = xutil::to_duration(&config.max_lifetime);
     let idle_timeout = xutil::to_duration(&config.max_idle_time);

@@ -9,6 +9,7 @@ use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::Response;
 use std::time::Instant;
+use tracing::Instrument;
 
 /// Body 日志显示截断阈值（4KB）
 const MAX_BODY_DISPLAY: usize = 4096;
@@ -42,6 +43,7 @@ const BINARY_CT_EXACT: &[&str] = &[
 /// 判断是否为敏感 header（大小写不敏感）
 ///
 /// 使用 `eq_ignore_ascii_case` 避免分配临时 String。
+#[doc(hidden)]
 pub fn is_sensitive_header(name: &str) -> bool {
     SENSITIVE_HEADERS
         .iter()
@@ -50,24 +52,45 @@ pub fn is_sensitive_header(name: &str) -> bool {
 
 /// 将 header 转为 JSON 字符串，敏感值脱敏为 `***`
 ///
-/// 使用 serde_json 确保 JSON 合法性（正确转义特殊字符）。
+/// 手动拼接 JSON，单次堆分配；正确转义引号和反斜杠。
+#[doc(hidden)]
 pub fn format_headers(headers: &HeaderMap) -> String {
-    let map: serde_json::Map<String, serde_json::Value> = headers
-        .iter()
-        .map(|(name, value)| {
-            let key = name.as_str().to_owned();
-            let val = if is_sensitive_header(name.as_str()) {
-                "***".to_owned()
-            } else {
-                value.to_str().unwrap_or("<non-utf8>").to_owned()
-            };
-            (key, serde_json::Value::String(val))
-        })
-        .collect();
-    serde_json::to_string(&map).unwrap_or_default()
+    let mut buf = String::with_capacity(256);
+    buf.push('{');
+    for (i, (name, value)) in headers.iter().enumerate() {
+        if i > 0 {
+            buf.push(',');
+        }
+        buf.push('"');
+        buf.push_str(name.as_str());
+        buf.push_str("\":\"");
+        if is_sensitive_header(name.as_str()) {
+            buf.push_str("***");
+        } else {
+            let v = value.to_str().unwrap_or("<non-utf8>");
+            for c in v.chars() {
+                match c {
+                    '"' => buf.push_str("\\\""),
+                    '\\' => buf.push_str("\\\\"),
+                    '\n' => buf.push_str("\\n"),
+                    '\r' => buf.push_str("\\r"),
+                    '\t' => buf.push_str("\\t"),
+                    c if c < '\x20' => {
+                        // JSON 要求控制字符用 \u00XX 转义
+                        buf.push_str(&format!("\\u{:04x}", c as u32));
+                    }
+                    _ => buf.push(c),
+                }
+            }
+        }
+        buf.push('"');
+    }
+    buf.push('}');
+    buf
 }
 
 /// 判断 Content-Type 是否为二进制类型
+#[doc(hidden)]
 pub fn is_binary_content_type(headers: &HeaderMap) -> bool {
     let ct = match headers.get("content-type") {
         Some(v) => match v.to_str() {
@@ -89,16 +112,12 @@ pub fn is_binary_content_type(headers: &HeaderMap) -> bool {
     BINARY_CT_EXACT.contains(&main_type)
 }
 
-/// 从 headers 获取 Content-Length
-fn content_length(headers: &HeaderMap) -> Option<usize> {
-    headers.get("content-length")?.to_str().ok()?.parse().ok()
-}
-
 /// 将 body 字节转为可记录字符串
 ///
 /// - 二进制内容返回 `<binary>`
 /// - 超过 4KB 截断并标注 `...(truncated)`
 /// - 空 body 返回空字符串
+#[doc(hidden)]
 pub fn body_to_string(bytes: &[u8], headers: &HeaderMap) -> String {
     if bytes.is_empty() {
         return String::new();
@@ -109,6 +128,98 @@ pub fn body_to_string(bytes: &[u8], headers: &HeaderMap) -> String {
     }
 
     body_display_string(bytes)
+}
+
+/// HTTP 访问日志中间件
+///
+/// 记录每个请求的 method、path、query、headers、body、响应状态码和耗时。
+/// 应注册在 trace 中间件外层，以便日志自动携带 trace context。
+///
+/// # 性能特性
+///
+/// - INFO 级别未启用时直接透传，零开销
+/// - 格式化 + 日志记录全部卸载到后台任务，不阻塞响应返回
+/// - 二进制 body 不缓冲，直接透传
+/// - 请求 body 仅在 Content-Length 已知且 ≤ 256KB 时缓冲
+/// - 响应 body 不缓冲，直接透传（仅记录 status + headers）
+/// - 日志文本截断为 4KB 显示（UTF-8 char boundary 安全）
+/// - headers 手动拼接 JSON，单次堆分配
+pub async fn log_middleware(req: Request, next: Next) -> Response {
+    // 日志级别未启用时直接透传，跳过所有 header/body 构造开销
+    if !tracing::enabled!(tracing::Level::INFO) {
+        return next.run(req).await;
+    }
+
+    let start = Instant::now();
+
+    // 轻量 clone 提取元信息，格式化推迟到后台任务
+    // Method 是小结构体，Uri 是引用计数，HeaderMap clone 比 format_headers 更轻
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    let req_headers = req.headers().clone();
+
+    // 请求 body：仅在 Content-Length 已知且在安全范围内时缓冲
+    // 无 Content-Length 时不消耗 body，避免大流式请求数据丢失
+    let should_buffer_req = !is_binary_content_type(req.headers())
+        && content_length(req.headers()).is_some_and(|len| len <= MAX_BODY_BUFFER);
+
+    let (req, req_body_bytes) = if should_buffer_req {
+        let (parts, body) = req.into_parts();
+        match axum::body::to_bytes(body, MAX_BODY_BUFFER).await {
+            Ok(bytes) => {
+                // Bytes::clone 是引用计数，O(1) 零拷贝
+                let cloned = bytes.clone();
+                (Request::from_parts(parts, Body::from(bytes)), Some(cloned))
+            }
+            Err(e) => {
+                tracing::warn!("log middleware: buffer request body failed: {e}");
+                (Request::from_parts(parts, Body::empty()), None)
+            }
+        }
+    } else {
+        (req, None)
+    };
+
+    // 调用下一个中间件/handler
+    let response = next.run(req).await;
+
+    let status = response.status().as_u16();
+    let resp_headers = response.headers().clone();
+
+    // 捕获当前 span，确保后台任务中日志携带 trace context
+    let span = tracing::Span::current();
+
+    // 将格式化 + 日志记录卸载到后台任务，不阻塞响应返回
+    tokio::spawn(
+        async move {
+            let req_headers_str = format_headers(&req_headers);
+            let req_body_str = req_body_bytes
+                .map(|b| body_display_string(&b))
+                .unwrap_or_default();
+            let resp_headers_str = format_headers(&resp_headers);
+            let elapsed = start.elapsed();
+
+            tracing::info!(
+                http.method = %method,
+                http.path = %uri.path(),
+                http.query = %uri.query().unwrap_or_default(),
+                http.status = status,
+                http.elapsed = %format_elapsed(elapsed),
+                http.request_headers = %req_headers_str,
+                http.request_body = %req_body_str,
+                http.response_headers = %resp_headers_str,
+                "HTTP request completed"
+            );
+        }
+        .instrument(span),
+    );
+
+    response
+}
+
+/// 从 headers 获取 Content-Length
+fn content_length(headers: &HeaderMap) -> Option<usize> {
+    headers.get("content-length")?.to_str().ok()?.parse().ok()
 }
 
 /// 将已确认为文本的 body 字节转为可显示字符串（内部使用）
@@ -129,99 +240,6 @@ fn body_display_string(bytes: &[u8]) -> String {
     } else {
         text.into_owned()
     }
-}
-
-/// HTTP 访问日志中间件
-///
-/// 记录每个请求的 method、path、query、headers、body、响应状态码和耗时。
-/// 应注册在 trace 中间件外层，以便日志自动携带 trace context。
-///
-/// # 性能特性
-///
-/// - INFO 级别未启用时直接透传，零开销
-/// - 二进制 body 不缓冲，直接透传
-/// - 请求/响应 body 仅在 Content-Length 已知且 ≤ 256KB 时缓冲
-/// - 日志文本截断为 4KB 显示（UTF-8 char boundary 安全）
-/// - headers 在消费 body 前就地格式化，避免 HeaderMap clone
-pub async fn log_middleware(req: Request, next: Next) -> Response {
-    // 日志级别未启用时直接透传，跳过所有 header/body 构造开销
-    if !tracing::enabled!(tracing::Level::INFO) {
-        return next.run(req).await;
-    }
-
-    let start = Instant::now();
-
-    // 在消耗 body 之前就地提取元信息，避免 HeaderMap clone
-    let method = req.method().to_string();
-    let path = req.uri().path().to_owned();
-    let query = req.uri().query().unwrap_or_default().to_owned();
-    let req_headers_str = format_headers(req.headers());
-
-    // 请求 body：仅在 Content-Length 已知且在安全范围内时缓冲
-    // 无 Content-Length 时不消耗 body，避免大流式请求数据丢失
-    let should_buffer_req = !is_binary_content_type(req.headers())
-        && content_length(req.headers()).is_some_and(|len| len <= MAX_BODY_BUFFER);
-
-    let (req, req_body_str) = if should_buffer_req {
-        let (parts, body) = req.into_parts();
-        match axum::body::to_bytes(body, MAX_BODY_BUFFER).await {
-            Ok(bytes) => {
-                let s = body_display_string(&bytes);
-                (Request::from_parts(parts, Body::from(bytes)), s)
-            }
-            Err(e) => {
-                tracing::warn!("log middleware: buffer request body failed: {e}");
-                (Request::from_parts(parts, Body::empty()), String::new())
-            }
-        }
-    } else {
-        (req, String::new())
-    };
-
-    // 调用下一个中间件/handler
-    let response = next.run(req).await;
-
-    let status = response.status().as_u16();
-    let resp_headers_str = format_headers(response.headers());
-
-    // 响应 body：仅在 Content-Length 已知且在安全范围内时缓冲
-    // 与请求 body 策略一致：无 Content-Length 时不消耗 body，
-    // 避免流式响应（SSE/chunked）数据丢失或大响应 OOM
-    let should_buffer_resp = !is_binary_content_type(response.headers())
-        && content_length(response.headers()).is_some_and(|len| len <= MAX_BODY_BUFFER);
-
-    let (response, resp_body_str) = if should_buffer_resp {
-        let (parts, body) = response.into_parts();
-        match axum::body::to_bytes(body, MAX_BODY_BUFFER).await {
-            Ok(bytes) => {
-                let s = body_display_string(&bytes);
-                (Response::from_parts(parts, Body::from(bytes)), s)
-            }
-            Err(e) => {
-                tracing::warn!("log middleware: buffer response body failed: {e}");
-                (Response::from_parts(parts, Body::empty()), String::new())
-            }
-        }
-    } else {
-        (response, String::new())
-    };
-
-    let elapsed = start.elapsed();
-
-    tracing::info!(
-        http.method = %method,
-        http.path = %path,
-        http.query = %query,
-        http.status = status,
-        http.elapsed = %format_elapsed(elapsed),
-        http.request_headers = %req_headers_str,
-        http.request_body = %req_body_str,
-        http.response_headers = %resp_headers_str,
-        http.response_body = %resp_body_str,
-        "HTTP request completed"
-    );
-
-    response
 }
 
 /// 格式化耗时为人类可读字符串
