@@ -1,3 +1,6 @@
+#[path = "xorm/client.rs"]
+mod client;
+
 #[path = "xorm/config.rs"]
 mod config;
 

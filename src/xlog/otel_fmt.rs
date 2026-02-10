@@ -142,13 +142,22 @@ where
         event.record(&mut visitor);
         root.insert("fields".to_string(), Value::Object(fields));
 
+        // 调用位置（文件:行号）
+        if let (Some(file), Some(line)) = (meta.file(), meta.line()) {
+            root.insert(
+                "caller".to_string(),
+                serde_json::json!(format!("{file}:{line}")),
+            );
+        }
+
         // 目标模块
         root.insert("target".to_string(), serde_json::json!(meta.target()));
 
-        // 线程 ID
+        // 线程名
+        let thread = std::thread::current();
         root.insert(
-            "threadId".to_string(),
-            serde_json::json!(format!("{:?}", std::thread::current().id())),
+            "threadName".to_string(),
+            serde_json::json!(thread.name().unwrap_or("unknown")),
         );
 
         // Span 上下文链
@@ -229,8 +238,18 @@ where
 
         let (trace_id, _) = get_otel_trace_ids();
 
-        let line =
-            super::console::format_console_line(meta.level(), &timestamp, &full_message, &trace_id);
+        let caller = match (meta.file(), meta.line()) {
+            (Some(file), Some(line)) => format!("{file}:{line}"),
+            _ => String::new(),
+        };
+
+        let line = super::console::format_console_line(
+            meta.level(),
+            &timestamp,
+            &full_message,
+            &trace_id,
+            &caller,
+        );
         write!(writer, "{line}")
     }
 }

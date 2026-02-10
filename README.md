@@ -1,6 +1,6 @@
 # X-One
 
-开箱即用的 Rust 微服务框架 SDK
+开箱即用的 Rust 三方库集成框架 SDK
 
 ## 功能特性
 
@@ -63,13 +63,17 @@ XCache:
 
 ```rust
 use axum::{Router, routing::get};
+use x_one::XAxum;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app = Router::new().route("/ping", get(|| async { "pong" }));
+    let server = XAxum::new()
+        .with_route_register(|r| r.route("/ping", get(|| async { "pong" })))
+        .build();
 
     // 自动初始化所有模块 + 启动 HTTP 服务 + 优雅停机
-    x_one::run_axum(app).await
+    x_one::run_server(&server).await?;
+    Ok(())
 }
 ```
 
@@ -105,7 +109,7 @@ async fn handler() {
 | [xlog](./src/xlog/README.md) | tracing | 结构化 JSON 日志 / 文件轮转 / KV 注入 | 日志 |
 | [xtrace](./src/xtrace/README.md) | opentelemetry | 分布式链路追踪 | Trace |
 | [xhttp](./src/xhttp/README.md) | reqwest | HTTP 客户端 / 重试 / 连接池 | HTTP |
-| [xorm](./src/xorm/README.md) | sqlx | MySQL / PostgreSQL 连接池配置 | 数据库 |
+| [xorm](./src/xorm/README.md) | sqlx | MySQL / PostgreSQL 连接池管理 | 数据库 |
 | [xcache](./src/xcache/README.md) | moka | 高性能本地缓存 / TTL / TinyLFU | 缓存 |
 | [xhook](./src/xhook/README.md) | - | 生命周期钩子 / 排序执行 / 超时 | Hook |
 | [xserver](./src/xserver/README.md) | axum | 服务启动 / 优雅停机 / 中间件 | 服务 |
@@ -115,6 +119,8 @@ async fn handler() {
 
 ```rust
 use x_one::xhook::HookOptions;
+use x_one::XAxum;
+use axum::routing::get;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -130,17 +136,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }, HookOptions::new().order(50));
 
-    // 方式一：Axum Web 服务
-    let app = axum::Router::new();
-    x_one::run_axum(app).await
+    // 方式一：XAxum Builder 构建 Web 服务
+    let server = XAxum::new()
+        .with_route_register(|r| r.route("/", get(|| async { "Hello" })))
+        .build();
+    x_one::run_server(&server).await?;
 
-    // 方式二：自定义中间件选项
-    // let opts = x_one::AxumOptions::new().with_log_middleware(false);
-    // x_one::run_axum_with_options(app, opts).await
+    // 方式二：关闭内置中间件
+    // let server = XAxum::new()
+    //     .enable_log_middleware(false)
+    //     .build();
+    // x_one::run_server(&server).await?;
 
     // 方式三：阻塞服务（适用于 Consumer / Job）
-    // let server = x_one::BlockingServer::new();
-    // x_one::run_server(&server).await
+    // x_one::run_blocking_server().await?;
+
+    Ok(())
 }
 ```
 
@@ -174,3 +185,8 @@ x_one::shutdown().ok();
 XOrm:
   DSN: "${DB_DSN:-mysql://user:pass@localhost:3306/db}"
 ```
+
+## 更新日志
+
+- **v0.2.0** (2026-02-10) - xaxum 支持 h2c (HTTP/2 cleartext)、日志增加 caller/threadName 字段、HTTP 请求耗时人性化显示、幂等 Hook 注册
+- **v0.1.0** (2026-02-10) - 初始版本，11 个模块（xconfig, xlog, xtrace, xhttp, xorm, xcache, xaxum, xhook, xserver, xutil, error）

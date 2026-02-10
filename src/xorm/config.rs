@@ -99,6 +99,11 @@ fn default_enable_log() -> bool {
     true
 }
 
+/// 加载 XOrm 配置（支持单实例和多实例模式）
+pub(crate) fn load_configs() -> Vec<XOrmConfig> {
+    crate::xconfig::parse_config_list::<XOrmConfig>(XORM_CONFIG_KEY)
+}
+
 impl Default for XOrmConfig {
     fn default() -> Self {
         Self {

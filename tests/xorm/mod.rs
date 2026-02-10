@@ -7,10 +7,10 @@ fn test_register_hook_idempotent() {
 }
 
 #[test]
-fn test_get_pool_config_api() {
-    let config = get_pool_config(None);
+fn test_db_api() {
+    let pool = db();
     // 没有初始化时返回 None
-    let _ = config;
+    let _ = pool;
 }
 
 #[test]

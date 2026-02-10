@@ -1,16 +1,15 @@
 //! xcache 初始化和关闭逻辑
 
-use crate::xconfig;
 use crate::xutil;
 use std::sync::Arc;
 
 use super::cache::Cache;
 use super::client::{DEFAULT_CACHE_NAME, cache_store};
-use super::config::{XCACHE_CONFIG_KEY, XCacheConfig};
+use super::config::XCacheConfig;
 
 /// 初始化 xcache
 pub fn init_xcache() -> Result<(), crate::error::XOneError> {
-    let configs = load_configs();
+    let configs = super::config::load_configs();
 
     if configs.is_empty() {
         xutil::info_if_enable_debug("XCache no config found, using default");
@@ -74,9 +73,4 @@ pub fn shutdown_xcache() -> Result<(), crate::error::XOneError> {
     store.clear();
     xutil::info_if_enable_debug(&format!("XCache shutdown, cleared {count} cache instances"));
     Ok(())
-}
-
-/// 加载 XCache 配置（支持单实例和多实例模式）
-pub fn load_configs() -> Vec<XCacheConfig> {
-    xconfig::parse_config_list::<XCacheConfig>(XCACHE_CONFIG_KEY)
 }

@@ -9,8 +9,6 @@ use opentelemetry_sdk::trace::SdkTracerProvider;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::config::{XTRACE_CONFIG_KEY, XTraceConfig};
-
 /// 全局 trace 启用标志
 static TRACE_ENABLED: AtomicBool = AtomicBool::new(false);
 
@@ -28,7 +26,7 @@ fn provider_store() -> &'static Mutex<Option<SdkTracerProvider>> {
 
 /// 初始化 XTrace
 pub fn init_xtrace() -> Result<(), crate::error::XOneError> {
-    let config = load_config();
+    let config = super::config::load_config();
 
     if !config.is_enabled() {
         xutil::info_if_enable_debug("XTrace disabled by config");
@@ -90,9 +88,4 @@ pub fn shutdown_xtrace() -> Result<(), crate::error::XOneError> {
     TRACE_ENABLED.store(false, Ordering::Release);
     xutil::info_if_enable_debug("XTrace shutdown complete");
     result
-}
-
-/// 加载 XTrace 配置
-fn load_config() -> XTraceConfig {
-    xconfig::parse_config::<XTraceConfig>(XTRACE_CONFIG_KEY).unwrap_or_default()
 }

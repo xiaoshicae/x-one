@@ -47,6 +47,11 @@ fn default_pool_max_idle() -> usize {
     10
 }
 
+/// 加载 XHttp 配置
+pub(crate) fn load_config() -> XHttpConfig {
+    crate::xconfig::parse_config::<XHttpConfig>(XHTTP_CONFIG_KEY).unwrap_or_default()
+}
+
 impl Default for XHttpConfig {
     fn default() -> Self {
         Self {

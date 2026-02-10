@@ -40,7 +40,10 @@ fn test_client_returns_instance() {
 }
 
 #[test]
-fn test_load_config_no_config() {
-    let config = load_config();
+fn test_config_default() {
+    let config = XHttpConfig::default();
     assert_eq!(config.timeout, "30s");
+    assert_eq!(config.dial_timeout, "10s");
+    assert_eq!(config.dial_keep_alive, "30s");
+    assert_eq!(config.pool_max_idle_per_host, 10);
 }

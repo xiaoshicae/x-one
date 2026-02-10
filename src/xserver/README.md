@@ -40,25 +40,30 @@ x_one::shutdown().ok();
 
 ## 运行模式
 
-### 1. AxumServer（HTTP 服务）
+### 1. XAxumServer（HTTP 服务）
 
 适用于 Web 服务，集成了 axum 框架。
 
+- 通过 `XAxum` Builder 构建服务器
 - 通过 `XAxum` 配置端口和 Host
-- 内置 log / trace 中间件（可通过 `AxumOptions` 控制开关）
+- 内置 log / trace 中间件（可通过 Builder 控制开关）
 - 启动时打印 ASCII art Banner
 
 ```rust
-use axum::{Router, routing::get};
+use axum::routing::get;
+use x_one::XAxum;
 
-let app = Router::new().route("/", get(|| async { "Hello" }));
+// 通过 Builder 构建（默认启用所有中间件）
+let server = XAxum::new()
+    .with_route_register(|r| r.route("/", get(|| async { "Hello" })))
+    .build();
+x_one::run_server(&server).await?;
 
-// 默认启用所有中间件
-x_one::run_axum(app).await?;
-
-// 自定义中间件选项
-let opts = x_one::AxumOptions::new().with_log_middleware(false);
-x_one::run_axum_with_options(app, opts).await?;
+// 关闭日志中间件
+let server = XAxum::new()
+    .enable_log_middleware(false)
+    .build();
+x_one::run_server(&server).await?;
 ```
 
 ### 2. BlockingServer（后台服务）
@@ -100,6 +105,6 @@ run_server(&MyServer).await?;
 3. 执行所有 `before_stop` 钩子（按 order 从小到大）：
    - xtrace（order=1）：刷新链路数据
    - xcache（order=2）：清理缓存实例
-   - xorm（order=3）：关闭数据库连接
+   - xorm（order=3）：关闭数据库连接池
    - xlog guard（order=100）：刷新并关闭日志写入器
 4. 合并 server 结果和 hook 结果后返回

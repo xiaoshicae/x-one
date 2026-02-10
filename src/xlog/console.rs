@@ -23,15 +23,22 @@ pub fn format_console_line(
     timestamp: &str,
     message: &str,
     trace_id: &str,
+    caller: &str,
 ) -> String {
     let color = get_level_color(level);
     let level_text = level.as_str().to_uppercase();
 
+    let caller_part = if caller.is_empty() {
+        String::new()
+    } else {
+        format!(" {COLOR_GRAY}({caller}){COLOR_RESET}")
+    };
+
     if trace_id.is_empty() {
-        format!("{color}{level_text}{COLOR_RESET}[{timestamp}] {message}\n")
+        format!("{color}{level_text}{COLOR_RESET}[{timestamp}] {message}{caller_part}\n")
     } else {
         format!(
-            "{color}{level_text}{COLOR_RESET}[{timestamp}] {COLOR_BLUE}{trace_id}{COLOR_RESET} {message}\n"
+            "{color}{level_text}{COLOR_RESET}[{timestamp}] {COLOR_BLUE}{trace_id}{COLOR_RESET} {message}{caller_part}\n"
         )
     }
 }

@@ -1,7 +1,14 @@
 [package]
 name = "x-one"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
+description = "开箱即用的 Rust 三方库集成框架 SDK，集成 Axum、sqlx、moka、reqwest、OpenTelemetry"
+license = "MIT"
+repository = "https://github.com/xiaoshicae/x-one"
+homepage = "https://github.com/xiaoshicae/x-one"
+readme = "README.md"
+keywords = ["microservice", "framework", "axum", "sdk"]
+categories = ["web-programming::http-server"]
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -22,10 +29,13 @@ opentelemetry = { version = "0.28" }
 opentelemetry_sdk = { version = "0.28", features = ["rt-tokio"] }
 opentelemetry-stdout = { version = "0.28", features = ["trace"] }
 reqwest = { version = "0.12", features = ["json"] }
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "mysql", "any"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "mysql"] }
 moka = { version = "0.12", features = ["sync"] }
 humantime = { version = "2" }
 backon = { version = "1" }
+hyper = { version = "1", features = ["server"] }
+hyper-util = { version = "0.1", features = ["tokio", "http1", "http2", "server-auto", "server-graceful"] }
+tower-service = { version = "0.3" }
 
 [dev-dependencies]
 tokio-test = { version = "0.4" }

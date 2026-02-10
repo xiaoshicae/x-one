@@ -13,6 +13,7 @@ pub const XAXUM_CONFIG_KEY: &str = "XAxum";
 ///   Host: "0.0.0.0"
 ///   Port: 8000
 ///   UseHttp2: false
+///   EnableBanner: true
 ///   Swagger:
 ///     Schemes: ["https", "http"]
 /// ```
@@ -31,6 +32,10 @@ pub struct AxumConfig {
     #[serde(rename = "UseHttp2")]
     pub use_http2: bool,
 
+    /// 是否启用启动 Banner（默认 true）
+    #[serde(rename = "EnableBanner")]
+    pub enable_banner: bool,
+
     /// Swagger 相关配置
     #[serde(rename = "Swagger")]
     pub swagger: Option<AxumSwaggerConfig>,
@@ -42,6 +47,7 @@ impl Default for AxumConfig {
             host: "0.0.0.0".to_string(),
             port: 8000,
             use_http2: false,
+            enable_banner: true,
             swagger: None,
         }
     }
@@ -85,12 +91,6 @@ impl Default for AxumSwaggerConfig {
 }
 
 /// 加载 Axum 配置
-pub fn load_config() -> AxumConfig {
+pub(crate) fn load_config() -> AxumConfig {
     crate::xconfig::parse_config::<AxumConfig>(XAXUM_CONFIG_KEY).unwrap_or_default()
-}
-
-/// 加载 Axum Swagger 配置
-pub fn load_swagger_config() -> AxumSwaggerConfig {
-    let key = format!("{XAXUM_CONFIG_KEY}.Swagger");
-    crate::xconfig::parse_config::<AxumSwaggerConfig>(&key).unwrap_or_default()
 }

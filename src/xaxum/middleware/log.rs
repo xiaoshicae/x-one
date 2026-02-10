@@ -213,7 +213,7 @@ pub async fn log_middleware(req: Request, next: Next) -> Response {
         http.path = %path,
         http.query = %query,
         http.status = status,
-        http.elapsed_ms = elapsed.as_millis() as u64,
+        http.elapsed = %format_elapsed(elapsed),
         http.request_headers = %req_headers_str,
         http.request_body = %req_body_str,
         http.response_headers = %resp_headers_str,
@@ -222,4 +222,23 @@ pub async fn log_middleware(req: Request, next: Next) -> Response {
     );
 
     response
+}
+
+/// 格式化耗时为人类可读字符串
+///
+/// - < 1µs → `"850ns"`
+/// - < 1ms → `"123.4µs"`
+/// - < 1s  → `"12.34ms"`
+/// - ≥ 1s  → `"1.50s"`
+fn format_elapsed(elapsed: std::time::Duration) -> String {
+    let nanos = elapsed.as_nanos();
+    if nanos < 1_000 {
+        format!("{nanos}ns")
+    } else if nanos < 1_000_000 {
+        format!("{:.1}µs", nanos as f64 / 1_000.0)
+    } else if nanos < 1_000_000_000 {
+        format!("{:.2}ms", nanos as f64 / 1_000_000.0)
+    } else {
+        format!("{:.2}s", elapsed.as_secs_f64())
+    }
 }

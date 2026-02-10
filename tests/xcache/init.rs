@@ -57,9 +57,11 @@ fn test_create_cache_instance() {
 }
 
 #[test]
-fn test_load_configs_no_config() {
-    let configs = load_configs();
-    assert!(configs.is_empty());
+fn test_config_default() {
+    let config = XCacheConfig::default();
+    assert_eq!(config.max_capacity, 100_000);
+    assert_eq!(config.default_ttl, "5m");
+    assert!(config.name.is_empty());
 }
 
 #[test]

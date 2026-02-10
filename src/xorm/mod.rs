@@ -8,8 +8,7 @@ pub mod config;
 pub mod init;
 
 pub use client::{
-    DEFAULT_POOL_NAME, PoolEntry, get_driver, get_dsn, get_pool_config, get_pool_names,
-    reset_pool_configs, set_pool_entry,
+    DEFAULT_POOL_NAME, DbPool, db, db_with_name, get_pool_names, reset_pools, set_pool,
 };
 pub use config::{Driver, XORM_CONFIG_KEY, XOrmConfig};
 
@@ -29,10 +28,10 @@ pub fn register_hook() {
         return;
     }
 
-    crate::before_start!(init::init_xorm, crate::xhook::HookOptions::new().order(5));
+    crate::before_start!(init::init_xorm, crate::xhook::HookOptions::new().order(50));
 
     crate::before_stop!(
         init::shutdown_xorm,
-        crate::xhook::HookOptions::new().order(3)
+        crate::xhook::HookOptions::new().order(i32::MAX - 50)
     );
 }

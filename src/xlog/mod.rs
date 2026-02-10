@@ -12,12 +12,24 @@ pub mod otel_fmt;
 pub use config::{LogLevel, XLOG_CONFIG_KEY, XLogConfig};
 pub use kv_layer::SpanKvFields;
 
-/// 注册日志 Hook
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// 幂等注册标志
+static REGISTERED: AtomicBool = AtomicBool::new(false);
+
+/// 注册日志 Hook（幂等，多次调用只注册一次）
 pub fn register_hook() {
-    crate::before_start!(init::init_xlog, crate::xhook::HookOptions::new().order(2));
+    if REGISTERED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+
+    crate::before_start!(init::init_xlog, crate::xhook::HookOptions::new().order(30));
     crate::before_stop!(
         init::shutdown_xlog,
-        crate::xhook::HookOptions::new().order(i32::MAX)
+        crate::xhook::HookOptions::new().order(i32::MAX - 30)
     );
 }
 

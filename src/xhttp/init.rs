@@ -3,8 +3,8 @@
 use crate::xconfig;
 use crate::xutil;
 
-use super::client::{HTTP_CLIENT, build_client, load_config};
-use super::config::XHTTP_CONFIG_KEY;
+use super::client::{HTTP_CLIENT, build_client};
+use super::config::{XHTTP_CONFIG_KEY, load_config};
 
 /// 初始化 HTTP 客户端
 pub fn init_xhttp() -> Result<(), crate::error::XOneError> {

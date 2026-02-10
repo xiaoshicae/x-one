@@ -1,0 +1,7 @@
+
+XAxum:
+  Port: 9999
+
+XLog:
+  Console: true
+  ConsoleFormatIsRaw: true

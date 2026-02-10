@@ -27,10 +27,12 @@ fn test_format_console_line_without_trace() {
         "2024-01-01 00:00:00.000",
         "hello",
         "",
+        "src/main.rs:42",
     );
     assert!(line.contains("INFO"));
     assert!(line.contains("hello"));
     assert!(line.contains("2024-01-01"));
+    assert!(line.contains("src/main.rs:42"));
 }
 
 #[test]
@@ -40,8 +42,25 @@ fn test_format_console_line_with_trace() {
         "2024-01-01 00:00:00.000",
         "error msg",
         "trace-123",
+        "src/handler.rs:10",
     );
     assert!(line.contains("ERROR"));
     assert!(line.contains("error msg"));
     assert!(line.contains("trace-123"));
+    assert!(line.contains("src/handler.rs:10"));
+}
+
+#[test]
+fn test_format_console_line_without_caller() {
+    let line = format_console_line(
+        &tracing::Level::WARN,
+        "2024-01-01 00:00:00.000",
+        "warn msg",
+        "",
+        "",
+    );
+    assert!(line.contains("WARN"));
+    assert!(line.contains("warn msg"));
+    // 空 caller 不应出现括号
+    assert!(!line.contains("()"));
 }

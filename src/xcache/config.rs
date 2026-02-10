@@ -36,6 +36,11 @@ fn default_ttl() -> String {
     "5m".to_string()
 }
 
+/// 加载 XCache 配置（支持单实例和多实例模式）
+pub(crate) fn load_configs() -> Vec<XCacheConfig> {
+    crate::xconfig::parse_config_list::<XCacheConfig>(XCACHE_CONFIG_KEY)
+}
+
 impl Default for XCacheConfig {
     fn default() -> Self {
         Self {

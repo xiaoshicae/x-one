@@ -43,3 +43,8 @@ impl XTraceConfig {
         self.enable
     }
 }
+
+/// 加载 XTrace 配置
+pub(crate) fn load_config() -> XTraceConfig {
+    crate::xconfig::parse_config::<XTraceConfig>(XTRACE_CONFIG_KEY).unwrap_or_default()
+}

@@ -6,8 +6,8 @@
 pub mod config;
 pub mod init;
 
-pub use init::is_trace_enabled;
 pub use config::XTraceConfig;
+pub use init::is_trace_enabled;
 
 use crate::xhook;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,7 +26,10 @@ pub fn register_hook() {
         return;
     }
 
-    crate::before_start!(init::init_xtrace, xhook::HookOptions::new().order(3));
+    crate::before_start!(init::init_xtrace, xhook::HookOptions::new().order(20));
 
-    crate::before_stop!(init::shutdown_xtrace, xhook::HookOptions::new().order(1));
+    crate::before_stop!(
+        init::shutdown_xtrace,
+        xhook::HookOptions::new().order(i32::MAX - 20)
+    );
 }

@@ -24,17 +24,28 @@ pub use server_config::{
 
 use parking_lot::RwLock;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// 全局配置存储
 static CONFIG: OnceLock<RwLock<Option<serde_yaml::Value>>> = OnceLock::new();
+
+/// 幂等注册标志
+static REGISTERED: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn config_store() -> &'static RwLock<Option<serde_yaml::Value>> {
     CONFIG.get_or_init(|| RwLock::new(None))
 }
 
-/// 初始化配置系统，注册到 xhook
+/// 初始化配置系统，注册到 xhook（幂等，多次调用只注册一次）
 pub fn register_hook() {
-    crate::before_start!(init_store, crate::xhook::HookOptions::new().order(1));
+    if REGISTERED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+
+    crate::before_start!(init_store, crate::xhook::HookOptions::new().order(10));
 }
 
 /// 初始化配置存储（供框架内部自动初始化使用）

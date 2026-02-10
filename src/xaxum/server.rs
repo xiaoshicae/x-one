@@ -1,15 +1,191 @@
-//! Axum HTTP 服务器实现
+//! XAxum HTTP 服务器实现
 //!
-//! 提供基于 Axum 的 HTTP/HTTPS 服务器。
+//! 提供基于 Axum 的 HTTP 服务器，实现 Server trait。
+//! 支持 HTTP/1.1（默认）和 h2c（HTTP/2 明文）两种模式。
 
-use super::banner;
-use super::config;
-use super::middleware;
-use super::options::AxumOptions;
+use super::{banner, config};
 use crate::error::XOneError;
 use crate::xserver::Server;
 use crate::xutil;
+use axum::Router;
 use std::net::SocketAddr;
+use std::time::Duration;
+use tokio::sync::watch;
+
+/// Axum HTTP 服务器
+///
+/// 通过 [`super::builder::XAxum`] 构建，实现 [`Server`] trait。
+///
+/// 配置项（addr、banner、http2）在 `run()` 阶段解析，
+/// 确保 `run_server()` 中的 `init()` 先加载配置。
+///
+/// # Examples
+///
+/// ```
+/// use x_one::xaxum::builder::XAxum;
+///
+/// let server = XAxum::new().addr("127.0.0.1:8080").build();
+/// assert_eq!(server.addr().port(), 8080);
+/// ```
+pub struct XAxumServer {
+    router: Router,
+    /// 用户显式设置的地址（None 表示从配置读取）
+    addr: Option<SocketAddr>,
+    /// 用户显式设置的 banner 开关（None 表示从配置读取）
+    enable_banner: Option<bool>,
+    /// 用户显式设置的 h2c 开关（None 表示从配置读取）
+    use_http2: Option<bool>,
+    shutdown_tx: watch::Sender<bool>,
+}
+
+impl XAxumServer {
+    /// 创建新的 XAxumServer（仅供 builder 内部调用）
+    pub(crate) fn new(
+        router: Router,
+        addr: Option<SocketAddr>,
+        enable_banner: Option<bool>,
+        use_http2: Option<bool>,
+    ) -> Self {
+        let (shutdown_tx, _) = watch::channel(false);
+        Self {
+            router,
+            addr,
+            enable_banner,
+            use_http2,
+            shutdown_tx,
+        }
+    }
+
+    /// 获取监听地址
+    ///
+    /// 优先返回 builder 显式设置的地址，否则从配置读取。
+    pub fn addr(&self) -> SocketAddr {
+        self.addr.unwrap_or_else(|| resolve_config().0)
+    }
+
+    /// 是否启用 h2c（HTTP/2 明文）
+    ///
+    /// 优先返回 builder 显式设置的值，否则从配置读取。
+    pub fn use_http2(&self) -> bool {
+        self.use_http2.unwrap_or_else(|| resolve_config().2)
+    }
+
+    /// 消费 server，返回内部 Router
+    pub fn into_router(self) -> Router {
+        self.router
+    }
+
+    /// HTTP/1.1 模式：使用 axum::serve
+    async fn run_http1(
+        &self,
+        listener: tokio::net::TcpListener,
+        mut shutdown_rx: watch::Receiver<bool>,
+    ) -> Result<(), XOneError> {
+        axum::serve(listener, self.router.clone())
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.changed().await;
+            })
+            .await
+            .map_err(|e| XOneError::Server(format!("server error: {e}")))?;
+        Ok(())
+    }
+
+    /// h2c 模式：使用 hyper-util auto::Builder，支持 HTTP/1 + HTTP/2 明文自动检测
+    async fn run_h2c(
+        &self,
+        listener: tokio::net::TcpListener,
+        mut shutdown_rx: watch::Receiver<bool>,
+    ) -> Result<(), XOneError> {
+        use hyper::body::Incoming;
+        use hyper_util::rt::{TokioExecutor, TokioIo};
+        use hyper_util::server::conn::auto;
+        use hyper_util::server::graceful::GracefulShutdown;
+        use tower_service::Service;
+
+        let graceful = GracefulShutdown::new();
+
+        loop {
+            tokio::select! {
+                result = listener.accept() => {
+                    let (socket, _remote_addr) = result
+                        .map_err(|e| XOneError::Server(format!("accept failed: {e}")))?;
+
+                    let tower_service = self.router.clone();
+
+                    let hyper_service = hyper::service::service_fn(
+                        move |request: axum::extract::Request<Incoming>| {
+                            tower_service.clone().call(request)
+                        },
+                    );
+
+                    let builder = auto::Builder::new(TokioExecutor::new());
+                    let conn = builder
+                        .serve_connection_with_upgrades(
+                            TokioIo::new(socket),
+                            hyper_service,
+                        );
+
+                    let conn = graceful.watch(conn.into_owned());
+                    tokio::spawn(async move {
+                        if let Err(e) = conn.await {
+                            xutil::warn_if_enable_debug(
+                                &format!("h2c connection error: {e}"),
+                            );
+                        }
+                    });
+                }
+                _ = shutdown_rx.changed() => break,
+            }
+        }
+
+        // 等待活跃连接完成（超时 10 秒）
+        tokio::time::timeout(Duration::from_secs(10), graceful.shutdown())
+            .await
+            .ok();
+
+        Ok(())
+    }
+}
+
+impl Server for XAxumServer {
+    async fn run(&self) -> Result<(), XOneError> {
+        // 在 run 阶段解析配置（init() 已在 run_server 中调用）
+        let (addr, enable_banner, use_http2) = resolve_config();
+        let addr = self.addr.unwrap_or(addr);
+        let enable_banner = self.enable_banner.unwrap_or(enable_banner);
+        let use_http2 = self.use_http2.unwrap_or(use_http2);
+
+        if enable_banner {
+            banner::print_banner();
+        }
+
+        let listener = tokio::net::TcpListener::bind(addr)
+            .await
+            .map_err(|e| XOneError::Server(format!("bind {addr} failed: {e}")))?;
+
+        xutil::info_if_enable_debug(&format!("axum server listening on {addr}"));
+
+        let shutdown_rx = self.shutdown_tx.subscribe();
+
+        if use_http2 {
+            self.run_h2c(listener, shutdown_rx).await
+        } else {
+            self.run_http1(listener, shutdown_rx).await
+        }
+    }
+
+    async fn stop(&self) -> Result<(), XOneError> {
+        let _ = self.shutdown_tx.send(true);
+        Ok(())
+    }
+}
+
+/// 从配置解析 (addr, enable_banner, use_http2)
+fn resolve_config() -> (SocketAddr, bool, bool) {
+    let c = config::load_config();
+    let addr = parse_addr(&c.host, c.port);
+    (addr, c.enable_banner, c.use_http2)
+}
 
 /// 解析 host:port 为 SocketAddr，失败时回退到 0.0.0.0:port
 fn parse_addr(host: &str, port: u16) -> SocketAddr {
@@ -19,160 +195,4 @@ fn parse_addr(host: &str, port: u16) -> SocketAddr {
         ));
         SocketAddr::from(([0, 0, 0, 0], port))
     })
-}
-
-/// 根据选项注册中间件
-///
-/// axum layer 后注册先执行，请求流向：log → trace → handler → trace → log
-fn register_middleware(router: axum::Router, opts: &AxumOptions) -> axum::Router {
-    let mut router = router;
-
-    if opts.enable_trace_middleware {
-        router = router.layer(axum::middleware::from_fn::<_, (axum::extract::Request,)>(
-            middleware::trace_middleware,
-        ));
-    }
-
-    if opts.enable_log_middleware {
-        router = router.layer(axum::middleware::from_fn::<_, (axum::extract::Request,)>(
-            middleware::log_middleware,
-        ));
-    }
-
-    router
-}
-
-/// Axum HTTP 服务器
-pub struct AxumServer {
-    router: axum::Router,
-    addr: SocketAddr,
-    shutdown_tx: tokio::sync::watch::Sender<bool>,
-}
-
-impl AxumServer {
-    /// 创建新的 Axum HTTP 服务器
-    ///
-    /// 使用默认选项（所有中间件启用），从 xconfig 读取地址配置。
-    pub fn new(router: axum::Router) -> Self {
-        Self::with_options(router, AxumOptions::default())
-    }
-
-    /// 使用自定义选项创建 Axum HTTP 服务器
-    ///
-    /// 根据 `AxumOptions` 控制中间件的启用/禁用。
-    pub fn with_options(router: axum::Router, opts: AxumOptions) -> Self {
-        let axum_config = config::load_config();
-
-        if axum_config.use_http2 {
-            xutil::info_if_enable_debug("axum server use http2");
-        }
-
-        let addr = parse_addr(&axum_config.host, axum_config.port);
-
-        xutil::info_if_enable_debug(&format!("axum server listen at: {addr}"));
-
-        let (shutdown_tx, _) = tokio::sync::watch::channel(false);
-
-        let router = register_middleware(router, &opts);
-
-        Self {
-            router,
-            addr,
-            shutdown_tx,
-        }
-    }
-
-    /// 使用自定义地址创建 Axum HTTP 服务器
-    pub fn with_addr(router: axum::Router, addr: SocketAddr) -> Self {
-        let (shutdown_tx, _) = tokio::sync::watch::channel(false);
-        Self {
-            router,
-            addr,
-            shutdown_tx,
-        }
-    }
-
-    /// 获取监听地址
-    pub fn addr(&self) -> SocketAddr {
-        self.addr
-    }
-}
-
-impl Server for AxumServer {
-    async fn run(&self) -> Result<(), XOneError> {
-        banner::print_banner();
-
-        let listener = tokio::net::TcpListener::bind(self.addr)
-            .await
-            .map_err(|e| XOneError::Server(format!("bind failed: {e}")))?;
-
-        xutil::info_if_enable_debug(&format!("axum server listening on {}", self.addr));
-
-        let mut shutdown_rx = self.shutdown_tx.subscribe();
-
-        axum::serve(listener, self.router.clone())
-            .with_graceful_shutdown(async move {
-                let _ = shutdown_rx.changed().await;
-            })
-            .await
-            .map_err(|e| XOneError::Server(format!("server error: {e}")))?;
-
-        Ok(())
-    }
-
-    async fn stop(&self) -> Result<(), XOneError> {
-        let _ = self.shutdown_tx.send(true);
-        Ok(())
-    }
-}
-
-/// Axum TLS (HTTPS) 服务器
-///
-/// **注意**：TLS 尚未实现，`run()` 会立即返回错误。
-#[deprecated(note = "TLS 尚未实现，请勿在生产环境使用")]
-#[allow(dead_code)]
-pub struct AxumTlsServer {
-    router: axum::Router,
-    addr: SocketAddr,
-    cert_file: String,
-    key_file: String,
-    shutdown_tx: tokio::sync::watch::Sender<bool>,
-}
-
-#[allow(deprecated)]
-impl AxumTlsServer {
-    /// 创建新的 Axum HTTPS 服务器
-    pub fn new(router: axum::Router, cert_file: &str, key_file: &str) -> Self {
-        let axum_config = config::load_config();
-
-        let addr = parse_addr(&axum_config.host, axum_config.port);
-
-        xutil::info_if_enable_debug(&format!("axum server listen at: {addr} (TLS)"));
-
-        let (shutdown_tx, _) = tokio::sync::watch::channel(false);
-
-        Self {
-            router,
-            addr,
-            cert_file: cert_file.to_string(),
-            key_file: key_file.to_string(),
-            shutdown_tx,
-        }
-    }
-}
-
-#[allow(deprecated)]
-impl Server for AxumTlsServer {
-    async fn run(&self) -> Result<(), XOneError> {
-        // TLS 支持需要额外的 crate（如 axum-server 或 rustls）
-        // 这里提供基础框架，完整 TLS 实现在 Phase 2
-        Err(XOneError::Server(
-            "TLS server not yet implemented, will be available in Phase 2".to_string(),
-        ))
-    }
-
-    async fn stop(&self) -> Result<(), XOneError> {
-        let _ = self.shutdown_tx.send(true);
-        Ok(())
-    }
 }

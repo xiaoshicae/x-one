@@ -1,0 +1,5 @@
+Server:
+  Name: "my-service"
+  Version: "v1.0.0"
+  Profiles:
+    Active: "dev"

@@ -2,7 +2,7 @@
 //!
 //! 提供全局 HTTP 客户端和便捷请求方法。
 
-use super::config::{XHTTP_CONFIG_KEY, XHttpConfig};
+use super::config::XHttpConfig;
 use crate::xutil;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -35,11 +35,6 @@ pub fn build_client(config: &XHttpConfig) -> Result<reqwest::Client, crate::erro
     builder
         .build()
         .map_err(|e| crate::error::XOneError::Other(format!("XHttp build client failed: {e}")))
-}
-
-/// 加载 XHttp 配置
-pub fn load_config() -> XHttpConfig {
-    crate::xconfig::parse_config::<XHttpConfig>(XHTTP_CONFIG_KEY).unwrap_or_default()
 }
 
 fn duration_or(value: &str, default: Duration) -> Duration {

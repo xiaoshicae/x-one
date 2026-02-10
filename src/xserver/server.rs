@@ -5,7 +5,7 @@ use crate::error::XOneError;
 
 /// 服务器 trait
 ///
-/// 所有服务器实现（AxumServer, BlockingServer 等）都需要实现此 trait。
+/// 所有服务器实现（XAxumServer, BlockingServer 等）都需要实现此 trait。
 pub trait Server: Send + Sync {
     /// 启动服务
     ///

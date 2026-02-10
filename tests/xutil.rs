@@ -21,3 +21,6 @@ mod retry;
 
 #[path = "xutil/default_value.rs"]
 mod default_value;
+
+#[path = "xutil/spawn.rs"]
+mod spawn;

@@ -5,24 +5,41 @@
 //! cargo run --example basic
 //! ```
 
+use axum::Router;
+use axum::routing::get;
+use x_one::XAxum;
+
 #[tokio::main]
 async fn main() {
-    // 初始化框架（注册 hook 并执行 before_start hooks）
-    // 注册顺序：xconfig → xlog → xtrace → xhttp → xorm → xcache
-    x_one::init().expect("初始化失败");
+    // 指定配置文件路径（相对于项目根目录）
+    unsafe { std::env::set_var("SERVER_CONFIG_LOCATION", "examples/config/application.yml") };
 
-    // 使用 xcache 进行缓存操作
-    x_one::xcache::set("greeting", "hello from x-one".to_string());
-    if let Some(msg) = x_one::xcache::get::<String>("greeting") {
-        println!("缓存命中: {msg}");
-    }
+    // 构建 Axum HTTP 服务器
+    let server = XAxum::new().with_route_register(register_routes).build();
 
-    // 创建 Axum 路由
-    let app = axum::Router::new().route("/", axum::routing::get(|| async { "hello from x-one" }));
-
-    // 以 Axum HTTP 服务器运行，阻塞等待退出信号
-    // 退出时自动调用 BeforeStop hooks（xtrace shutdown、xorm close、xcache clear 等）
-    if let Err(e) = x_one::run_axum(app).await {
+    // 运行服务器（自动执行 init + 阻塞等待退出信号 + shutdown）
+    if let Err(e) = x_one::run_server(&server).await {
         eprintln!("服务器运行失败: {e}");
+    }
+}
+
+/// 注册路由
+fn register_routes(mut r: Router) -> Router {
+    r = r.route("/", get(index));
+    r = r.route("/cache", get(cache_demo));
+    r
+}
+
+/// 首页
+async fn index() -> &'static str {
+    "hello from x-one"
+}
+
+/// 缓存示例：写入并读取缓存
+async fn cache_demo() -> String {
+    x_one::xcache::set("greeting", "hello from x-one".to_string());
+    match x_one::xcache::get::<String>("greeting") {
+        Some(msg) => format!("缓存命中: {msg}"),
+        None => "缓存未命中".to_string(),
     }
 }

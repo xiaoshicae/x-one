@@ -2,7 +2,8 @@
 
 use std::sync::{Arc, Mutex};
 use tracing_subscriber::prelude::*;
-use x_one::xlog::kv_layer::KvLayer;
+use tracing_subscriber::registry::LookupSpan;
+use x_one::xlog::kv_layer::{KvLayer, SpanKvFields};
 use x_one::xlog::otel_fmt::OtelJsonFormat;
 
 /// 捕获日志输出的 Writer
@@ -42,6 +43,87 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CaptureWriter {
         self.clone()
     }
 }
+
+/// 辅助：构建带 KvLayer 的 subscriber，返回日志输出
+fn with_kv_subscriber<F>(f: F)
+where
+    F: FnOnce(),
+{
+    let _guard = tracing_subscriber::registry().with(KvLayer).set_default();
+    f();
+}
+
+// ============================================================
+// KvLayer + SpanKvFields 底层 API 测试
+// ============================================================
+
+#[test]
+fn test_span_kv_fields_stored_in_extensions() {
+    with_kv_subscriber(|| {
+        let span = tracing::info_span!("test", user_id = "123", count = 42);
+        let guard = span.enter();
+
+        tracing::dispatcher::get_default(|dispatch| {
+            let id = span.id().unwrap();
+            if let Some(registry) = dispatch.downcast_ref::<tracing_subscriber::Registry>() {
+                let span_ref = registry.span(&id).unwrap();
+                let extensions = span_ref.extensions();
+                let kv = extensions.get::<SpanKvFields>().unwrap();
+                assert_eq!(kv.0.get("user_id").unwrap(), "123");
+                assert_eq!(kv.0.get("count").unwrap(), 42);
+            }
+        });
+
+        drop(guard);
+    });
+}
+
+#[test]
+fn test_span_kv_fields_on_record_merges() {
+    with_kv_subscriber(|| {
+        let span = tracing::info_span!("test", user_id = tracing::field::Empty, count = 1);
+        let guard = span.enter();
+
+        span.record("user_id", "merged_value");
+
+        tracing::dispatcher::get_default(|dispatch| {
+            let id = span.id().unwrap();
+            if let Some(registry) = dispatch.downcast_ref::<tracing_subscriber::Registry>() {
+                let span_ref = registry.span(&id).unwrap();
+                let extensions = span_ref.extensions();
+                let kv = extensions.get::<SpanKvFields>().unwrap();
+                assert_eq!(kv.0.get("user_id").unwrap(), "merged_value");
+                assert_eq!(kv.0.get("count").unwrap(), 1);
+            }
+        });
+
+        drop(guard);
+    });
+}
+
+#[test]
+fn test_kv_layer_empty_span_no_fields() {
+    with_kv_subscriber(|| {
+        let span = tracing::info_span!("empty");
+        let guard = span.enter();
+
+        tracing::dispatcher::get_default(|dispatch| {
+            let id = span.id().unwrap();
+            if let Some(registry) = dispatch.downcast_ref::<tracing_subscriber::Registry>() {
+                let span_ref = registry.span(&id).unwrap();
+                let extensions = span_ref.extensions();
+                let kv = extensions.get::<SpanKvFields>().unwrap();
+                assert!(kv.0.is_empty(), "空 span 应该有空的 KvFields");
+            }
+        });
+
+        drop(guard);
+    });
+}
+
+// ============================================================
+// KvLayer + OtelJsonFormat 端到端测试
+// ============================================================
 
 #[test]
 fn test_span_kv_injected_into_json_output() {

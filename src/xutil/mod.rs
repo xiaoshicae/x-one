@@ -11,6 +11,7 @@ pub mod env;
 pub mod file;
 pub mod json;
 pub mod retry;
+pub mod spawn;
 
 // Re-export 常用 API，方便外部使用 xutil::xxx 调用
 pub use cmd::get_config_from_args;
@@ -21,3 +22,4 @@ pub use env::{DEBUG_KEY, enable_debug};
 pub use file::{dir_exist, file_exist};
 pub use json::{to_json_string, to_json_string_indent};
 pub use retry::{retry, retry_async};
+pub use spawn::{extract_panic_message, spawn_safe};

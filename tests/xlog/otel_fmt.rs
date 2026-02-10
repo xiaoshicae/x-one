@@ -78,7 +78,10 @@ fn test_otel_json_format_produces_valid_json() {
     assert_eq!(json["level"], "INFO");
     assert!(json["timestamp"].as_str().is_some(), "应包含 timestamp");
     assert!(json["target"].as_str().is_some(), "应包含 target");
-    assert!(json["threadId"].as_str().is_some(), "应包含 threadId");
+    assert!(json["threadName"].as_str().is_some(), "应包含 threadName");
+    // caller 格式为 "file:line"
+    let caller = json["caller"].as_str().expect("应包含 caller");
+    assert!(caller.contains(':'), "caller 应为 file:line 格式");
     assert_eq!(json["fields"]["message"], "hello world");
     assert_eq!(json["fields"]["user_id"], 42);
     // 无活跃 Span 时不应包含 trace_id
@@ -155,6 +158,8 @@ fn test_otel_console_format_without_trace_id() {
 
     assert!(output.contains("INFO"), "应包含级别");
     assert!(output.contains("test message"), "应包含消息内容");
+    // 应包含 caller 信息（文件名:行号）
+    assert!(output.contains("otel_fmt.rs:"), "应包含调用位置");
 }
 
 #[test]
