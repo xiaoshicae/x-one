@@ -1,4 +1,16 @@
 //! Hook 选项配置
+//!
+//! 通过 builder 模式配置 Hook 的执行顺序、失败策略和超时时间。
+//!
+//! ```ignore
+//! use x_one::xhook::HookOptions;
+//! use std::time::Duration;
+//!
+//! let opts = HookOptions::new()
+//!     .order(10)
+//!     .must_success(false)
+//!     .timeout(Duration::from_secs(30));
+//! ```
 
 use std::time::Duration;
 

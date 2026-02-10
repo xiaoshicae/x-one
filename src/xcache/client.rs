@@ -1,6 +1,18 @@
 //! 缓存客户端 API
 //!
 //! 提供缓存实例获取、缓存值读写等对外功能。
+//!
+//! ```ignore
+//! // 操作默认缓存实例
+//! x_one::xcache::set("user:123", "Alice".to_string());
+//! let name: Option<String> = x_one::xcache::get("user:123");
+//! x_one::xcache::del("user:123");
+//!
+//! // 获取命名缓存实例
+//! if let Some(cache) = x_one::xcache::c("session") {
+//!     cache.set("token", "abc".to_string());
+//! }
+//! ```
 
 use super::cache::Cache;
 use parking_lot::RwLock;

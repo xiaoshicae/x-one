@@ -1,6 +1,16 @@
 //! xaxum - Axum HTTP 服务器模块
 //!
-//! 对应 Go 版的 HTTP 服务器实现，提供 HTTP 服务器和中间件。
+//! 基于 Axum 封装，提供 HTTP 服务器构建器、日志和追踪中间件。
+//!
+//! ```ignore
+//! use x_one::XAxum;
+//! use axum::routing::get;
+//!
+//! let server = XAxum::new()
+//!     .with_route_register(|r| r.route("/health", get(|| async { "ok" })))
+//!     .build();
+//! x_one::run_server(&server).await?;
+//! ```
 
 pub mod banner;
 pub mod builder;

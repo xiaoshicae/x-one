@@ -1,4 +1,22 @@
 //! xcache 配置结构体
+//!
+//! 对应 `application.yml` 中的 `XCache` 节点，支持单实例和多实例配置。
+//!
+//! ```yaml
+//! # 单实例（使用默认名称）
+//! XCache:
+//!   MaxCapacity: 100000
+//!   DefaultTTL: "5m"
+//!
+//! # 多实例
+//! XCache:
+//!   - MaxCapacity: 50000
+//!     DefaultTTL: "5m"
+//!     Name: "session"
+//!   - MaxCapacity: 10000
+//!     DefaultTTL: "1h"
+//!     Name: "user"
+//! ```
 
 use serde::Deserialize;
 

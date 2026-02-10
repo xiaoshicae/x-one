@@ -1,4 +1,14 @@
 //! 配置结构体定义
+//!
+//! 包含 `ServerConfig` 和 `ProfilesConfig`，对应 `application.yml` 中的 `Server` 节点。
+//!
+//! ```yaml
+//! Server:
+//!   Name: "my-app"
+//!   Version: "v1.0.0"
+//!   Profiles:
+//!     Active: "dev"
+//! ```
 
 use serde::{Deserialize, Serialize};
 

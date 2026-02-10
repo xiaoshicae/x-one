@@ -1,4 +1,14 @@
 //! xaxum 配置结构体
+//!
+//! 对应 `application.yml` 中的 `XAxum` 节点。
+//!
+//! ```yaml
+//! XAxum:
+//!   Host: "0.0.0.0"
+//!   Port: 8000
+//!   UseHttp2: false
+//!   EnableBanner: true
+//! ```
 
 use serde::{Deserialize, Serialize};
 

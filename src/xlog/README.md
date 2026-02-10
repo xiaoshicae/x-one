@@ -35,13 +35,31 @@ xlog_warn!(retries = 3, "Request retry exhausted");
 
 ### KV 字段注入
 
+通过 `xlog_kv!` 创建 guard，guard 存活期间当前作用域内所有日志自动携带指定字段，无需逐个传参。
+
 ```rust
 use x_one::{xlog_kv, xlog_info};
 
-// guard 存活期间，所有日志自动携带这些字段
-let _guard = xlog_kv!(user_id = "123", request_id = "abc-def");
-xlog_info!("处理请求");  // JSON 中自动包含 user_id、request_id
+async fn handle_order(user_id: &str, order_id: &str) {
+    let _guard = xlog_kv!(user_id = %user_id, order_id = %order_id);
+
+    xlog_info!("received order");
+    // {"msg":"received order", "user_id":"u123", "order_id":"o456", ...}
+
+    validate(order_id);
+    // validate 内部日志也自动携带 user_id、order_id
+
+    xlog_info!("order done");
+    // guard drop 后，后续日志不再携带
+}
+
+fn validate(order_id: &str) {
+    xlog_info!("validating");
+    // {"msg":"validating", "user_id":"u123", "order_id":"o456", ...}
+}
 ```
+
+**注意**：变量名必须用 `_guard`（或任意 `_xxx`），不能写 `_`——`_` 会立即 drop，KV 不生效。
 
 ### 结构化字段
 

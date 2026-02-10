@@ -1,4 +1,13 @@
 //! xhttp 配置结构体
+//!
+//! 对应 `application.yml` 中的 `XHttp` 节点。
+//!
+//! ```yaml
+//! XHttp:
+//!   Timeout: "30s"
+//!   DialTimeout: "10s"
+//!   PoolMaxIdlePerHost: 10
+//! ```
 
 use serde::Deserialize;
 

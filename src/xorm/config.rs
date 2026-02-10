@@ -1,4 +1,22 @@
 //! xorm 配置结构体
+//!
+//! 对应 `application.yml` 中的 `XOrm` 节点，支持单实例和多实例配置。
+//!
+//! ```yaml
+//! # 单实例
+//! XOrm:
+//!   Driver: "postgres"
+//!   DSN: "postgres://user:pass@localhost/db"
+//!
+//! # 多实例
+//! XOrm:
+//!   - Driver: "postgres"
+//!     DSN: "postgres://..."
+//!     Name: "primary"
+//!   - Driver: "mysql"
+//!     DSN: "mysql://..."
+//!     Name: "analytics"
+//! ```
 
 use serde::Deserialize;
 
