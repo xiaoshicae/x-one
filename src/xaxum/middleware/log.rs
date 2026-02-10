@@ -9,7 +9,6 @@ use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::Response;
 use std::time::Instant;
-use tracing::Instrument;
 
 /// Body 日志显示截断阈值（4KB）
 const MAX_BODY_DISPLAY: usize = 4096;
@@ -138,7 +137,6 @@ pub fn body_to_string(bytes: &[u8], headers: &HeaderMap) -> String {
 /// # 性能特性
 ///
 /// - INFO 级别未启用时直接透传，零开销
-/// - 格式化 + 日志记录全部卸载到后台任务，不阻塞响应返回
 /// - 二进制 body 不缓冲，直接透传
 /// - 请求 body 仅在 Content-Length 已知且 ≤ 256KB 时缓冲
 /// - 响应 body 不缓冲，直接透传（仅记录 status + headers）
@@ -152,66 +150,50 @@ pub async fn log_middleware(req: Request, next: Next) -> Response {
 
     let start = Instant::now();
 
-    // 轻量 clone 提取元信息，格式化推迟到后台任务
-    // Method 是小结构体，Uri 是引用计数，HeaderMap clone 比 format_headers 更轻
+    // 在消耗 body 之前就地格式化 headers，避免 HeaderMap clone
+    // Method clone（小结构体）+ Uri clone（引用计数）代替多次 String 堆分配
     let method = req.method().clone();
     let uri = req.uri().clone();
-    let req_headers = req.headers().clone();
+    let req_headers_str = format_headers(req.headers());
 
     // 请求 body：仅在 Content-Length 已知且在安全范围内时缓冲
     // 无 Content-Length 时不消耗 body，避免大流式请求数据丢失
     let should_buffer_req = !is_binary_content_type(req.headers())
         && content_length(req.headers()).is_some_and(|len| len <= MAX_BODY_BUFFER);
 
-    let (req, req_body_bytes) = if should_buffer_req {
+    let (req, req_body_str) = if should_buffer_req {
         let (parts, body) = req.into_parts();
         match axum::body::to_bytes(body, MAX_BODY_BUFFER).await {
             Ok(bytes) => {
-                // Bytes::clone 是引用计数，O(1) 零拷贝
-                let cloned = bytes.clone();
-                (Request::from_parts(parts, Body::from(bytes)), Some(cloned))
+                let s = body_display_string(&bytes);
+                (Request::from_parts(parts, Body::from(bytes)), s)
             }
             Err(e) => {
                 tracing::warn!("log middleware: buffer request body failed: {e}");
-                (Request::from_parts(parts, Body::empty()), None)
+                (Request::from_parts(parts, Body::empty()), String::new())
             }
         }
     } else {
-        (req, None)
+        (req, String::new())
     };
 
     // 调用下一个中间件/handler
     let response = next.run(req).await;
 
     let status = response.status().as_u16();
-    let resp_headers = response.headers().clone();
+    let resp_headers_str = format_headers(response.headers());
+    let elapsed = start.elapsed();
 
-    // 捕获当前 span，确保后台任务中日志携带 trace context
-    let span = tracing::Span::current();
-
-    // 将格式化 + 日志记录卸载到后台任务，不阻塞响应返回
-    tokio::spawn(
-        async move {
-            let req_headers_str = format_headers(&req_headers);
-            let req_body_str = req_body_bytes
-                .map(|b| body_display_string(&b))
-                .unwrap_or_default();
-            let resp_headers_str = format_headers(&resp_headers);
-            let elapsed = start.elapsed();
-
-            tracing::info!(
-                http.method = %method,
-                http.path = %uri.path(),
-                http.query = %uri.query().unwrap_or_default(),
-                http.status = status,
-                http.elapsed = %format_elapsed(elapsed),
-                http.request_headers = %req_headers_str,
-                http.request_body = %req_body_str,
-                http.response_headers = %resp_headers_str,
-                "HTTP request completed"
-            );
-        }
-        .instrument(span),
+    tracing::info!(
+        http.method = %method,
+        http.path = %uri.path(),
+        http.query = %uri.query().unwrap_or_default(),
+        http.status = status,
+        http.elapsed = %format_elapsed(elapsed),
+        http.request_headers = %req_headers_str,
+        http.request_body = %req_body_str,
+        http.response_headers = %resp_headers_str,
+        "HTTP request completed"
     );
 
     response
