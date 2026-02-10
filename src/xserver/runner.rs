@@ -111,9 +111,13 @@ fn invoke_hooks_with_log(
 /// init 和 shutdown 对称包裹 server 运行逻辑。
 async fn run_with_signal<S: Server>(server: &S) -> Result<(), XOneError> {
     init()?;
+    // pin run future，用 &mut 引用传入 select!，
+    // 确保信号分支胜出时 run future 不被 drop，graceful shutdown 能正常完成
+    let run_fut = server.run();
+    tokio::pin!(run_fut);
 
     let server_result = tokio::select! {
-        result = server.run() => {
+        result = &mut run_fut => {
             match result {
                 Ok(()) => {
                     xutil::warn_if_enable_debug("XOne Run server unexpected stopped");
@@ -125,10 +129,20 @@ async fn run_with_signal<S: Server>(server: &S) -> Result<(), XOneError> {
             }
         }
         _ = tokio::signal::ctrl_c() => {
-            stop_server(server, "SIGINT").await
+            stop_server(server, "SIGINT").await?;
+            // 等待 server.run() 收到 stop 信号后优雅关闭
+            run_fut.await.map_err(|e| {
+                XOneError::Server(format!("XOne Run server shutdown failed, err=[{e}]"))
+            })?;
+            Ok(())
         }
         _ = wait_for_terminate_signal() => {
-            stop_server(server, "SIGTERM").await
+            stop_server(server, "SIGTERM").await?;
+            // 等待 server.run() 收到 stop 信号后优雅关闭
+            run_fut.await.map_err(|e| {
+                XOneError::Server(format!("XOne Run server shutdown failed, err=[{e}]"))
+            })?;
+            Ok(())
         }
     };
 

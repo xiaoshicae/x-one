@@ -55,6 +55,58 @@ CustomKey: env_value
 }
 
 #[test]
+fn test_merge_profiles_config_base_missing_server_inserts_env_server() {
+    let base_yaml = r#"
+XAxum:
+  Host: "0.0.0.0"
+  Port: 8000
+"#;
+    let env_yaml = r#"
+Server:
+  Name: env-app
+  Version: v2.0.0
+  Profiles:
+    Active: dev
+"#;
+    let base: serde_yaml::Value = serde_yaml::from_str(base_yaml).unwrap();
+    let env: serde_yaml::Value = serde_yaml::from_str(env_yaml).unwrap();
+
+    let merged = merge_profiles_config(base, env);
+
+    // base 无 Server 时，env 的 Server 应被正确合并
+    let server = merged
+        .get("Server")
+        .expect("Server should exist after merge");
+    assert_eq!(server.get("Name").unwrap().as_str().unwrap(), "env-app");
+    assert_eq!(server.get("Version").unwrap().as_str().unwrap(), "v2.0.0");
+    // Profiles 应被跳过
+    assert!(server.get("Profiles").is_none());
+}
+
+#[test]
+fn test_merge_profiles_config_server_二级_key_覆盖() {
+    let base_yaml = r#"
+Server:
+  Name: base-app
+  Version: v1.0.0
+"#;
+    let env_yaml = r#"
+Server:
+  Name: env-app
+"#;
+    let base: serde_yaml::Value = serde_yaml::from_str(base_yaml).unwrap();
+    let env: serde_yaml::Value = serde_yaml::from_str(env_yaml).unwrap();
+
+    let merged = merge_profiles_config(base, env);
+
+    let server = merged.get("Server").unwrap();
+    // Name 应被 env 覆盖
+    assert_eq!(server.get("Name").unwrap().as_str().unwrap(), "env-app");
+    // Version 应保留 base 值
+    assert_eq!(server.get("Version").unwrap().as_str().unwrap(), "v1.0.0");
+}
+
+#[test]
 fn test_load_local_config() {
     let dir = tempfile::tempdir().unwrap();
     let file_path = dir.path().join("test.yml");

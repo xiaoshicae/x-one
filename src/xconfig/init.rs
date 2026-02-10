@@ -109,19 +109,23 @@ pub fn merge_profiles_config(
 ) -> serde_yaml::Value {
     if let (Some(base_map), Some(env_map)) = (base.as_mapping_mut(), env.as_mapping()) {
         for (key, value) in env_map {
-            // 跳过 Server.Profiles
-            if let Some("Server") = key.as_str() {
-                // Server 下进行二级 key 合并
-                if let (Some(base_server), Some(env_server)) = (
-                    base_map.get_mut(key).and_then(|v| v.as_mapping_mut()),
-                    value.as_mapping(),
-                ) {
-                    for (sk, sv) in env_server {
-                        // 跳过 Profiles
-                        if sk.as_str() == Some("Profiles") {
-                            continue;
+            // Server 下进行二级 key 合并（跳过 Profiles）
+            if key.as_str() == Some("Server") {
+                if let Some(env_server) = value.as_mapping() {
+                    // base 缺少 Server 时先插入空 Mapping
+                    if !base_map.contains_key(key) {
+                        base_map
+                            .insert(key.clone(), serde_yaml::Value::Mapping(Default::default()));
+                    }
+                    if let Some(base_server) =
+                        base_map.get_mut(key).and_then(|v| v.as_mapping_mut())
+                    {
+                        for (sk, sv) in env_server {
+                            if sk.as_str() == Some("Profiles") {
+                                continue;
+                            }
+                            base_server.insert(sk.clone(), sv.clone());
                         }
-                        base_server.insert(sk.clone(), sv.clone());
                     }
                 }
                 continue;

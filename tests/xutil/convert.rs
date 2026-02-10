@@ -2,8 +2,13 @@ use std::time::Duration;
 use x_one::xutil::convert::*;
 
 #[test]
-fn test_to_duration_empty() {
-    assert_eq!(to_duration(""), Some(Duration::ZERO));
+fn test_to_duration_empty_returns_none() {
+    assert_eq!(to_duration(""), None);
+}
+
+#[test]
+fn test_to_duration_whitespace_returns_none() {
+    assert_eq!(to_duration("  "), None);
 }
 
 #[test]

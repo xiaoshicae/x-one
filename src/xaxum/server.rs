@@ -8,6 +8,7 @@ use crate::error::XOneError;
 use crate::xserver::Server;
 use crate::xutil;
 use axum::Router;
+use axum::serve::ListenerExt;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -81,6 +82,9 @@ impl XAxumServer {
         listener: tokio::net::TcpListener,
         mut shutdown_rx: watch::Receiver<bool>,
     ) -> Result<(), XOneError> {
+        let listener = listener.tap_io(|tcp_stream| {
+            let _ = tcp_stream.set_nodelay(true);
+        });
         axum::serve(listener, self.router.clone())
             .with_graceful_shutdown(async move {
                 let _ = shutdown_rx.changed().await;
@@ -109,6 +113,7 @@ impl XAxumServer {
                 result = listener.accept() => {
                     let (socket, _remote_addr) = result
                         .map_err(|e| XOneError::Server(format!("accept failed: {e}")))?;
+                    let _ = socket.set_nodelay(true);
 
                     let tower_service = self.router.clone();
 

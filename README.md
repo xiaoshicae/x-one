@@ -188,5 +188,6 @@ XOrm:
 
 ## 更新日志
 
+- **v0.2.1** (2026-02-10) - 修复 graceful shutdown 被绕过、profile 合并丢失 Server 配置、空字符串 Duration 解析绕过默认值
 - **v0.2.0** (2026-02-10) - xaxum 支持 h2c (HTTP/2 cleartext)、日志增加 caller/threadName 字段、HTTP 请求耗时人性化显示、幂等 Hook 注册
 - **v0.1.0** (2026-02-10) - 初始版本，11 个模块（xconfig, xlog, xtrace, xhttp, xorm, xcache, xaxum, xhook, xserver, xutil, error）
