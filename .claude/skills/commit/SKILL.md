@@ -114,7 +114,37 @@ EOF
 )"
 ```
 
-### 8. 验证
+### 8. 推送（仅 main 分支）
+
+提交成功后，检查当前分支：
+
+```bash
+git branch --show-current
+```
+
+**如果是 `main` 分支**：自动推送到远程。
+
+```bash
+git push origin main
+```
+
+**如果不是 `main` 分支**：不自动推送，提示用户手动推送。
+
+### 9. 打 Tag（仅 main 分支且版本号有变更）
+
+推送成功后，如果步骤 4 中发生了版本号 bump，自动打 tag 并推送：
+
+```bash
+git tag v<new_version>
+git push origin v<new_version>
+```
+
+**跳过 tag 的情况**：
+- 非 main 分支
+- 步骤 4 中未 bump 版本号（如纯工具配置变更）
+- tag `v<version>` 已存在
+
+### 10. 验证
 
 ```bash
 git status
