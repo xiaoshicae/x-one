@@ -8,6 +8,7 @@ use axum::extract::Request;
 use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::Response;
+use std::fmt::Write;
 use std::time::Instant;
 
 /// Body 日志显示截断阈值（4KB）
@@ -75,8 +76,8 @@ pub fn format_headers(headers: &HeaderMap) -> String {
                     '\r' => buf.push_str("\\r"),
                     '\t' => buf.push_str("\\t"),
                     c if c < '\x20' => {
-                        // JSON 要求控制字符用 \u00XX 转义
-                        buf.push_str(&format!("\\u{:04x}", c as u32));
+                        // JSON 要求控制字符用 \u00XX 转义，直接写入 buf 避免临时 String
+                        let _ = write!(buf, "\\u{:04x}", c as u32);
                     }
                     _ => buf.push(c),
                 }
@@ -93,22 +94,26 @@ pub fn format_headers(headers: &HeaderMap) -> String {
 pub fn is_binary_content_type(headers: &HeaderMap) -> bool {
     let ct = match headers.get("content-type") {
         Some(v) => match v.to_str() {
-            Ok(s) => s.to_ascii_lowercase(),
+            Ok(s) => s,
             Err(_) => return false,
         },
         None => return false,
     };
 
     // 取分号前的主类型部分（去除 charset 等参数）
-    let main_type = ct.split(';').next().unwrap_or(&ct).trim();
+    let main_type = ct.split(';').next().unwrap_or(ct).trim();
 
+    // 使用 ASCII 大小写不敏感比较，避免 to_ascii_lowercase() 堆分配
     for prefix in BINARY_CT_PREFIXES {
-        if main_type.starts_with(prefix) {
+        if main_type.len() >= prefix.len() && main_type[..prefix.len()].eq_ignore_ascii_case(prefix)
+        {
             return true;
         }
     }
 
-    BINARY_CT_EXACT.contains(&main_type)
+    BINARY_CT_EXACT
+        .iter()
+        .any(|exact| main_type.eq_ignore_ascii_case(exact))
 }
 
 /// 将 body 字节转为可记录字符串

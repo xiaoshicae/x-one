@@ -25,49 +25,37 @@ pub const XHTTP_CONFIG_KEY: &str = "XHttp";
 ///   PoolMaxIdlePerHost: 10
 /// ```
 #[derive(Debug, Deserialize, Clone)]
+#[serde(default)]
 pub struct XHttpConfig {
     /// 请求超时（duration 字符串，默认 "30s"）
-    #[serde(rename = "Timeout", default = "default_timeout")]
+    #[serde(rename = "Timeout")]
     pub timeout: String,
 
     /// 连接超时（duration 字符串，默认 "10s"）
-    #[serde(rename = "DialTimeout", default = "default_dial_timeout")]
+    #[serde(rename = "DialTimeout")]
     pub dial_timeout: String,
 
     /// Keep-alive 时间（duration 字符串，默认 "30s"）
-    #[serde(rename = "DialKeepAlive", default = "default_dial_keep_alive")]
+    #[serde(rename = "DialKeepAlive")]
     pub dial_keep_alive: String,
 
     /// 连接池每个主机最大空闲数（默认 10）
-    #[serde(rename = "PoolMaxIdlePerHost", default = "default_pool_max_idle")]
+    #[serde(rename = "PoolMaxIdlePerHost")]
     pub pool_max_idle_per_host: usize,
-}
-
-fn default_timeout() -> String {
-    "30s".to_string()
-}
-fn default_dial_timeout() -> String {
-    "10s".to_string()
-}
-fn default_dial_keep_alive() -> String {
-    "30s".to_string()
-}
-fn default_pool_max_idle() -> usize {
-    10
-}
-
-/// 加载 XHttp 配置
-pub(crate) fn load_config() -> XHttpConfig {
-    crate::xconfig::parse_config::<XHttpConfig>(XHTTP_CONFIG_KEY).unwrap_or_default()
 }
 
 impl Default for XHttpConfig {
     fn default() -> Self {
         Self {
-            timeout: default_timeout(),
-            dial_timeout: default_dial_timeout(),
-            dial_keep_alive: default_dial_keep_alive(),
-            pool_max_idle_per_host: default_pool_max_idle(),
+            timeout: "30s".into(),
+            dial_timeout: "10s".into(),
+            dial_keep_alive: "30s".into(),
+            pool_max_idle_per_host: 10,
         }
     }
+}
+
+/// 加载 XHttp 配置
+pub(crate) fn load_config() -> XHttpConfig {
+    crate::xconfig::parse_config::<XHttpConfig>(XHTTP_CONFIG_KEY).unwrap_or_default()
 }

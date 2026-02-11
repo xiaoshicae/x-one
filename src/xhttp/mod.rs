@@ -19,7 +19,7 @@ static REGISTERED: AtomicBool = AtomicBool::new(false);
 /// xhttp 仅注册 before_start，无需 before_stop（reqwest Client 可直接 drop）。
 pub fn register_hook() {
     if REGISTERED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
         .is_err()
     {
         return;

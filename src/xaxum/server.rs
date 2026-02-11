@@ -107,6 +107,8 @@ impl XAxumServer {
         use tower_service::Service;
 
         let graceful = GracefulShutdown::new();
+        // Builder 提到循环外，避免每连接重建
+        let builder = auto::Builder::new(TokioExecutor::new());
 
         loop {
             tokio::select! {
@@ -123,7 +125,6 @@ impl XAxumServer {
                         },
                     );
 
-                    let builder = auto::Builder::new(TokioExecutor::new());
                     let conn = builder
                         .serve_connection_with_upgrades(
                             TokioIo::new(socket),

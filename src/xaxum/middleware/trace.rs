@@ -62,15 +62,17 @@ pub async fn trace_middleware(req: Request, next: Next) -> Response {
     });
 
     let tracer = global::tracer("x-one-http-server");
-    let method = req.method().to_string();
-    let path = req.uri().path().to_string();
+    // clone 替代 to_string：Method 是小枚举（栈拷贝），Uri 是引用计数（原子 +1）
+    let method = req.method().clone();
+    let uri = req.uri().clone();
 
     let span = tracer
-        .span_builder(format!("{method} {path}"))
+        .span_builder(format!("{} {}", method.as_str(), uri.path()))
         .with_kind(SpanKind::Server)
-        .with_attributes(vec![
-            KeyValue::new("http.method", method),
-            KeyValue::new("http.target", path),
+        // 数组替代 vec!：避免每请求的 Vec 堆分配
+        .with_attributes([
+            KeyValue::new("http.method", method.as_str().to_owned()),
+            KeyValue::new("http.target", uri.path().to_owned()),
         ])
         .start_with_context(&tracer, &parent_cx);
 

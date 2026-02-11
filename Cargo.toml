@@ -1,6 +1,6 @@
 [package]
 name = "x-one"
-version = "0.2.8"
+version = "0.2.9"
 edition = "2024"
 description = "开箱即用的 Rust 三方库集成框架 SDK，集成 Axum、sqlx、moka、reqwest、OpenTelemetry"
 license = "MIT"
