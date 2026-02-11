@@ -27,11 +27,7 @@ pub use options::HookOptions;
 #[macro_export]
 macro_rules! before_start {
     ($f:expr) => {
-        $crate::xhook::_before_start(
-            stringify!($f),
-            $f,
-            $crate::xhook::HookOptions::default(),
-        )
+        $crate::xhook::_before_start(stringify!($f), $f, $crate::xhook::HookOptions::default())
     };
     ($f:expr, $opts:expr) => {
         $crate::xhook::_before_start(stringify!($f), $f, $opts)
@@ -55,11 +51,7 @@ macro_rules! before_start {
 #[macro_export]
 macro_rules! before_stop {
     ($f:expr) => {
-        $crate::xhook::_before_stop(
-            stringify!($f),
-            $f,
-            $crate::xhook::HookOptions::default(),
-        )
+        $crate::xhook::_before_stop(stringify!($f), $f, $crate::xhook::HookOptions::default())
     };
     ($f:expr, $opts:expr) => {
         $crate::xhook::_before_stop(stringify!($f), $f, $opts)
