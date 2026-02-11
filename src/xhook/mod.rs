@@ -13,7 +13,7 @@ pub use options::HookOptions;
 
 /// 注册 BeforeStart Hook
 ///
-/// 自动以调用位置（file:line）作为 Hook 名称，`HookOptions` 可选。
+/// 自动以函数名作为 Hook 名称，`HookOptions` 可选。
 ///
 /// # Examples
 ///
@@ -28,19 +28,19 @@ pub use options::HookOptions;
 macro_rules! before_start {
     ($f:expr) => {
         $crate::xhook::_before_start(
-            concat!(file!(), ":", line!()),
+            stringify!($f),
             $f,
             $crate::xhook::HookOptions::default(),
         )
     };
     ($f:expr, $opts:expr) => {
-        $crate::xhook::_before_start(concat!(file!(), ":", line!()), $f, $opts)
+        $crate::xhook::_before_start(stringify!($f), $f, $opts)
     };
 }
 
 /// 注册 BeforeStop Hook
 ///
-/// 自动以调用位置（file:line）作为 Hook 名称，`HookOptions` 可选。
+/// 自动以函数名作为 Hook 名称，`HookOptions` 可选。
 /// 清理阶段 `must_invoke_success` 被忽略，单个失败不影响后续 hook 执行。
 ///
 /// # Examples
@@ -56,12 +56,12 @@ macro_rules! before_start {
 macro_rules! before_stop {
     ($f:expr) => {
         $crate::xhook::_before_stop(
-            concat!(file!(), ":", line!()),
+            stringify!($f),
             $f,
             $crate::xhook::HookOptions::default(),
         )
     };
     ($f:expr, $opts:expr) => {
-        $crate::xhook::_before_stop(concat!(file!(), ":", line!()), $f, $opts)
+        $crate::xhook::_before_stop(stringify!($f), $f, $opts)
     };
 }
