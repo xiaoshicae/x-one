@@ -119,6 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | [xcache](./src/xcache/README.md) | moka | 本地缓存（支持 TTL / 泛型） | - | - |
 | xserver | - | 服务运行和生命周期管理 | - | - |
 | [xaxum](./src/xaxum/README.md) | axum | Axum Web 框架集成（Builder 模式 + 内置中间件） | - | - |
+| [xflow](./src/xflow/README.md) | - | 流程编排（顺序执行 + 强/弱依赖 + 自动逆序回滚） | - | - |
 
 ## 服务启动方式
 
@@ -387,6 +388,7 @@ XCache:
 
 ## 更新日志
 
+- **v0.3.0** (2026-02-11) - 新增 xflow 流程编排模块（顺序执行 + 强/弱依赖 + 自动逆序回滚 + 零开销 Monitor）
 - **v0.2.11** (2026-02-11) - 改善 hook debug 日志（显示函数名代替文件路径）
 - **v0.2.10** (2026-02-11) - 重命名 debug 环境变量（SERVER_ENABLE_DEBUG → XONE_ENABLE_DEBUG）
 - **v0.2.9** (2026-02-11) - 优化 xhttp/xaxum 热路径性能（减少每请求堆分配、零分配比较、复用 Builder）

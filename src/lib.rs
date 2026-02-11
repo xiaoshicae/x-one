@@ -7,6 +7,7 @@ pub mod error;
 pub mod xaxum;
 pub mod xcache;
 pub mod xconfig;
+pub mod xflow;
 pub mod xhook;
 pub mod xhttp;
 pub mod xlog;

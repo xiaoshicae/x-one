@@ -27,7 +27,8 @@ lib.rs
 ├── xhttp        # HTTP 客户端（reqwest 封装）
 ├── xorm         # 数据库连接池（sqlx，Postgres/MySQL）
 ├── xcache       # 本地缓存（moka，类型擦除泛型缓存）
-└── xaxum        # Axum HTTP 服务器（构建器 + 中间件）
+├── xaxum        # Axum HTTP 服务器（构建器 + 中间件）
+└── xflow        # 流程编排（顺序执行 + 强/弱依赖 + 自动逆序回滚）
 ```
 
 ## Hook 生命周期顺序
