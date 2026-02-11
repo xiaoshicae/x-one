@@ -65,10 +65,22 @@ xconfig(10) → xtrace(20) → xlog(30) → xhttp(40) → xorm(50) → xcache(60
 参考标杆：`xorm/mod.rs`。xaxum 等模块可按需使用 `builder.rs`、`middleware/` 等替代结构。
 
 ## 开发方法
-- 严格遵循 TDD 红-绿-重构循环（详见 rules/tdd.md）
+- 严格遵循 TDD 红-绿-重构循环（详见 agents/tdd-guide.md）
 - 编码规范详见 rules/rust-coding.md
 - 测试规范详见 rules/testing.md
 - 架构规范详见 rules/architecture.md
+- 版本号管理详见 rules/versioning.md
+
+## Agent 知识库
+
+`agents/` 目录包含专家级领域知识，供 skills 引用：
+
+| Agent | 用途 |
+|-------|------|
+| `build-error-resolver` | Rust 编译/clippy 错误模式与修复策略 |
+| `code-reviewer` | 增量代码审查清单（P0/P1/P2 优先级） |
+| `security-reviewer` | 安全审查（unsafe/依赖/密钥/并发） |
+| `tdd-guide` | TDD 完整指南（详细示例与边界测试） |
 
 ## 常用命令
 ```bash
@@ -80,25 +92,12 @@ cargo test -- --test-threads=1      # 串行运行（调试全局状态问题）
 
 ## 自定义 Skills
 
-### 开发流程
-- `/tdd <功能>` - 执行一轮 TDD 红-绿-重构循环
-- `/new-feature <功能>` - 以 TDD 方式开发新功能
-- `/build-fix` - 快速修复编译错误和 clippy 警告
-
-### 代码质量
-- `/check` - 运行完整质量检查流水线
-- `/refactor <目标>` - 在测试保护下安全重构
-- `/refactor-scan [路径]` - 扫描代码质量问题（大文件、长函数等）
-- `/code-review [范围]` - 代码审查（静态分析 + 改进建议）
-- `/security-review [范围]` - 安全审查（unsafe、漏洞、密钥泄露）
-- `/coverage` - 测试覆盖率分析
-
-### Git 工作流
-- `/commit [消息]` - 创建规范提交（自动检查 + 生成消息）
-- `/pr [目标分支]` - 创建 Pull Request
-
-### 发布
-- `/publish` - 发布到 crates.io（测试 + 增量覆盖率 60% + 工作区干净）
+- `/commit` - 规范提交（测试 + 覆盖率 + 版本号 + 提交）
+- `/test [模块]` - 运行测试
+- `/new-module <模块名> <三方库>` - 创建新模块
+- `/review <模块名>` - 模块代码审查
+- `/build-fix` - 快速修复编译错误
+- `/publish` - 发布到 crates.io
 
 ## 关键依赖
 | 用途 | crate |

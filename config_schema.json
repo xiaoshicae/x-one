@@ -5,13 +5,15 @@
   "properties": {
     "Server": {
       "type": "object",
+      "description": "服务配置",
       "properties": {
-        "Name": { "type": "string" },
-        "Version": { "type": "string", "default": "v0.0.1" },
+        "Name": { "type": "string", "description": "服务名" },
+        "Version": { "type": "string", "default": "v0.0.1", "description": "服务版本号，默认 v0.0.1" },
         "Profiles": {
           "type": "object",
+          "description": "环境相关配置",
           "properties": {
-            "Active": { "type": "string" }
+            "Active": { "type": "string", "description": "指定启用的环境" }
           }
         }
       },
@@ -19,67 +21,86 @@
     },
     "XAxum": {
       "type": "object",
+      "description": "Axum Web 框架配置",
       "properties": {
-        "Host": { "type": "string", "default": "0.0.0.0" },
-        "Port": { "type": "integer", "default": 8000 },
-        "UseHttp2": { "type": "boolean", "default": false },
-        "EnableBanner": { "type": "boolean", "default": true, "description": "是否打印启动 ASCII art Banner" },
+        "Host": { "type": "string", "default": "0.0.0.0", "description": "服务监听地址，默认 0.0.0.0" },
+        "Port": { "type": ["integer", "string"], "default": 8000, "description": "服务监听端口，默认 8000" },
+        "UseHttp2": { "type": ["boolean", "string"], "default": false, "description": "是否启用 h2c (HTTP/2 Cleartext)，默认 false" },
+        "EnableBanner": { "type": ["boolean", "string"], "default": true, "description": "是否打印启动 ASCII art Banner，默认 true" },
         "Swagger": {
           "type": "object",
+          "description": "Swagger 相关配置",
           "properties": {
-            "Host": { "type": "string" },
-            "BasePath": { "type": "string" },
-            "Title": { "type": "string" },
-            "Description": { "type": "string" },
-            "Schemes": { "type": "array", "items": { "type": "string" }, "default": ["https", "http"] }
+            "Host": { "type": "string", "description": "API 服务 Host" },
+            "BasePath": { "type": "string", "description": "API 公共路径前缀" },
+            "Title": { "type": "string", "description": "API 文档标题" },
+            "Description": { "type": "string", "description": "API 文档描述" },
+            "Schemes": { "type": "array", "items": { "type": "string" }, "default": ["https", "http"], "description": "API 支持的协议" }
           }
         }
       }
     },
     "XLog": {
       "type": "object",
+      "description": "日志配置",
       "properties": {
-        "Level": { "type": "string", "enum": ["trace", "debug", "info", "warn", "error"], "default": "info" },
-        "Name": { "type": "string", "default": "app" },
-        "Path": { "type": "string", "default": "./log" },
-        "Console": { "type": "boolean", "default": false },
-        "ConsoleFormatIsRaw": { "type": "boolean", "default": false },
-        "MaxAge": { "type": "string", "default": "7d" },
-        "RotateTime": { "type": "string", "default": "1d" },
-        "Timezone": { "type": "string", "default": "Asia/Shanghai" }
+        "Level": { "type": "string", "enum": ["trace", "debug", "info", "warn", "error"], "default": "info", "description": "日志级别，默认 info" },
+        "Name": { "type": "string", "default": "app", "description": "日志文件名称，默认 app" },
+        "Path": { "type": "string", "default": "./log", "description": "日志文件夹路径，默认 ./log" },
+        "Console": { "type": ["boolean", "string"], "default": false, "description": "是否在控制台打印，默认 false" },
+        "ConsoleFormatIsRaw": { "type": ["boolean", "string"], "default": false, "description": "控制台是否输出原始 JSON 格式，默认 false" },
+        "MaxAge": { "type": "string", "default": "7d", "description": "日志保留时长，默认 7d" },
+        "RotateTime": { "type": "string", "default": "1d", "description": "日志切割周期，默认 1d" },
+        "Timezone": { "type": "string", "default": "Asia/Shanghai", "description": "日志时间时区，默认 Asia/Shanghai" }
       }
     },
     "XTrace": {
       "type": "object",
+      "description": "链路追踪配置",
       "properties": {
-        "Enable": { "type": "boolean", "default": true },
-        "Console": { "type": "boolean", "default": false }
+        "Enable": { "type": ["boolean", "string"], "default": true, "description": "是否启用链路追踪，默认 true" },
+        "Console": { "type": ["boolean", "string"], "default": false, "description": "是否在控制台打印 trace，默认 false" }
       }
     },
     "XHttp": {
       "type": "object",
+      "description": "HTTP 客户端配置",
       "properties": {
-        "Timeout": { "type": "string", "default": "30s" },
-        "DialTimeout": { "type": "string", "default": "10s" },
-        "DialKeepAlive": { "type": "string", "default": "30s" },
-        "MaxIdleConnsPerHost": { "type": "integer", "default": 100 },
-        "PoolMaxIdlePerHost": { "type": "integer", "default": 10 },
-        "RetryCount": { "type": "integer", "default": 0 },
-        "RetryWaitTime": { "type": "string", "default": "1s" },
-        "RetryMaxWaitTime": { "type": "string", "default": "10s" }
+        "Timeout": { "type": "string", "default": "30s", "description": "请求超时时间，默认 30s" },
+        "DialTimeout": { "type": "string", "default": "10s", "description": "TCP 连接超时时间，默认 10s" },
+        "DialKeepAlive": { "type": "string", "default": "30s", "description": "TCP keep-alive 探测间隔，默认 30s" },
+        "MaxIdleConnsPerHost": { "type": ["integer", "string"], "default": 100, "description": "每个 host 最大空闲连接数，默认 100" },
+        "PoolMaxIdlePerHost": { "type": ["integer", "string"], "default": 10, "description": "连接池每 host 最大空闲数，默认 10" },
+        "RetryCount": { "type": ["integer", "string"], "default": 0, "description": "重试次数，默认 0（不重试）" },
+        "RetryWaitTime": { "type": "string", "default": "1s", "description": "重试等待时间，默认 1s" },
+        "RetryMaxWaitTime": { "type": "string", "default": "10s", "description": "最大重试等待时间，默认 10s" }
       }
     },
     "XOrm": {
-      "oneOf": [
-        { "$ref": "#/definitions/XOrmConfig" },
-        { "type": "array", "items": { "$ref": "#/definitions/XOrmConfig" } }
-      ]
+      "type": ["object", "array"],
+      "description": "数据库配置（支持 MySQL 和 PostgreSQL）",
+      "items": { "$ref": "#/definitions/XOrmConfig" },
+      "properties": {
+        "Driver": { "$ref": "#/definitions/XOrmConfig/properties/Driver" },
+        "DSN": { "$ref": "#/definitions/XOrmConfig/properties/DSN" },
+        "MaxOpenConns": { "$ref": "#/definitions/XOrmConfig/properties/MaxOpenConns" },
+        "MaxIdleConns": { "$ref": "#/definitions/XOrmConfig/properties/MaxIdleConns" },
+        "MaxLifetime": { "$ref": "#/definitions/XOrmConfig/properties/MaxLifetime" },
+        "MaxIdleTime": { "$ref": "#/definitions/XOrmConfig/properties/MaxIdleTime" },
+        "SlowThreshold": { "$ref": "#/definitions/XOrmConfig/properties/SlowThreshold" },
+        "EnableLog": { "$ref": "#/definitions/XOrmConfig/properties/EnableLog" },
+        "Name": { "$ref": "#/definitions/XOrmConfig/properties/Name" }
+      }
     },
     "XCache": {
-      "oneOf": [
-        { "$ref": "#/definitions/XCacheConfig" },
-        { "type": "array", "items": { "$ref": "#/definitions/XCacheConfig" } }
-      ]
+      "type": ["object", "array"],
+      "description": "本地缓存配置",
+      "items": { "$ref": "#/definitions/XCacheConfig" },
+      "properties": {
+        "MaxCapacity": { "$ref": "#/definitions/XCacheConfig/properties/MaxCapacity" },
+        "DefaultTTL": { "$ref": "#/definitions/XCacheConfig/properties/DefaultTTL" },
+        "Name": { "$ref": "#/definitions/XCacheConfig/properties/Name" }
+      }
     }
   },
   "definitions": {
@@ -87,23 +108,24 @@
       "type": "object",
       "description": "数据库连接池配置，使用 connect_lazy 同步创建，首次查询时建立连接",
       "properties": {
-        "Driver": { "type": "string", "enum": ["postgres", "mysql"], "default": "postgres", "description": "数据库驱动类型" },
+        "Driver": { "type": "string", "enum": ["postgres", "mysql"], "default": "postgres", "description": "数据库驱动类型，默认 postgres" },
         "DSN": { "type": "string", "description": "数据库连接字符串（空则跳过该实例）" },
-        "MaxOpenConns": { "type": "integer", "default": 100, "description": "最大连接数" },
-        "MaxIdleConns": { "type": "integer", "default": 10, "description": "最小空闲连接数" },
-        "MaxLifetime": { "type": "string", "default": "1h", "description": "连接最长存活时间" },
-        "MaxIdleTime": { "type": "string", "default": "10m", "description": "空闲连接回收时间" },
-        "SlowThreshold": { "type": "string", "default": "200ms", "description": "慢查询阈值" },
-        "EnableLog": { "type": "boolean", "default": true, "description": "是否启用 SQL 日志" },
+        "MaxOpenConns": { "type": ["integer", "string"], "default": 100, "description": "最大连接数，默认 100" },
+        "MaxIdleConns": { "type": ["integer", "string"], "default": 10, "description": "最小空闲连接数，默认 10" },
+        "MaxLifetime": { "type": "string", "default": "1h", "description": "连接最长存活时间，默认 1h" },
+        "MaxIdleTime": { "type": "string", "default": "10m", "description": "空闲连接回收时间，默认 10m" },
+        "SlowThreshold": { "type": "string", "default": "200ms", "description": "慢查询阈值，默认 200ms" },
+        "EnableLog": { "type": ["boolean", "string"], "default": true, "description": "是否启用 SQL 日志，默认 true" },
         "Name": { "type": "string", "default": "", "description": "实例名称（多实例模式标识）" }
       }
     },
     "XCacheConfig": {
       "type": "object",
+      "description": "本地缓存配置",
       "properties": {
-        "MaxCapacity": { "type": "integer", "default": 100000 },
-        "DefaultTTL": { "type": "string", "default": "5m" },
-        "Name": { "type": "string", "default": "" }
+        "MaxCapacity": { "type": ["integer", "string"], "default": 100000, "description": "最大缓存条目数，默认 100000" },
+        "DefaultTTL": { "type": "string", "default": "5m", "description": "默认 TTL，默认 5m" },
+        "Name": { "type": "string", "default": "", "description": "实例名称（多实例模式标识）" }
       }
     }
   }
