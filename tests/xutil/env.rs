@@ -13,71 +13,71 @@ fn remove_env(key: &str) {
 
 #[test]
 #[serial]
-fn test_enable_debug_true() {
+fn test_xone_enable_debug_true() {
     set_env(DEBUG_KEY, "true");
-    assert!(enable_debug());
+    assert!(xone_enable_debug());
     remove_env(DEBUG_KEY);
 }
 
 #[test]
 #[serial]
-fn test_enable_debug_1() {
+fn test_xone_enable_debug_1() {
     set_env(DEBUG_KEY, "1");
-    assert!(enable_debug());
+    assert!(xone_enable_debug());
     remove_env(DEBUG_KEY);
 }
 
 #[test]
 #[serial]
-fn test_enable_debug_yes() {
+fn test_xone_enable_debug_yes() {
     set_env(DEBUG_KEY, "yes");
-    assert!(enable_debug());
+    assert!(xone_enable_debug());
     remove_env(DEBUG_KEY);
 }
 
 #[test]
 #[serial]
-fn test_enable_debug_on() {
+fn test_xone_enable_debug_on() {
     set_env(DEBUG_KEY, "on");
-    assert!(enable_debug());
+    assert!(xone_enable_debug());
     remove_env(DEBUG_KEY);
 }
 
 #[test]
 #[serial]
-fn test_enable_debug_t() {
+fn test_xone_enable_debug_t() {
     set_env(DEBUG_KEY, "T");
-    assert!(enable_debug());
+    assert!(xone_enable_debug());
     remove_env(DEBUG_KEY);
 }
 
 #[test]
 #[serial]
-fn test_enable_debug_y() {
+fn test_xone_enable_debug_y() {
     set_env(DEBUG_KEY, "Y");
-    assert!(enable_debug());
+    assert!(xone_enable_debug());
     remove_env(DEBUG_KEY);
 }
 
 #[test]
 #[serial]
-fn test_enable_debug_false() {
+fn test_xone_enable_debug_false() {
     set_env(DEBUG_KEY, "false");
-    assert!(!enable_debug());
+    assert!(!xone_enable_debug());
     remove_env(DEBUG_KEY);
 }
 
 #[test]
 #[serial]
-fn test_enable_debug_empty() {
+fn test_xone_enable_debug_empty() {
     remove_env(DEBUG_KEY);
-    assert!(!enable_debug());
+    assert!(!xone_enable_debug());
 }
 
 #[test]
 #[serial]
-fn test_enable_debug_with_whitespace() {
+fn test_xone_enable_debug_with_whitespace() {
     set_env(DEBUG_KEY, "  true  ");
-    assert!(enable_debug());
+    assert!(xone_enable_debug());
     remove_env(DEBUG_KEY);
 }

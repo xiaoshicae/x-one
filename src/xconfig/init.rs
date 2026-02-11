@@ -140,7 +140,7 @@ fn parse_config(config_location: &str) -> Result<serde_yaml::Value, XOneError> {
 
 /// 打印最终配置（debug 模式下）
 fn print_final_config(config: &serde_yaml::Value) {
-    if xutil::enable_debug() {
+    if xutil::xone_enable_debug() {
         let config_str = xutil::to_json_string_indent(config);
         eprintln!(
             "\n************************************** XOne load config **************************************\n{config_str}\n**********************************************************************************************\n"

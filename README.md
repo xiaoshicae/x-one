@@ -387,6 +387,7 @@ XCache:
 
 ## 更新日志
 
+- **v0.2.10** (2026-02-11) - 重命名 debug 环境变量（SERVER_ENABLE_DEBUG → XONE_ENABLE_DEBUG）
 - **v0.2.9** (2026-02-11) - 优化 xhttp/xaxum 热路径性能（减少每请求堆分配、零分配比较、复用 Builder）
 - **v0.2.8** (2026-02-11) - 优化 .claude 配置（新增 agents 知识库、对齐 skills、完善 README 和 Schema）
 - **v0.2.7** (2026-02-10) - 发布到 crates.io

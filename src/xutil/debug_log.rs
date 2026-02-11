@@ -1,9 +1,9 @@
 //! 框架内部 debug 日志工具
 //!
-//! 这些函数仅在 `SERVER_ENABLE_DEBUG=true` 时输出日志到控制台，
+//! 这些函数仅在 `XONE_ENABLE_DEBUG=true` 时输出日志到控制台，
 //! 用于 x-one 框架启动过程中的调试信息。
 
-use super::env::enable_debug;
+use super::env::xone_enable_debug;
 
 /// debug 模式下输出 ERROR 级别日志
 pub fn error_if_enable_debug(msg: &str) {
@@ -22,7 +22,7 @@ pub fn warn_if_enable_debug(msg: &str) {
 
 /// debug 模式下输出指定级别日志
 pub fn log_if_enable_debug(level: &str, msg: &str) {
-    if enable_debug() {
+    if xone_enable_debug() {
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
         let color = match level {
             "ERROR" => "\x1b[31m", // 红色
