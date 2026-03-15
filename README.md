@@ -388,6 +388,7 @@ XCache:
 
 ## 更新日志
 
+- **v0.4.0** (2026-03-15) - 新增 xredis/xpipeline/xmetric 模块，补充 xutil（net/pool/future）、xaxum 中间件（recover/session/metric）、xflow FlowData 容器
 - **v0.3.0** (2026-02-11) - 新增 xflow 流程编排模块（顺序执行 + 强/弱依赖 + 自动逆序回滚 + 零开销 Monitor）
 - **v0.2.11** (2026-02-11) - 改善 hook debug 日志（显示函数名代替文件路径）
 - **v0.2.10** (2026-02-11) - 重命名 debug 环境变量（SERVER_ENABLE_DEBUG → XONE_ENABLE_DEBUG）
