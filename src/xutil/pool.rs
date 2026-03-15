@@ -61,13 +61,15 @@ impl Pool {
     }
 
     /// 提交异步任务
-    pub fn submit<F, Fut>(&self, f: F)
+    ///
+    /// 返回 `true` 表示提交成功，`false` 表示队列已满或已关闭，任务被丢弃。
+    pub fn submit<F, Fut>(&self, f: F) -> bool
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
         let boxed: BoxTask = Box::new(move || Box::pin(f()));
-        let _ = self.tx.try_send(boxed);
+        self.tx.try_send(boxed).is_ok()
     }
 
     /// 关闭任务池

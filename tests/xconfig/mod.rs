@@ -1,18 +1,22 @@
+use serial_test::serial;
 use x_one::xconfig::*;
 
 #[test]
+#[serial]
 fn test_get_string_no_config() {
     reset_config();
     assert_eq!(get_string("Server.Name"), "");
 }
 
 #[test]
+#[serial]
 fn test_get_server_name_default() {
     reset_config();
     assert_eq!(get_server_name(), DEFAULT_SERVER_NAME);
 }
 
 #[test]
+#[serial]
 fn test_get_server_name_with_config() {
     reset_config();
     let yaml = "Server:
@@ -25,12 +29,14 @@ fn test_get_server_name_with_config() {
 }
 
 #[test]
+#[serial]
 fn test_get_server_version_default() {
     reset_config();
     assert_eq!(get_server_version(), DEFAULT_SERVER_VERSION);
 }
 
 #[test]
+#[serial]
 fn test_get_int() {
     reset_config();
     let yaml = "XAxum:
@@ -43,6 +49,7 @@ fn test_get_int() {
 }
 
 #[test]
+#[serial]
 fn test_get_bool() {
     reset_config();
     let yaml = "XAxum:
@@ -55,6 +62,7 @@ fn test_get_bool() {
 }
 
 #[test]
+#[serial]
 fn test_contain_key() {
     reset_config();
     let yaml = "Server:
@@ -68,6 +76,7 @@ fn test_contain_key() {
 }
 
 #[test]
+#[serial]
 fn test_get_string_slice() {
     reset_config();
     let yaml = "items:
@@ -82,6 +91,7 @@ fn test_get_string_slice() {
 }
 
 #[test]
+#[serial]
 fn test_parse_config() {
     reset_config();
     let yaml = "XAxum:

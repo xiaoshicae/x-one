@@ -89,7 +89,9 @@ fn register_builtin_hooks() {
     crate::xlog::register_hook();
     crate::xtrace::register_hook();
     crate::xhttp::register_hook();
+    crate::xmetric::register_hook();
     crate::xorm::register_hook();
+    crate::xredis::register_hook();
     crate::xcache::register_hook();
 }
 

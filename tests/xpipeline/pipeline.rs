@@ -61,7 +61,10 @@ impl Processor for PrefixProcessor {
 #[tokio::test]
 async fn test_empty_pipeline() {
     let pipeline = Pipeline::new("empty");
-    let (_tx, mut rx, handle) = pipeline.run();
+    let (tx, mut rx, handle) = pipeline.run();
+
+    // 关闭输入 → 转发 task 结束 → 输出 channel 关闭
+    drop(tx);
 
     let result = handle.await.unwrap();
     assert!(result.success());

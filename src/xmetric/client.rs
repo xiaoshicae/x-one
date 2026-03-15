@@ -11,6 +11,7 @@ use prometheus_client::metrics::histogram::Histogram;
 use prometheus_client::registry::Registry;
 use std::collections::HashMap;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicU64;
 
 use super::config::XMetricConfig;
 
@@ -23,8 +24,11 @@ static CONFIG: OnceLock<RwLock<XMetricConfig>> = OnceLock::new();
 /// Counter 缓存
 static COUNTERS: OnceLock<RwLock<HashMap<String, Family<DynLabels, Counter>>>> = OnceLock::new();
 
-/// Gauge 缓存
-static GAUGES: OnceLock<RwLock<HashMap<String, Family<DynLabels, Gauge>>>> = OnceLock::new();
+/// f64 精度的 Gauge 类型
+type F64Gauge = Gauge<f64, AtomicU64>;
+
+/// Gauge 缓存（使用 f64 精度）
+static GAUGES: OnceLock<RwLock<HashMap<String, Family<DynLabels, F64Gauge>>>> = OnceLock::new();
 
 /// Histogram 缓存
 static HISTOGRAMS: OnceLock<RwLock<HashMap<String, Family<DynLabels, Histogram>>>> =
@@ -57,7 +61,7 @@ fn counter_store() -> &'static RwLock<HashMap<String, Family<DynLabels, Counter>
     COUNTERS.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-fn gauge_store() -> &'static RwLock<HashMap<String, Family<DynLabels, Gauge>>> {
+fn gauge_store() -> &'static RwLock<HashMap<String, Family<DynLabels, F64Gauge>>> {
     GAUGES.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
@@ -101,7 +105,7 @@ pub fn counter_add(name: &str, v: u64, labels: &[(&str, &str)]) {
 pub fn gauge_set(name: &str, v: f64, labels: &[(&str, &str)]) {
     let dyn_labels = to_dyn_labels(labels);
     let family = get_or_create_gauge(name);
-    family.get_or_create(&dyn_labels).set(v as i64);
+    family.get_or_create(&dyn_labels).set(v);
 }
 
 /// 仪表盘 +1
@@ -144,6 +148,10 @@ fn to_dyn_labels(labels: &[(&str, &str)]) -> DynLabels {
     DynLabels(pairs)
 }
 
+// 注意：以下三个 get_or_create 函数使用 double-checked locking 模式。
+// 写锁路径中先检查 store 是否已存在（防止 TOCTOU 竞态），
+// 再在同一写锁保护下注册到 registry，保证不会重复注册。
+
 fn get_or_create_counter(name: &str) -> Family<DynLabels, Counter> {
     {
         let store = counter_store().read();
@@ -159,14 +167,14 @@ fn get_or_create_counter(name: &str) -> Family<DynLabels, Counter> {
 
     let family = Family::<DynLabels, Counter>::default();
     let metric_name = build_metric_name(name);
+    store.insert(name.to_string(), family.clone());
     registry_store()
         .write()
         .register(&metric_name, name, family.clone());
-    store.insert(name.to_string(), family.clone());
     family
 }
 
-fn get_or_create_gauge(name: &str) -> Family<DynLabels, Gauge> {
+fn get_or_create_gauge(name: &str) -> Family<DynLabels, F64Gauge> {
     {
         let store = gauge_store().read();
         if let Some(family) = store.get(name) {
@@ -179,12 +187,12 @@ fn get_or_create_gauge(name: &str) -> Family<DynLabels, Gauge> {
         return family.clone();
     }
 
-    let family = Family::<DynLabels, Gauge>::default();
+    let family = Family::<DynLabels, F64Gauge>::default();
     let metric_name = build_metric_name(name);
+    store.insert(name.to_string(), family.clone());
     registry_store()
         .write()
         .register(&metric_name, name, family.clone());
-    store.insert(name.to_string(), family.clone());
     family
 }
 
@@ -203,10 +211,10 @@ fn get_or_create_histogram(name: &str) -> Family<DynLabels, Histogram> {
 
     let family = Family::<DynLabels, Histogram>::new_with_constructor(default_histogram);
     let metric_name = build_metric_name(name);
+    store.insert(name.to_string(), family.clone());
     registry_store()
         .write()
         .register(&metric_name, name, family.clone());
-    store.insert(name.to_string(), family.clone());
     family
 }
 
