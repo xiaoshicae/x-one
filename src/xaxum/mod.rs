@@ -21,5 +21,8 @@ pub mod server;
 pub use banner::print_banner;
 pub use builder::XAxum;
 pub use config::{AxumConfig, AxumSwaggerConfig};
-pub use middleware::{log_middleware, trace_middleware};
+pub use middleware::{
+    SessionContext, log_middleware, metric_middleware, recover_middleware, session_middleware,
+    trace_middleware,
+};
 pub use server::XAxumServer;

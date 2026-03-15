@@ -24,3 +24,9 @@ mod default_value;
 
 #[path = "xutil/spawn.rs"]
 mod spawn;
+
+#[path = "xutil/net.rs"]
+mod net;
+
+#[path = "xutil/future.rs"]
+mod future;

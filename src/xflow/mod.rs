@@ -33,12 +33,14 @@
 //! ```
 
 mod flow;
+mod flow_data;
 mod monitor;
 mod processor;
 mod result;
 mod step;
 
 pub use flow::Flow;
+pub use flow_data::FlowData;
 pub use monitor::{DefaultMonitor, Monitor};
 pub use processor::{Dependency, Processor};
 pub use result::{ExecuteResult, StepError};
