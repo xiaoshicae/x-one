@@ -233,3 +233,123 @@ fn build_metric_name(name: &str) -> String {
         format!("{}_{}", config.namespace, name)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    #[test]
+    #[serial]
+    fn test_set_config_and_get_config_roundtrip() {
+        reset_metrics();
+
+        let mut config = XMetricConfig::default();
+        config.namespace = "myapp".to_string();
+        set_config(config.clone());
+
+        let got = get_config();
+        assert_eq!(
+            got.namespace, "myapp",
+            "set_config 后 get_config 应返回设置的值"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_build_metric_name_without_namespace_returns_raw_name() {
+        reset_metrics();
+
+        let name = build_metric_name("http_requests");
+        assert_eq!(name, "http_requests");
+    }
+
+    #[test]
+    #[serial]
+    fn test_build_metric_name_with_namespace_returns_prefixed_name() {
+        reset_metrics();
+
+        let mut config = XMetricConfig::default();
+        config.namespace = "myapp".to_string();
+        set_config(config);
+
+        let name = build_metric_name("http_requests");
+        assert_eq!(name, "myapp_http_requests");
+    }
+
+    #[test]
+    #[serial]
+    fn test_to_dyn_labels_sorts_by_key() {
+        let labels = to_dyn_labels(&[("z_key", "val1"), ("a_key", "val2"), ("m_key", "val3")]);
+        let expected = DynLabels(vec![
+            ("a_key".to_string(), "val2".to_string()),
+            ("m_key".to_string(), "val3".to_string()),
+            ("z_key".to_string(), "val1".to_string()),
+        ]);
+        assert_eq!(labels, expected, "标签应按 key 排序");
+    }
+
+    #[test]
+    #[serial]
+    fn test_dyn_labels_encode_label_set() {
+        reset_metrics();
+
+        // 通过 counter_inc 间接触发 DynLabels encode，然后验证 registry 输出
+        counter_inc("encode_test", &[("method", "GET")]);
+        let mut output = String::new();
+        prometheus_client::encoding::text::encode(&mut output, &registry_store().read())
+            .expect("encode 不应失败");
+        assert!(
+            output.contains("method"),
+            "编码输出应包含标签 key: {output}"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_get_or_create_counter_double_checked_locking() {
+        reset_metrics();
+
+        // 第一次调用：走写锁路径创建
+        let family1 = get_or_create_counter("dc_counter");
+        // 第二次调用：走读锁路径返回缓存
+        let family2 = get_or_create_counter("dc_counter");
+
+        // 两次返回的 family 应指向同一数据
+        let labels = to_dyn_labels(&[("k", "v")]);
+        family1.get_or_create(&labels).inc();
+        let val = family2.get_or_create(&labels).get();
+        assert_eq!(val, 1, "两次 get_or_create 应返回同一 family");
+    }
+
+    #[test]
+    #[serial]
+    fn test_get_or_create_gauge_double_checked_locking() {
+        reset_metrics();
+
+        let family1 = get_or_create_gauge("dc_gauge");
+        let family2 = get_or_create_gauge("dc_gauge");
+
+        let labels = to_dyn_labels(&[("k", "v")]);
+        family1.get_or_create(&labels).set(42.0);
+        let val = family2.get_or_create(&labels).get();
+        assert!(
+            (val - 42.0).abs() < f64::EPSILON,
+            "两次 get_or_create 应返回同一 family"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_get_or_create_histogram_double_checked_locking() {
+        reset_metrics();
+
+        let family1 = get_or_create_histogram("dc_histogram");
+        let family2 = get_or_create_histogram("dc_histogram");
+
+        // 两次返回的 family 应该是同一个实例，observe 不应 panic
+        let labels = to_dyn_labels(&[("k", "v")]);
+        family1.get_or_create(&labels).observe(1.0);
+        family2.get_or_create(&labels).observe(2.0);
+    }
+}

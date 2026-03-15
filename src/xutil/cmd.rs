@@ -57,3 +57,74 @@ fn is_valid_arg_key(key: &str) -> bool {
     }
     chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- is_valid_arg_key 测试 ----
+
+    #[test]
+    fn test_is_valid_arg_key_empty_string_returns_false() {
+        assert!(!is_valid_arg_key(""));
+    }
+
+    #[test]
+    fn test_is_valid_arg_key_starts_with_digit_returns_false() {
+        assert!(!is_valid_arg_key("123key"));
+    }
+
+    #[test]
+    fn test_is_valid_arg_key_valid_keys() {
+        assert!(is_valid_arg_key("config"));
+        assert!(is_valid_arg_key("_private"));
+        assert!(is_valid_arg_key("my-key"));
+        assert!(is_valid_arg_key("my.key"));
+        assert!(is_valid_arg_key("my_key_123"));
+    }
+
+    // ---- find_arg_value 测试 ----
+
+    #[test]
+    fn test_find_arg_value_space_separated() {
+        let args = vec!["--config".to_string(), "/etc/app.yml".to_string()];
+        assert_eq!(
+            find_arg_value("config", &args),
+            Some("/etc/app.yml".to_string())
+        );
+    }
+
+    #[test]
+    fn test_find_arg_value_equals_separated() {
+        let args = vec!["--config=/etc/app.yml".to_string()];
+        assert_eq!(
+            find_arg_value("config", &args),
+            Some("/etc/app.yml".to_string())
+        );
+    }
+
+    #[test]
+    fn test_find_arg_value_not_found() {
+        let args = vec!["--other".to_string(), "value".to_string()];
+        assert_eq!(find_arg_value("config", &args), None);
+    }
+
+    #[test]
+    fn test_find_arg_value_invalid_key_returns_none() {
+        let args = vec!["--123".to_string(), "value".to_string()];
+        assert_eq!(find_arg_value("123", &args), None);
+    }
+
+    #[test]
+    fn test_find_arg_value_no_dash_prefix_skipped() {
+        let args = vec!["config".to_string(), "value".to_string()];
+        assert_eq!(find_arg_value("config", &args), None);
+    }
+
+    #[test]
+    fn test_find_arg_value_space_separated_last_arg_returns_none() {
+        // --config 是最后一个参数，后面没有 value
+        let args = vec!["--config".to_string()];
+        assert_eq!(find_arg_value("config", &args), None);
+    }
+}

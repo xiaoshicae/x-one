@@ -140,3 +140,73 @@ fn test_config_default() {
     assert_eq!(config.max_open_conns, 100);
     assert_eq!(config.max_idle_conns, 10);
 }
+
+/// 测试 init_xorm 通过 load_configs 从 xconfig 加载单实例配置并创建连接池
+#[tokio::test]
+#[serial]
+async fn test_init_xorm_with_single_config_creates_pool() {
+    reset_pools();
+    x_one::xconfig::reset_config();
+
+    // 准备：设置包含 XOrm 配置的全局配置
+    let yaml = r#"
+XOrm:
+  Driver: "postgres"
+  DSN: "postgres://user:pass@localhost:5432/testdb"
+  MaxOpenConns: 50
+  Name: ""
+"#;
+    let config: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+    x_one::xconfig::set_config(config);
+
+    // 执行：init_xorm 内部调用 load_configs 读取配置
+    let result = init_xorm();
+    assert!(result.is_ok(), "init_xorm 应该成功: {:?}", result);
+
+    // 断言：默认名称的连接池已被创建
+    let pool = db();
+    assert!(pool.is_some(), "应创建默认连接池");
+    assert_eq!(pool.unwrap().driver(), Driver::Postgres);
+
+    // 清理
+    reset_pools();
+    x_one::xconfig::reset_config();
+}
+
+/// 测试 init_xorm 通过 load_configs 加载多实例配置
+#[tokio::test]
+#[serial]
+async fn test_init_xorm_with_multi_config_creates_named_pools() {
+    reset_pools();
+    x_one::xconfig::reset_config();
+
+    // 准备：设置多实例 XOrm 配置
+    let yaml = r#"
+XOrm:
+  - Driver: "postgres"
+    DSN: "postgres://user:pass@localhost:5432/db1"
+    Name: "primary"
+  - Driver: "mysql"
+    DSN: "mysql://user:pass@localhost:3306/db2"
+    Name: "analytics"
+"#;
+    let config: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+    x_one::xconfig::set_config(config);
+
+    // 执行
+    let result = init_xorm();
+    assert!(result.is_ok(), "init_xorm 应该成功: {:?}", result);
+
+    // 断言：两个命名连接池都已被创建
+    let primary = db_with_name("primary");
+    assert!(primary.is_some(), "应创建 primary 连接池");
+    assert_eq!(primary.unwrap().driver(), Driver::Postgres);
+
+    let analytics = db_with_name("analytics");
+    assert!(analytics.is_some(), "应创建 analytics 连接池");
+    assert_eq!(analytics.unwrap().driver(), Driver::Mysql);
+
+    // 清理
+    reset_pools();
+    x_one::xconfig::reset_config();
+}

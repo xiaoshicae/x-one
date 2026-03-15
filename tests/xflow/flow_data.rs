@@ -79,3 +79,29 @@ fn test_flow_data_with_flow() {
     assert!(result.success());
     assert_eq!(data.response, vec!["validated: order-123", "processed"]);
 }
+
+#[test]
+fn test_flow_data_get_mut_missing_key_returns_none() {
+    let mut data = FlowData::<(), ()>::new(());
+    assert!(data.get_mut::<i32>("nonexistent").is_none());
+}
+
+#[test]
+fn test_flow_data_get_mut_wrong_type_returns_none() {
+    let mut data = FlowData::<(), ()>::new(());
+    data.set("key", 42i32);
+    assert!(data.get_mut::<String>("key").is_none());
+}
+
+#[test]
+fn test_flow_data_remove_missing_key_returns_none() {
+    let mut data = FlowData::<(), ()>::new(());
+    assert!(data.remove::<i32>("nonexistent").is_none());
+}
+
+#[test]
+fn test_flow_data_remove_wrong_type_returns_none() {
+    let mut data = FlowData::<(), ()>::new(());
+    data.set("key", 42i32);
+    assert!(data.remove::<String>("key").is_none());
+}

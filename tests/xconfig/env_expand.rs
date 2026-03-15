@@ -76,3 +76,27 @@ fn test_expand_env_placeholders_in_value() {
     assert_eq!(v.as_str().unwrap(), "expanded");
     remove_env("TEST_EXPAND_VAL");
 }
+
+#[test]
+#[serial]
+fn test_expand_env_placeholders_in_value_sequence() {
+    set_env("TEST_SEQ_VAR", "seq_val");
+    let yaml_str = "items:\n  - ${TEST_SEQ_VAR}\n  - plain\n";
+    let mut value: serde_yaml::Value = serde_yaml::from_str(yaml_str).unwrap();
+    expand_env_placeholders_in_value(&mut value);
+
+    let items = value.get("items").unwrap().as_sequence().unwrap();
+    assert_eq!(items[0].as_str().unwrap(), "seq_val");
+    assert_eq!(items[1].as_str().unwrap(), "plain");
+    remove_env("TEST_SEQ_VAR");
+}
+
+#[test]
+#[serial]
+fn test_expand_env_placeholders_in_value_non_string_unchanged() {
+    let yaml_str = "count: 42\nenabled: true\n";
+    let mut value: serde_yaml::Value = serde_yaml::from_str(yaml_str).unwrap();
+    expand_env_placeholders_in_value(&mut value);
+    assert_eq!(value.get("count").unwrap().as_i64().unwrap(), 42);
+    assert!(value.get("enabled").unwrap().as_bool().unwrap());
+}

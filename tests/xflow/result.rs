@@ -99,3 +99,39 @@ fn test_execute_result_debug() {
     assert!(debug.contains("ExecuteResult"));
     assert!(debug.contains("success"));
 }
+
+#[test]
+fn test_execute_result_display_with_skipped_errors() {
+    let flow = Flow::new("test")
+        .step(Step::weak("optional").process(|_: &mut ()| Err(XOneError::Other("skip".into()))));
+    let mut data = ();
+    let result = flow.execute(&mut data);
+    let display = result.to_string();
+    assert!(
+        display.contains("skipped error"),
+        "应包含跳过错误信息，实际: {display}"
+    );
+}
+
+#[test]
+fn test_execute_result_display_failure_with_rollback_error() {
+    let flow = Flow::new("test")
+        .step(
+            Step::new("s1")
+                .process(|_: &mut ()| Ok(()))
+                .rollback(|_: &mut ()| Err(XOneError::Other("rollback fail".into()))),
+        )
+        .step(Step::new("s2").process(|_: &mut ()| Err(XOneError::Other("fail".into()))));
+
+    let mut data = ();
+    let result = flow.execute(&mut data);
+    let display = result.to_string();
+    assert!(
+        display.contains("rolled back"),
+        "应包含回滚信息，实际: {display}"
+    );
+    assert!(
+        display.contains("error"),
+        "应包含回滚错误信息，实际: {display}"
+    );
+}

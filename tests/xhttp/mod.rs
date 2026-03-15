@@ -36,3 +36,8 @@ fn test_delete_request_builder() {
 fn test_patch_request_builder() {
     let _builder = patch("http://example.com");
 }
+
+#[test]
+fn test_head_request_builder() {
+    let _builder = head("http://example.com");
+}
