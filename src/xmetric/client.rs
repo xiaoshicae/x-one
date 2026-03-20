@@ -140,17 +140,20 @@ pub fn reset_metrics() {
 }
 
 fn to_dyn_labels(labels: &[(&str, &str)]) -> DynLabels {
-    let mut pairs: Vec<(String, String)> = labels
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
-    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut pairs: Vec<(String, String)> = Vec::with_capacity(labels.len());
+    pairs.extend(labels.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+    // 跳过已有序的排序（热路径常传入有序 labels）
+    let already_sorted = pairs.windows(2).all(|w| w[0].0 <= w[1].0);
+    if !already_sorted {
+        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+    }
     DynLabels(pairs)
 }
 
 // 注意：以下三个 get_or_create 函数使用 double-checked locking 模式。
-// 写锁路径中先检查 store 是否已存在（防止 TOCTOU 竞态），
-// 再在同一写锁保护下注册到 registry，保证不会重复注册。
+// 写锁路径中先检查 store 是否已存在（防止 TOCTOU 竞态）。
+// 释放 store 写锁后再注册到 registry，避免嵌套写锁竞争。
+// Family 是 Arc-based，插入 store 后即可使用，registry 注册仅影响 /metrics 暴露。
 
 fn get_or_create_counter(name: &str) -> Family<DynLabels, Counter> {
     {
@@ -160,14 +163,18 @@ fn get_or_create_counter(name: &str) -> Family<DynLabels, Counter> {
         }
     }
 
-    let mut store = counter_store().write();
-    if let Some(family) = store.get(name) {
-        return family.clone();
-    }
+    let (family, metric_name) = {
+        let mut store = counter_store().write();
+        if let Some(family) = store.get(name) {
+            return family.clone();
+        }
 
-    let family = Family::<DynLabels, Counter>::default();
-    let metric_name = build_metric_name(name);
-    store.insert(name.to_string(), family.clone());
+        let family = Family::<DynLabels, Counter>::default();
+        let metric_name = build_metric_name(name);
+        store.insert(name.to_string(), family.clone());
+        (family, metric_name)
+    };
+
     registry_store()
         .write()
         .register(&metric_name, name, family.clone());
@@ -182,14 +189,18 @@ fn get_or_create_gauge(name: &str) -> Family<DynLabels, F64Gauge> {
         }
     }
 
-    let mut store = gauge_store().write();
-    if let Some(family) = store.get(name) {
-        return family.clone();
-    }
+    let (family, metric_name) = {
+        let mut store = gauge_store().write();
+        if let Some(family) = store.get(name) {
+            return family.clone();
+        }
 
-    let family = Family::<DynLabels, F64Gauge>::default();
-    let metric_name = build_metric_name(name);
-    store.insert(name.to_string(), family.clone());
+        let family = Family::<DynLabels, F64Gauge>::default();
+        let metric_name = build_metric_name(name);
+        store.insert(name.to_string(), family.clone());
+        (family, metric_name)
+    };
+
     registry_store()
         .write()
         .register(&metric_name, name, family.clone());
@@ -204,14 +215,18 @@ fn get_or_create_histogram(name: &str) -> Family<DynLabels, Histogram> {
         }
     }
 
-    let mut store = histogram_store().write();
-    if let Some(family) = store.get(name) {
-        return family.clone();
-    }
+    let (family, metric_name) = {
+        let mut store = histogram_store().write();
+        if let Some(family) = store.get(name) {
+            return family.clone();
+        }
 
-    let family = Family::<DynLabels, Histogram>::new_with_constructor(default_histogram);
-    let metric_name = build_metric_name(name);
-    store.insert(name.to_string(), family.clone());
+        let family = Family::<DynLabels, Histogram>::new_with_constructor(default_histogram);
+        let metric_name = build_metric_name(name);
+        store.insert(name.to_string(), family.clone());
+        (family, metric_name)
+    };
+
     registry_store()
         .write()
         .register(&metric_name, name, family.clone());

@@ -31,8 +31,8 @@ pub fn init_xredis() -> Result<(), crate::error::XOneError> {
             crate::error::XOneError::Other(format!("XRedis init create runtime failed: {e}"))
         })?;
 
-    let mut store = client_store().write();
-
+    // 先在锁外构建所有连接，缩小写锁临界区
+    let mut clients = Vec::with_capacity(configs.len());
     for (i, config) in configs.iter().enumerate() {
         if config.addr.is_empty() {
             xutil::warn_if_enable_debug(&format!(
@@ -59,17 +59,21 @@ pub fn init_xredis() -> Result<(), crate::error::XOneError> {
             })?;
 
         let name = xutil::default_if_empty(config.name.as_str(), DEFAULT_CLIENT_NAME).to_string();
-        store.insert(name.clone(), conn.clone());
-
-        // 第一个实例同时设为默认
-        if i == 0 && !config.name.is_empty() {
-            store.insert(DEFAULT_CLIENT_NAME.to_string(), conn);
-        }
+        clients.push((name, conn.clone(), i == 0 && !config.name.is_empty()));
     }
 
+    let mut store = client_store().write();
+    for (name, conn, set_default) in clients {
+        if set_default {
+            store.insert(DEFAULT_CLIENT_NAME.to_string(), conn.clone());
+        }
+        store.insert(name, conn);
+    }
+    let count = store.len();
+    drop(store);
+
     xutil::info_if_enable_debug(&format!(
-        "XRedis init success, client_count=[{}]",
-        store.len()
+        "XRedis init success, client_count=[{count}]"
     ));
     Ok(())
 }
@@ -103,6 +107,9 @@ fn build_url(config: &XRedisConfig) -> String {
     url
 }
 
+/// 十六进制查找表
+const HEX_CHARS: &[u8; 16] = b"0123456789ABCDEF";
+
 /// 对字符串做 percent-encoding（RFC 3986 userinfo 部分）
 fn percent_encode(input: &str) -> String {
     let mut result = String::with_capacity(input.len());
@@ -113,7 +120,10 @@ fn percent_encode(input: &str) -> String {
                 result.push(b as char);
             }
             _ => {
-                result.push_str(&format!("%{b:02X}"));
+                // 直接 push 字符，避免 format! 堆分配
+                result.push('%');
+                result.push(HEX_CHARS[(b >> 4) as usize] as char);
+                result.push(HEX_CHARS[(b & 0x0F) as usize] as char);
             }
         }
     }

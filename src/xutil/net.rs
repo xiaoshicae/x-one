@@ -3,13 +3,22 @@
 //! 获取本机 IP 地址，支持按公网/内网优先级筛选。
 
 use std::net::IpAddr;
+use std::sync::OnceLock;
 
-/// IP 地址分类结果
+/// IP 地址分类结果（缓存后共享）
 struct IpGroups {
     pub4: Vec<IpAddr>,
     pub6: Vec<IpAddr>,
     pri4: Vec<IpAddr>,
     pri6: Vec<IpAddr>,
+}
+
+/// 缓存的 IP 分类结果，避免多次调用重复扫描网络接口
+static CACHED_IP_GROUPS: OnceLock<IpGroups> = OnceLock::new();
+
+/// 获取缓存的 IP 分类结果
+fn cached_ips() -> &'static IpGroups {
+    CACHED_IP_GROUPS.get_or_init(collect_local_ips)
 }
 
 /// 获取本机 IP 地址
@@ -23,7 +32,7 @@ struct IpGroups {
 /// // ip 可能为 Ok("192.168.1.100") 或 Err(...)
 /// ```
 pub fn get_local_ip() -> Result<String, String> {
-    let groups = collect_local_ips();
+    let groups = cached_ips();
     if let Some(ip) = groups.pub4.first() {
         return Ok(ip.to_string());
     }
@@ -43,7 +52,7 @@ pub fn get_local_ip() -> Result<String, String> {
 ///
 /// 优先级：public IPv4 → public IPv6
 pub fn get_local_public_ip() -> Result<String, String> {
-    let groups = collect_local_ips();
+    let groups = cached_ips();
     if let Some(ip) = groups.pub4.first() {
         return Ok(ip.to_string());
     }
@@ -57,7 +66,7 @@ pub fn get_local_public_ip() -> Result<String, String> {
 ///
 /// 优先级：private IPv4 → private IPv6
 pub fn get_local_private_ip() -> Result<String, String> {
-    let groups = collect_local_ips();
+    let groups = cached_ips();
     if let Some(ip) = groups.pri4.first() {
         return Ok(ip.to_string());
     }

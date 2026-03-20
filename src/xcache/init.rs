@@ -56,8 +56,7 @@ pub fn create_cache_instance(config: &XCacheConfig) -> Result<(), crate::error::
 
     let cache_instance = Arc::new(Cache::new(max_capacity, default_ttl));
 
-    let mut store = cache_store().write();
-    store.insert(name.clone(), cache_instance);
+    cache_store().write().insert(name.clone(), cache_instance);
 
     xutil::info_if_enable_debug(&format!(
         "XCache created instance name=[{}], max_capacity=[{}], default_ttl=[{:?}]",

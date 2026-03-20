@@ -126,62 +126,71 @@ where
         event: &Event<'_>,
     ) -> fmt::Result {
         let meta = event.metadata();
-        let mut root = Map::new();
 
-        // 时间戳
+        // 直接写 JSON，避免中间 Map 分配和 serde_json::to_string
+        writer.write_str("{\"timestamp\":\"")?;
         let now = chrono::Utc::now();
-        root.insert(
-            "timestamp".to_string(),
-            serde_json::json!(now.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)),
-        );
+        write!(
+            writer,
+            "{}",
+            now.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
+        )?;
 
-        // 日志级别
-        root.insert(
-            "level".to_string(),
-            serde_json::json!(meta.level().as_str()),
-        );
+        writer.write_str("\",\"level\":\"")?;
+        writer.write_str(meta.level().as_str())?;
+        writer.write_char('"')?;
 
         // OpenTelemetry trace 上下文
         let (trace_id, span_id) = get_otel_trace_ids();
         if !trace_id.is_empty() {
-            root.insert("trace_id".to_string(), serde_json::json!(trace_id));
-            root.insert("span_id".to_string(), serde_json::json!(span_id));
+            writer.write_str(",\"trace_id\":\"")?;
+            writer.write_str(&trace_id)?;
+            writer.write_str("\",\"span_id\":\"")?;
+            writer.write_str(&span_id)?;
+            writer.write_char('"')?;
         }
 
         // 事件字段（包括 message）
         let fields = collect_fields(ctx, event);
-        root.insert("fields".to_string(), Value::Object(fields));
+        writer.write_str(",\"fields\":")?;
+        // fields 仍用 serde_json 序列化（字段值类型多样）
+        let fields_json = serde_json::to_string(&fields).map_err(|_| fmt::Error)?;
+        writer.write_str(&fields_json)?;
 
         // 调用位置（文件:行号）
         if let (Some(file), Some(line)) = (meta.file(), meta.line()) {
-            root.insert(
-                "caller".to_string(),
-                serde_json::json!(format!("{file}:{line}")),
-            );
+            write!(writer, ",\"caller\":\"{file}:{line}\"")?;
         }
 
         // 目标模块
-        root.insert("target".to_string(), serde_json::json!(meta.target()));
+        write!(writer, ",\"target\":\"{}\"", meta.target())?;
 
         // 线程名
         let thread = std::thread::current();
-        root.insert(
-            "threadName".to_string(),
-            serde_json::json!(thread.name().unwrap_or("unknown")),
-        );
+        let thread_name = thread.name().unwrap_or("unknown");
+        write!(writer, ",\"threadName\":\"{thread_name}\"")?;
 
         // Span 上下文链
         if let Some(scope) = ctx.event_scope() {
-            let spans: Vec<Value> = scope
-                .map(|span| serde_json::json!({"name": span.name()}))
-                .collect();
-            if !spans.is_empty() {
-                root.insert("spans".to_string(), Value::Array(spans));
+            let mut first = true;
+            let mut has_spans = false;
+            for span in scope {
+                if first {
+                    writer.write_str(",\"spans\":[{\"name\":\"")?;
+                    has_spans = true;
+                    first = false;
+                } else {
+                    writer.write_str(",{\"name\":\"")?;
+                }
+                writer.write_str(span.name())?;
+                writer.write_str("\"}")?;
+            }
+            if has_spans {
+                writer.write_char(']')?;
             }
         }
 
-        let json_str = serde_json::to_string(&root).map_err(|_| fmt::Error)?;
-        writeln!(writer, "{json_str}")
+        writeln!(writer, "}}")
     }
 }
 
