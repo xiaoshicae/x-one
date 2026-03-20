@@ -33,7 +33,7 @@ pub fn format_console_line(
     caller: &str,
 ) -> String {
     let color = get_level_color(level);
-    let level_text = level.as_str().to_uppercase();
+    let level_text = level.as_str();
 
     let caller_part = if caller.is_empty() {
         String::new()

@@ -60,61 +60,43 @@ impl std::fmt::Display for Driver {
 ///   Name: ""
 /// ```
 #[derive(Deserialize, Clone)]
+#[serde(default)]
 pub struct XOrmConfig {
     /// 数据库驱动（默认 postgres）
-    #[serde(rename = "Driver", default)]
+    #[serde(rename = "Driver")]
     pub driver: Driver,
 
     /// 数据库连接字符串
-    #[serde(rename = "DSN", default)]
+    #[serde(rename = "DSN")]
     pub dsn: String,
 
     /// 最大打开连接数（默认 100）
-    #[serde(rename = "MaxOpenConns", default = "default_max_open_conns")]
+    #[serde(rename = "MaxOpenConns")]
     pub max_open_conns: u32,
 
     /// 最大空闲连接数（默认 10）
-    #[serde(rename = "MaxIdleConns", default = "default_max_idle_conns")]
+    #[serde(rename = "MaxIdleConns")]
     pub max_idle_conns: u32,
 
     /// 连接最大生存时间（duration 字符串，默认 "1h"）
-    #[serde(rename = "MaxLifetime", default = "default_max_lifetime")]
+    #[serde(rename = "MaxLifetime")]
     pub max_lifetime: String,
 
     /// 空闲连接最大存活时间（duration 字符串，默认 "10m"）
-    #[serde(rename = "MaxIdleTime", default = "default_max_idle_time")]
+    #[serde(rename = "MaxIdleTime")]
     pub max_idle_time: String,
 
     /// 慢查询阈值（duration 字符串，默认 "200ms"）
-    #[serde(rename = "SlowThreshold", default = "default_slow_threshold")]
+    #[serde(rename = "SlowThreshold")]
     pub slow_threshold: String,
 
     /// 是否启用 SQL 日志（默认 true）
-    #[serde(rename = "EnableLog", default = "default_enable_log")]
+    #[serde(rename = "EnableLog")]
     pub enable_log: bool,
 
     /// 实例名称（多实例模式标识，默认空）
-    #[serde(rename = "Name", default)]
+    #[serde(rename = "Name")]
     pub name: String,
-}
-
-fn default_max_open_conns() -> u32 {
-    100
-}
-fn default_max_idle_conns() -> u32 {
-    10
-}
-fn default_max_lifetime() -> String {
-    "1h".to_string()
-}
-fn default_max_idle_time() -> String {
-    "10m".to_string()
-}
-fn default_slow_threshold() -> String {
-    "200ms".to_string()
-}
-fn default_enable_log() -> bool {
-    true
 }
 
 /// 手动实现 Debug，DSN 中的密码部分脱敏
@@ -163,12 +145,12 @@ impl Default for XOrmConfig {
         Self {
             driver: Driver::default(),
             dsn: String::new(),
-            max_open_conns: default_max_open_conns(),
-            max_idle_conns: default_max_idle_conns(),
-            max_lifetime: default_max_lifetime(),
-            max_idle_time: default_max_idle_time(),
-            slow_threshold: default_slow_threshold(),
-            enable_log: default_enable_log(),
+            max_open_conns: 100,
+            max_idle_conns: 10,
+            max_lifetime: "1h".to_string(),
+            max_idle_time: "10m".to_string(),
+            slow_threshold: "200ms".to_string(),
+            enable_log: true,
             name: String::new(),
         }
     }

@@ -22,71 +22,56 @@ pub const XREDIS_CONFIG_KEY: &str = "XRedis";
 
 /// XRedis 配置
 #[derive(Debug, Deserialize, Clone)]
+#[serde(default)]
 pub struct XRedisConfig {
     /// Redis 服务器地址（redis:// URL 格式）
-    #[serde(rename = "Addr", default = "default_addr")]
+    #[serde(rename = "Addr")]
     pub addr: String,
 
     /// 连接密码
-    #[serde(rename = "Password", default)]
+    #[serde(rename = "Password")]
     pub password: String,
 
     /// 数据库编号（默认 0）
-    #[serde(rename = "DB", default)]
+    #[serde(rename = "DB")]
     pub db: i64,
 
     /// 用户名（Redis 6.0+ ACL）
-    #[serde(rename = "Username", default)]
+    #[serde(rename = "Username")]
     pub username: String,
 
     /// 连接超时（duration 字符串，默认 "500ms"）
-    #[serde(rename = "DialTimeout", default = "default_dial_timeout")]
+    #[serde(rename = "DialTimeout")]
     pub dial_timeout: String,
 
     /// 读超时（duration 字符串，默认 "500ms"）
-    #[serde(rename = "ReadTimeout", default = "default_read_timeout")]
+    #[serde(rename = "ReadTimeout")]
     pub read_timeout: String,
 
     /// 写超时（duration 字符串，默认 "500ms"）
-    #[serde(rename = "WriteTimeout", default = "default_write_timeout")]
+    #[serde(rename = "WriteTimeout")]
     pub write_timeout: String,
 
     /// 最大重试次数（默认 3，设为 0 禁用重试）
-    #[serde(rename = "MaxRetries", default = "default_max_retries")]
+    #[serde(rename = "MaxRetries")]
     pub max_retries: u32,
 
     /// 实例名称（多实例模式标识，默认空）
-    #[serde(rename = "Name", default)]
+    #[serde(rename = "Name")]
     pub name: String,
-}
-
-fn default_addr() -> String {
-    "redis://localhost:6379".to_string()
-}
-fn default_dial_timeout() -> String {
-    "500ms".to_string()
-}
-fn default_read_timeout() -> String {
-    "500ms".to_string()
-}
-fn default_write_timeout() -> String {
-    "500ms".to_string()
-}
-fn default_max_retries() -> u32 {
-    3
 }
 
 impl Default for XRedisConfig {
     fn default() -> Self {
         Self {
-            addr: default_addr(),
+            addr: "redis://localhost:6379".to_string(),
             password: String::new(),
             db: 0,
             username: String::new(),
-            dial_timeout: default_dial_timeout(),
-            read_timeout: default_read_timeout(),
-            write_timeout: default_write_timeout(),
-            max_retries: default_max_retries(),
+            dial_timeout: "500ms".to_string(),
+            read_timeout: "500ms".to_string(),
+            write_timeout: "500ms".to_string(),
+            max_retries: 3,
             name: String::new(),
         }
     }

@@ -83,6 +83,30 @@ impl<'a> Visit for JsonFieldVisitor<'a> {
     }
 }
 
+/// 从 span extensions 和 event 中收集所有字段
+///
+/// 先从外层到内层 span 的 KV 字段合并，再覆盖 event 字段。
+fn collect_fields<S, N>(ctx: &FmtContext<'_, S, N>, event: &Event<'_>) -> Map<String, Value>
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
+{
+    let mut fields = Map::new();
+    if let Some(scope) = ctx.event_scope() {
+        for span in scope.from_root() {
+            let extensions = span.extensions();
+            if let Some(kv) = extensions.get::<super::kv_layer::SpanKvFields>() {
+                for (k, v) in &kv.0 {
+                    fields.insert(k.clone(), v.clone());
+                }
+            }
+        }
+    }
+    let mut visitor = JsonFieldVisitor::new(&mut fields);
+    event.record(&mut visitor);
+    fields
+}
+
 /// 带 OpenTelemetry trace 上下文的 JSON 格式化器
 ///
 /// 在标准 JSON 日志字段基础上，自动注入 `trace_id` 和 `span_id`。
@@ -125,21 +149,7 @@ where
         }
 
         // 事件字段（包括 message）
-        // 先从 span extensions 提取 KV（外层 → 内层，后者覆盖前者同名 key）
-        let mut fields = Map::new();
-        if let Some(scope) = ctx.event_scope() {
-            for span in scope.from_root() {
-                let extensions = span.extensions();
-                if let Some(kv) = extensions.get::<super::kv_layer::SpanKvFields>() {
-                    for (k, v) in &kv.0 {
-                        fields.insert(k.clone(), v.clone());
-                    }
-                }
-            }
-        }
-        // event 字段最后写入，覆盖同名 span 字段
-        let mut visitor = JsonFieldVisitor::new(&mut fields);
-        event.record(&mut visitor);
+        let fields = collect_fields(ctx, event);
         root.insert("fields".to_string(), Value::Object(fields));
 
         // 调用位置（文件:行号）
@@ -193,21 +203,8 @@ where
     ) -> fmt::Result {
         let meta = event.metadata();
 
-        // 先从 span extensions 提取 KV
-        let mut fields = Map::new();
-        if let Some(scope) = ctx.event_scope() {
-            for span in scope.from_root() {
-                let extensions = span.extensions();
-                if let Some(kv) = extensions.get::<super::kv_layer::SpanKvFields>() {
-                    for (k, v) in &kv.0 {
-                        fields.insert(k.clone(), v.clone());
-                    }
-                }
-            }
-        }
-        // event 字段最后写入，覆盖同名 span 字段
-        let mut visitor = JsonFieldVisitor::new(&mut fields);
-        event.record(&mut visitor);
+        // 收集 span + event 字段
+        let mut fields = collect_fields(ctx, event);
 
         // 提取 message
         let message = fields

@@ -90,7 +90,7 @@ fn load_dot_env_if_exist(config_location: &str) -> Result<(), XOneError> {
         .unwrap_or_else(|| Path::new(""))
         .join(DOT_ENV_FILENAME);
 
-    if xutil::file_exist(&dot_env_path.to_string_lossy()) {
+    if xutil::file_exist(&dot_env_path) {
         dotenvy::from_filename(&dot_env_path).map_err(|e| {
             XOneError::Config(format!("XOne initXConfig load .env failed, err=[{e}]"))
         })?;

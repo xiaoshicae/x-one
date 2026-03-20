@@ -9,8 +9,8 @@
 /// assert!(x_one::xutil::file_exist("Cargo.toml"));
 /// assert!(!x_one::xutil::file_exist("nonexistent_file.txt"));
 /// ```
-pub fn file_exist(path: &str) -> bool {
-    std::fs::metadata(path)
+pub fn file_exist(path: impl AsRef<std::path::Path>) -> bool {
+    std::fs::metadata(path.as_ref())
         .map(|m| m.is_file())
         .unwrap_or(false)
 }
@@ -23,6 +23,8 @@ pub fn file_exist(path: &str) -> bool {
 /// assert!(x_one::xutil::dir_exist("src"));
 /// assert!(!x_one::xutil::dir_exist("nonexistent_dir"));
 /// ```
-pub fn dir_exist(path: &str) -> bool {
-    std::fs::metadata(path).map(|m| m.is_dir()).unwrap_or(false)
+pub fn dir_exist(path: impl AsRef<std::path::Path>) -> bool {
+    std::fs::metadata(path.as_ref())
+        .map(|m| m.is_dir())
+        .unwrap_or(false)
 }

@@ -27,6 +27,19 @@ pub enum LogLevel {
     Error,
 }
 
+impl LogLevel {
+    /// 返回级别的小写字符串表示
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LogLevel::Trace => "trace",
+            LogLevel::Debug => "debug",
+            LogLevel::Info => "info",
+            LogLevel::Warn => "warn",
+            LogLevel::Error => "error",
+        }
+    }
+}
+
 /// 日志配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

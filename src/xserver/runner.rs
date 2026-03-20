@@ -148,16 +148,8 @@ async fn run_with_signal<S: Server>(server: &S) -> Result<(), XOneError> {
                 }
             }
         }
-        _ = tokio::signal::ctrl_c() => {
-            stop_server(server, "SIGINT").await?;
-            // 等待 server.run() 收到 stop 信号后优雅关闭
-            run_fut.await.map_err(|e| {
-                XOneError::Server(format!("XOne Run server shutdown failed, err=[{e}]"))
-            })?;
-            Ok(())
-        }
-        _ = wait_for_terminate_signal() => {
-            stop_server(server, "SIGTERM").await?;
+        signal = wait_for_shutdown_signal() => {
+            stop_server(server, signal).await?;
             // 等待 server.run() 收到 stop 信号后优雅关闭
             run_fut.await.map_err(|e| {
                 XOneError::Server(format!("XOne Run server shutdown failed, err=[{e}]"))
@@ -182,18 +174,27 @@ async fn stop_server<S: Server>(server: &S, signal: &str) -> Result<(), XOneErro
     Ok(())
 }
 
-/// 等待 SIGTERM 信号（仅 unix）
-#[cfg(unix)]
-async fn wait_for_terminate_signal() {
-    if let Ok(mut sig) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-        sig.recv().await;
-    } else {
-        std::future::pending::<()>().await;
+/// 等待任意关闭信号（SIGINT 或 SIGTERM），返回信号名称
+async fn wait_for_shutdown_signal() -> &'static str {
+    #[cfg(unix)]
+    {
+        let sigterm = async {
+            if let Ok(mut sig) =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            {
+                sig.recv().await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => "SIGINT",
+            _ = sigterm => "SIGTERM",
+        }
     }
-}
-
-/// 非 unix 平台不支持 SIGTERM，永远等待
-#[cfg(not(unix))]
-async fn wait_for_terminate_signal() {
-    std::future::pending::<()>().await;
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+        "SIGINT"
+    }
 }

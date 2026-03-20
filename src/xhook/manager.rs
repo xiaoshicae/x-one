@@ -83,35 +83,7 @@ where
 
 /// 执行所有 BeforeStart Hook（带逐个超时控制）
 pub fn invoke_before_start_hooks() -> Result<(), XOneError> {
-    let hooks = take_sorted_hooks(true);
-
-    for h in hooks {
-        match invoke_hook_with_timeout(h.func, h.options.timeout) {
-            Ok(()) => {
-                xutil::info_if_enable_debug(&format!(
-                    "XOne invoke before start hook success, func=[{}]",
-                    h.name
-                ));
-            }
-            Err(e) => {
-                if h.options.must_invoke_success {
-                    xutil::error_if_enable_debug(&format!(
-                        "XOne invoke before start hook failed, func=[{}], err=[{e}]",
-                        h.name,
-                    ));
-                    return Err(XOneError::Hook(format!(
-                        "invoke before start hook failed, func=[{}], err=[{e}]",
-                        h.name,
-                    )));
-                }
-                xutil::warn_if_enable_debug(&format!(
-                    "XOne invoke before start hook failed, case MustInvokeSuccess=false, func=[{}], err=[{e}]",
-                    h.name,
-                ));
-            }
-        }
-    }
-    Ok(())
+    invoke_hooks(take_sorted_hooks(true), "before start", true)
 }
 
 /// 执行所有 BeforeStop Hook（带逐个超时控制）
@@ -119,25 +91,39 @@ pub fn invoke_before_start_hooks() -> Result<(), XOneError> {
 /// 清理阶段保证每个 hook 都会被执行，单个失败只 warn 不中断。
 /// `must_invoke_success` 在 stop 阶段被忽略。
 pub fn invoke_before_stop_hooks() -> Result<(), XOneError> {
-    let hooks = take_sorted_hooks(false);
+    invoke_hooks(take_sorted_hooks(false), "before stop", false)
+}
 
+/// 执行 hooks 的通用逻辑
+///
+/// `fail_fast` 为 true 时，标记了 `must_invoke_success` 的 hook 失败会立即中断。
+fn invoke_hooks(hooks: Vec<Hook>, phase: &str, fail_fast: bool) -> Result<(), XOneError> {
     for h in hooks {
         match invoke_hook_with_timeout(h.func, h.options.timeout) {
             Ok(()) => {
                 xutil::info_if_enable_debug(&format!(
-                    "XOne invoke before stop hook success, func=[{}]",
+                    "XOne invoke {phase} hook success, func=[{}]",
                     h.name
                 ));
             }
             Err(e) => {
+                if fail_fast && h.options.must_invoke_success {
+                    xutil::error_if_enable_debug(&format!(
+                        "XOne invoke {phase} hook failed, func=[{}], err=[{e}]",
+                        h.name,
+                    ));
+                    return Err(XOneError::Hook(format!(
+                        "invoke {phase} hook failed, func=[{}], err=[{e}]",
+                        h.name,
+                    )));
+                }
                 xutil::warn_if_enable_debug(&format!(
-                    "XOne invoke before stop hook failed (ignored), func=[{}], err=[{e}]",
+                    "XOne invoke {phase} hook failed (ignored), func=[{}], err=[{e}]",
                     h.name,
                 ));
             }
         }
     }
-
     Ok(())
 }
 
