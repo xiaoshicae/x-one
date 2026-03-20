@@ -23,8 +23,8 @@ pub fn init_xorm() -> Result<(), crate::error::XOneError> {
         return Ok(());
     }
 
-    let mut store = pool_store().write();
-
+    // 先在锁外构建所有连接池，缩小写锁临界区
+    let mut pools = Vec::with_capacity(configs.len());
     for config in configs {
         if config.dsn.is_empty() {
             xutil::warn_if_enable_debug(&format!(
@@ -35,7 +35,6 @@ pub fn init_xorm() -> Result<(), crate::error::XOneError> {
         }
 
         let name = xutil::default_if_empty(config.name.as_str(), DEFAULT_POOL_NAME).to_string();
-
         let pool = build_pool(&config)?;
 
         xutil::info_if_enable_debug(&format!(
@@ -43,10 +42,17 @@ pub fn init_xorm() -> Result<(), crate::error::XOneError> {
             name, config.driver, config.max_open_conns, config.max_idle_conns
         ));
 
-        store.insert(name, pool);
+        pools.push((name, pool));
     }
 
-    xutil::info_if_enable_debug(&format!("XOrm init success, pool_count=[{}]", store.len()));
+    let mut store = pool_store().write();
+    for (name, pool) in pools {
+        store.insert(name, pool);
+    }
+    let count = store.len();
+    drop(store);
+
+    xutil::info_if_enable_debug(&format!("XOrm init success, pool_count=[{count}]"));
     Ok(())
 }
 
