@@ -10,35 +10,70 @@ readme = "README.md"
 keywords = ["microservice", "framework", "axum", "sdk"]
 categories = ["web-programming::http-server"]
 
+[features]
+default = ["full"]
+full = ["log", "trace", "http", "orm", "cache", "axum-server", "redis-store", "metric", "flow", "pipeline"]
+
+# 日志模块（依赖 trace 获取 otel trace_id）
+log = ["trace", "dep:tracing-subscriber", "dep:tracing-appender"]
+# 链路追踪
+trace = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-stdout"]
+# HTTP 客户端
+http = ["dep:reqwest"]
+# 数据库连接池
+orm = ["dep:sqlx"]
+# 本地缓存
+cache = ["dep:moka"]
+# Axum HTTP 服务器（依赖 trace 和 metric 用于中间件）
+axum-server = ["trace", "metric", "dep:axum", "dep:hyper", "dep:hyper-util", "dep:tower-service"]
+# Redis 客户端
+redis-store = ["dep:redis"]
+# 指标采集
+metric = ["dep:prometheus-client"]
+# 流程编排
+flow = []
+# 管道
+pipeline = []
+
 [dependencies]
+# === 核心依赖（始终编译） ===
 tokio = { version = "1", features = ["full"] }
-axum = { version = "0.8" }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = { version = "0.9" }
 serde_json = { version = "1" }
 tracing = { version = "0.1" }
-tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
-tracing-appender = { version = "0.2" }
 chrono = { version = "0.4" }
-chrono-tz = { version = "0.10" }
 dotenvy = { version = "0.15" }
 regex = { version = "1" }
 thiserror = { version = "2" }
 parking_lot = { version = "0.12" }
-opentelemetry = { version = "0.28" }
-opentelemetry_sdk = { version = "0.28", features = ["rt-tokio"] }
-opentelemetry-stdout = { version = "0.28", features = ["trace"] }
-reqwest = { version = "0.12", features = ["json"] }
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "mysql"] }
-moka = { version = "0.12", features = ["sync"] }
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
-prometheus-client = { version = "0.23" }
 humantime = { version = "2" }
 backon = { version = "1" }
 pnet_datalink = { version = "0.35" }
-hyper = { version = "1", features = ["server"] }
-hyper-util = { version = "0.1", features = ["tokio", "http1", "http2", "server-auto", "server-graceful"] }
-tower-service = { version = "0.3" }
+
+# === 可选依赖 ===
+# log
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"], optional = true }
+tracing-appender = { version = "0.2", optional = true }
+# trace
+opentelemetry = { version = "0.28", optional = true }
+opentelemetry_sdk = { version = "0.28", features = ["rt-tokio"], optional = true }
+opentelemetry-stdout = { version = "0.28", features = ["trace"], optional = true }
+# http
+reqwest = { version = "0.12", features = ["json"], optional = true }
+# orm
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "mysql"], optional = true }
+# cache
+moka = { version = "0.12", features = ["sync"], optional = true }
+# redis
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"], optional = true }
+# metric
+prometheus-client = { version = "0.23", optional = true }
+# axum-server
+axum = { version = "0.8", optional = true }
+hyper = { version = "1", features = ["server"], optional = true }
+hyper-util = { version = "0.1", features = ["tokio", "http1", "http2", "server-auto", "server-graceful"], optional = true }
+tower-service = { version = "0.3", optional = true }
 
 [dev-dependencies]
 tokio-test = { version = "0.4" }
