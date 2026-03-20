@@ -86,10 +86,19 @@ pub async fn run_blocking_server() -> Result<(), XOneError> {
 /// 注册所有内置模块的 hook
 fn register_builtin_hooks() {
     crate::xconfig::register_hook();
+    #[cfg(feature = "log")]
     crate::xlog::register_hook();
+    #[cfg(feature = "trace")]
     crate::xtrace::register_hook();
+    #[cfg(feature = "http")]
     crate::xhttp::register_hook();
+    #[cfg(feature = "metric")]
+    crate::xmetric::register_hook();
+    #[cfg(feature = "orm")]
     crate::xorm::register_hook();
+    #[cfg(feature = "redis-store")]
+    crate::xredis::register_hook();
+    #[cfg(feature = "cache")]
     crate::xcache::register_hook();
 }
 

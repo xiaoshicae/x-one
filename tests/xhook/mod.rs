@@ -98,6 +98,16 @@ fn test_before_start_hook_panic_recovery() {
 
 #[test]
 #[serial]
+fn test_before_start_hook_panic_string_recovery() {
+    reset_hooks();
+    x_one::before_start!(|| panic!("{}", "string panic".to_string()));
+    let result = invoke_before_start_hooks();
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("panic occurred"));
+}
+
+#[test]
+#[serial]
 fn test_before_stop_hook_success() {
     reset_hooks();
     x_one::before_stop!(|| Ok(()));

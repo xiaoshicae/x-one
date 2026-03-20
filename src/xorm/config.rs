@@ -59,7 +59,7 @@ impl std::fmt::Display for Driver {
 ///   EnableLog: true
 ///   Name: ""
 /// ```
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct XOrmConfig {
     /// 数据库驱动（默认 postgres）
     #[serde(rename = "Driver", default)]
@@ -115,6 +115,42 @@ fn default_slow_threshold() -> String {
 }
 fn default_enable_log() -> bool {
     true
+}
+
+/// 手动实现 Debug，DSN 中的密码部分脱敏
+impl std::fmt::Debug for XOrmConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("XOrmConfig")
+            .field("driver", &self.driver)
+            .field("dsn", &sanitize_dsn(&self.dsn))
+            .field("max_open_conns", &self.max_open_conns)
+            .field("max_idle_conns", &self.max_idle_conns)
+            .field("max_lifetime", &self.max_lifetime)
+            .field("max_idle_time", &self.max_idle_time)
+            .field("slow_threshold", &self.slow_threshold)
+            .field("enable_log", &self.enable_log)
+            .field("name", &self.name)
+            .finish()
+    }
+}
+
+/// 脱敏 DSN 中的密码部分
+///
+/// 将 `postgres://user:pass@host/db` 替换为 `postgres://user:***@host/db`
+fn sanitize_dsn(dsn: &str) -> String {
+    // 匹配 scheme://user:password@host 格式
+    if let Some(scheme_end) = dsn.find("://") {
+        let after_scheme = &dsn[scheme_end + 3..];
+        if let Some(at_pos) = after_scheme.find('@') {
+            let userinfo = &after_scheme[..at_pos];
+            if let Some(colon_pos) = userinfo.find(':') {
+                let user = &userinfo[..colon_pos];
+                let after_at = &after_scheme[at_pos..];
+                return format!("{}://{}:***{}", &dsn[..scheme_end], user, after_at);
+            }
+        }
+    }
+    dsn.to_string()
 }
 
 /// 加载 XOrm 配置（支持单实例和多实例模式）

@@ -105,3 +105,74 @@ pub(crate) fn sanitize_for_log(config: &XRedisConfig) -> XRedisConfig {
     }
     c
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    #[test]
+    #[serial]
+    fn test_load_configs_no_config_returns_empty() {
+        crate::xconfig::reset_config();
+        let result = load_configs();
+        assert!(result.is_empty(), "无配置时应返回空列表");
+        crate::xconfig::reset_config();
+    }
+
+    #[test]
+    #[serial]
+    fn test_load_configs_single_instance() {
+        crate::xconfig::reset_config();
+        let yaml = r#"XRedis:
+  Addr: "redis://myhost:6380"
+  Name: "cache"
+"#;
+        let config: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        crate::xconfig::set_config(config);
+        let result = load_configs();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].addr, "redis://myhost:6380");
+        assert_eq!(result[0].name, "cache");
+        crate::xconfig::reset_config();
+    }
+
+    #[test]
+    #[serial]
+    fn test_load_configs_multiple_instances() {
+        crate::xconfig::reset_config();
+        let yaml = r#"XRedis:
+  - Addr: "redis://host1:6379"
+    Name: "first"
+  - Addr: "redis://host2:6379"
+    Name: "second"
+"#;
+        let config: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        crate::xconfig::set_config(config);
+        let result = load_configs();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].name, "first");
+        assert_eq!(result[1].name, "second");
+        crate::xconfig::reset_config();
+    }
+
+    #[test]
+    fn test_sanitize_for_log_with_password() {
+        let config = XRedisConfig {
+            password: "secret123".to_string(),
+            ..Default::default()
+        };
+        let sanitized = sanitize_for_log(&config);
+        assert_eq!(sanitized.password, "***", "密码应被脱敏");
+        // 其他字段保持不变
+        assert_eq!(sanitized.addr, config.addr);
+        assert_eq!(sanitized.name, config.name);
+    }
+
+    #[test]
+    fn test_sanitize_for_log_without_password() {
+        let config = XRedisConfig::default();
+        let sanitized = sanitize_for_log(&config);
+        assert_eq!(sanitized.password, "", "空密码不应被替换");
+    }
+}

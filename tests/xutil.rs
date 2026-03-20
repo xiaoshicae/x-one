@@ -30,3 +30,6 @@ mod net;
 
 #[path = "xutil/future.rs"]
 mod future;
+
+#[path = "xutil/pool.rs"]
+mod pool;

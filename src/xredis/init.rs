@@ -22,10 +22,14 @@ pub fn init_xredis() -> Result<(), crate::error::XOneError> {
         return Ok(());
     }
 
-    // 使用 tokio block_in_place 来在同步 hook 中执行异步连接
-    let rt = tokio::runtime::Handle::try_current().map_err(|e| {
-        crate::error::XOneError::Other(format!("XRedis init requires tokio runtime: {e}"))
-    })?;
+    // hook 在独立线程中执行（xhook/manager.rs spawn），
+    // 不能使用 Handle::try_current()，需创建独立 runtime
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| {
+            crate::error::XOneError::Other(format!("XRedis init create runtime failed: {e}"))
+        })?;
 
     let mut store = client_store().write();
 
@@ -87,15 +91,33 @@ fn build_url(config: &XRedisConfig) -> String {
 
     let mut url = String::from("redis://");
     if !config.username.is_empty() || !config.password.is_empty() {
-        url.push_str(&config.username);
+        // 对用户名和密码做 percent-encoding，防止特殊字符破坏 URL 结构
+        url.push_str(&percent_encode(&config.username));
         url.push(':');
-        url.push_str(&config.password);
+        url.push_str(&percent_encode(&config.password));
         url.push('@');
     }
     url.push_str(&config.addr);
     url.push('/');
     url.push_str(&config.db.to_string());
     url
+}
+
+/// 对字符串做 percent-encoding（RFC 3986 userinfo 部分）
+fn percent_encode(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    for b in input.bytes() {
+        match b {
+            // unreserved: ALPHA / DIGIT / "-" / "." / "_" / "~"
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                result.push(b as char);
+            }
+            _ => {
+                result.push_str(&format!("%{b:02X}"));
+            }
+        }
+    }
+    result
 }
 
 /// 关闭所有 Redis 连接

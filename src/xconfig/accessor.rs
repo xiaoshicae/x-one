@@ -92,6 +92,10 @@ pub fn parse_config<T: serde::de::DeserializeOwned>(
 }
 
 /// 解析配置值为单个或列表
+#[cfg_attr(
+    not(any(feature = "orm", feature = "cache", feature = "redis-store")),
+    allow(dead_code)
+)]
 pub(crate) fn parse_config_list<T: serde::de::DeserializeOwned>(key: &str) -> Vec<T> {
     match parse_config::<T>(key) {
         Ok(config) => return vec![config],
@@ -112,4 +116,84 @@ pub(crate) fn parse_config_list<T: serde::de::DeserializeOwned>(key: &str) -> Ve
         _ => {}
     }
     Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use serial_test::serial;
+
+    use super::*;
+
+    #[derive(Debug, Clone, serde::Deserialize, PartialEq)]
+    struct SimpleConfig {
+        name: String,
+    }
+
+    #[test]
+    #[serial]
+    fn test_parse_config_list_single_item() {
+        // 准备：设置单实例配置
+        crate::xconfig::reset_config();
+        let yaml = "TestModule:\n  name: single\n";
+        let config: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        crate::xconfig::set_config(config);
+
+        // 执行
+        let result = parse_config_list::<SimpleConfig>("TestModule");
+
+        // 断言
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "single");
+
+        crate::xconfig::reset_config();
+    }
+
+    #[test]
+    #[serial]
+    fn test_parse_config_list_multiple_items() {
+        // 准备：设置多实例配置
+        crate::xconfig::reset_config();
+        let yaml = "TestModule:\n  - name: first\n  - name: second\n";
+        let config: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        crate::xconfig::set_config(config);
+
+        // 执行
+        let result = parse_config_list::<SimpleConfig>("TestModule");
+
+        // 断言
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].name, "first");
+        assert_eq!(result[1].name, "second");
+
+        crate::xconfig::reset_config();
+    }
+
+    #[test]
+    #[serial]
+    fn test_parse_config_list_missing_key_returns_empty() {
+        crate::xconfig::reset_config();
+        let yaml = "Other:\n  name: test\n";
+        let config: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        crate::xconfig::set_config(config);
+
+        let result = parse_config_list::<SimpleConfig>("NonExistent");
+        assert!(result.is_empty());
+
+        crate::xconfig::reset_config();
+    }
+
+    #[test]
+    #[serial]
+    fn test_parse_config_list_invalid_value_returns_empty() {
+        // 准备：值既不能解析为单实例也不能解析为列表
+        crate::xconfig::reset_config();
+        let yaml = "TestModule: just_a_string\n";
+        let config: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        crate::xconfig::set_config(config);
+
+        let result = parse_config_list::<SimpleConfig>("TestModule");
+        assert!(result.is_empty());
+
+        crate::xconfig::reset_config();
+    }
 }

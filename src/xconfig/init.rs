@@ -138,12 +138,40 @@ fn parse_config(config_location: &str) -> Result<serde_yaml::Value, XOneError> {
     Ok(base_config)
 }
 
-/// 打印最终配置（debug 模式下）
+/// 敏感配置 key（值会被脱敏为 "***"）
+const SENSITIVE_KEYS: &[&str] = &["DSN", "Password", "Secret", "Token", "Key"];
+
+/// 打印最终配置（debug 模式下，敏感字段脱敏）
 fn print_final_config(config: &serde_yaml::Value) {
     if xutil::xone_enable_debug() {
-        let config_str = xutil::to_json_string_indent(config);
+        let sanitized = sanitize_config(config);
+        let config_str = xutil::to_json_string_indent(&sanitized);
         eprintln!(
             "\n************************************** XOne load config **************************************\n{config_str}\n**********************************************************************************************\n"
         );
+    }
+}
+
+/// 递归脱敏配置中的敏感字段
+fn sanitize_config(value: &serde_yaml::Value) -> serde_yaml::Value {
+    match value {
+        serde_yaml::Value::Mapping(map) => {
+            let mut result = serde_yaml::Mapping::new();
+            for (k, v) in map {
+                let is_sensitive = k
+                    .as_str()
+                    .is_some_and(|key| SENSITIVE_KEYS.iter().any(|s| key.contains(s)));
+                if is_sensitive && v.is_string() {
+                    result.insert(k.clone(), serde_yaml::Value::String("***".to_string()));
+                } else {
+                    result.insert(k.clone(), sanitize_config(v));
+                }
+            }
+            serde_yaml::Value::Mapping(result)
+        }
+        serde_yaml::Value::Sequence(seq) => {
+            serde_yaml::Value::Sequence(seq.iter().map(sanitize_config).collect())
+        }
+        other => other.clone(),
     }
 }

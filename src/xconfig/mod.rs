@@ -11,6 +11,7 @@ pub mod location;
 pub mod profiles;
 pub mod server_config;
 
+#[cfg(any(feature = "orm", feature = "cache", feature = "redis-store"))]
 pub(crate) use accessor::parse_config_list;
 pub use accessor::{
     contain_key, get_bool, get_float64, get_int, get_string, get_string_slice, get_value,

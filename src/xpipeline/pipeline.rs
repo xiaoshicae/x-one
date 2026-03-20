@@ -74,9 +74,18 @@ impl Pipeline {
         let buffer_size = self.config.buffer_size;
 
         if self.processors.is_empty() {
-            let (_tx, rx) = mpsc::channel(1);
-            let handle = tokio::spawn(async { RunResult::default() });
-            return (mpsc::channel(1).0, rx, handle);
+            // 空 Pipeline：输入直通输出，drop(input_tx) 后 task 自动结束
+            let (input_tx, mut pass_rx) = mpsc::channel(buffer_size);
+            let (pass_tx, output_rx) = mpsc::channel(buffer_size);
+            let handle = tokio::spawn(async move {
+                while let Some(frame) = pass_rx.recv().await {
+                    if pass_tx.send(frame).await.is_err() {
+                        break;
+                    }
+                }
+                RunResult::default()
+            });
+            return (input_tx, output_rx, handle);
         }
 
         let (input_tx, first_rx) = mpsc::channel(buffer_size);

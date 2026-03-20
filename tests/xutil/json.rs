@@ -34,3 +34,44 @@ fn test_to_json_string_indent_map() {
     assert!(result.contains("value"));
     assert!(result.contains('\n'));
 }
+
+#[test]
+fn test_to_json_string_indent_struct() {
+    #[derive(serde::Serialize)]
+    struct Info {
+        name: String,
+        count: u32,
+    }
+    let info = Info {
+        name: "test".to_string(),
+        count: 10,
+    };
+    let result = to_json_string_indent(&info);
+    assert!(result.contains(r#""name": "test""#));
+    assert!(result.contains(r#""count": 10"#));
+    assert!(result.contains('\n'));
+}
+
+/// 自定义类型，Serialize 实现会返回错误
+struct FailSerialize;
+
+impl serde::Serialize for FailSerialize {
+    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        Err(serde::ser::Error::custom("intentional failure"))
+    }
+}
+
+#[test]
+fn test_to_json_string_serialize_error_returns_empty() {
+    let result = to_json_string(&FailSerialize);
+    assert_eq!(result, "", "序列化失败应返回空字符串");
+}
+
+#[test]
+fn test_to_json_string_indent_serialize_error_returns_empty() {
+    let result = to_json_string_indent(&FailSerialize);
+    assert_eq!(result, "", "序列化失败应返回空字符串");
+}

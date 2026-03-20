@@ -61,7 +61,10 @@ impl Processor for PrefixProcessor {
 #[tokio::test]
 async fn test_empty_pipeline() {
     let pipeline = Pipeline::new("empty");
-    let (_tx, mut rx, handle) = pipeline.run();
+    let (tx, mut rx, handle) = pipeline.run();
+
+    // 关闭输入 → 转发 task 结束 → 输出 channel 关闭
+    drop(tx);
 
     let result = handle.await.unwrap();
     assert!(result.success());
@@ -188,6 +191,45 @@ async fn test_pipeline_with_monitor() {
     drop(tx);
 
     while rx.recv().await.is_some() {}
+
+    let result = handle.await.unwrap();
+    assert!(result.success());
+}
+
+#[tokio::test]
+async fn test_pipeline_with_monitor_error() {
+    use x_one::xpipeline::PipelineConfig;
+
+    let pipeline = Pipeline::new("monitored-err")
+        .config(PipelineConfig {
+            buffer_size: 16,
+            disable_monitor: false,
+        })
+        .enable_monitor()
+        .processor(ErrorProcessor);
+
+    let (tx, mut rx, handle) = pipeline.run();
+    drop(tx);
+    while rx.recv().await.is_some() {}
+
+    let result = handle.await.unwrap();
+    assert!(!result.success());
+}
+
+#[tokio::test]
+async fn test_empty_pipeline_passthrough() {
+    let pipeline = Pipeline::new("passthrough");
+    let (tx, mut rx, handle) = pipeline.run();
+
+    tx.send(Box::new(TextFrame("data".to_string())))
+        .await
+        .unwrap();
+    drop(tx);
+
+    let frame = rx.recv().await;
+    assert!(frame.is_some());
+    assert_eq!(frame.unwrap().frame_type(), "text");
+    assert!(rx.recv().await.is_none());
 
     let result = handle.await.unwrap();
     assert!(result.success());
