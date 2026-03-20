@@ -17,13 +17,7 @@ use super::debug_log;
 /// assert!(result.contains("value"));
 /// ```
 pub fn to_json_string<T: serde::Serialize>(v: &T) -> String {
-    match serde_json::to_string(v) {
-        Ok(s) => s,
-        Err(e) => {
-            debug_log::error_if_enable_debug(&format!("to_json_string failed, err=[{e}]"));
-            String::new()
-        }
-    }
+    serialize_or_empty(serde_json::to_string(v), "to_json_string")
 }
 
 /// 将值转换为格式化的 JSON 字符串（带缩进）
@@ -42,10 +36,15 @@ pub fn to_json_string<T: serde::Serialize>(v: &T) -> String {
 /// assert!(result.contains('\n')); // 格式化输出包含换行
 /// ```
 pub fn to_json_string_indent<T: serde::Serialize>(v: &T) -> String {
-    match serde_json::to_string_pretty(v) {
+    serialize_or_empty(serde_json::to_string_pretty(v), "to_json_string_indent")
+}
+
+/// 序列化结果处理：成功返回字符串，失败记录日志并返回空字符串
+fn serialize_or_empty(result: serde_json::Result<String>, label: &str) -> String {
+    match result {
         Ok(s) => s,
         Err(e) => {
-            debug_log::error_if_enable_debug(&format!("to_json_string_indent failed, err=[{e}]"));
+            debug_log::error_if_enable_debug(&format!("{label} failed, err=[{e}]"));
             String::new()
         }
     }

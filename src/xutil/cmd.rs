@@ -20,8 +20,6 @@ fn find_arg_value(key: &str, args: &[String]) -> Option<String> {
         return None;
     }
 
-    let eq_suffix = format!("{key}=");
-
     for (i, arg) in args.iter().enumerate() {
         let Some(after_dash) = arg.strip_prefix("--") else {
             continue;
@@ -33,7 +31,10 @@ fn find_arg_value(key: &str, args: &[String]) -> Option<String> {
         }
 
         // 等号分隔：--config=value
-        if let Some(value) = after_dash.strip_prefix(&eq_suffix) {
+        if let Some(value) = after_dash
+            .strip_prefix(key)
+            .and_then(|rest| rest.strip_prefix('='))
+        {
             return Some(value.to_string());
         }
     }

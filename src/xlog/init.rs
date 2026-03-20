@@ -1,10 +1,9 @@
 //! 日志系统初始化与关闭
 
-use super::config::{LogLevel, XLOG_CONFIG_KEY, XLogConfig};
+use super::config::{XLOG_CONFIG_KEY, XLogConfig};
 use super::otel_fmt::{OtelConsoleFormat, OtelJsonFormat};
 use crate::{xconfig, xutil};
 use parking_lot::Mutex;
-use std::path::Path;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::*;
 
@@ -45,8 +44,8 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
     }
 
     // 创建文件 appender
-    let log_file_path = Path::new(&c.path).join(format!("{}.log", c.name));
-    let file_appender = tracing_appender::rolling::daily(&c.path, format!("{}.log", c.name));
+    let log_filename = format!("{}.log", c.name);
+    let file_appender = tracing_appender::rolling::daily(&c.path, &log_filename);
 
     // 创建异步文件写入器
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
@@ -56,13 +55,7 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
     *store = Some(guard);
 
     // 解析日志级别
-    let level_filter = match c.level {
-        LogLevel::Trace => "trace",
-        LogLevel::Debug => "debug",
-        LogLevel::Info => "info",
-        LogLevel::Warn => "warn",
-        LogLevel::Error => "error",
-    };
+    let level_filter = c.level.as_str();
 
     // 构建 env filter
     let env_filter = EnvFilter::try_new(level_filter).unwrap_or_else(|e| {
@@ -84,47 +77,40 @@ fn init_xlog_by_config(c: &XLogConfig) -> Result<(), crate::error::XOneError> {
     // Span KV 字段收集 Layer
     let kv_layer = super::kv_layer::KvLayer;
 
-    // 组装 subscriber
-    if c.console {
-        if c.console_format_is_raw {
-            // 原始 JSON 格式输出到控制台（自动注入 trace_id）
-            let console_layer = tracing_subscriber::fmt::layer()
-                .event_format(OtelJsonFormat)
-                .with_writer(std::io::stdout);
-
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(kv_layer)
-                .with(file_layer)
-                .with(console_layer)
-                .try_init()
-                .map_err(init_err)?;
+    // 控制台输出（Option<Layer> 支持条件启用，None 等同于无 Layer）
+    use tracing_subscriber::Layer as _;
+    let console_layer: Option<Box<dyn tracing_subscriber::Layer<_> + Send + Sync>> =
+        if c.console {
+            if c.console_format_is_raw {
+                Some(
+                    tracing_subscriber::fmt::layer()
+                        .event_format(OtelJsonFormat)
+                        .with_writer(std::io::stdout as fn() -> std::io::Stdout)
+                        .boxed(),
+                )
+            } else {
+                Some(
+                    tracing_subscriber::fmt::layer()
+                        .event_format(OtelConsoleFormat)
+                        .with_writer(std::io::stdout as fn() -> std::io::Stdout)
+                        .boxed(),
+                )
+            }
         } else {
-            // 带颜色的简洁格式输出到控制台（自动注入 trace_id）
-            let console_layer = tracing_subscriber::fmt::layer()
-                .event_format(OtelConsoleFormat)
-                .with_writer(std::io::stdout);
+            None
+        };
 
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(kv_layer)
-                .with(file_layer)
-                .with(console_layer)
-                .try_init()
-                .map_err(init_err)?;
-        }
-    } else {
-        tracing_subscriber::registry()
-            .with(env_filter)
-            .with(kv_layer)
-            .with(file_layer)
-            .try_init()
-            .map_err(init_err)?;
-    }
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(kv_layer)
+        .with(file_layer)
+        .with(console_layer)
+        .try_init()
+        .map_err(init_err)?;
 
     xutil::info_if_enable_debug(&format!(
-        "XOne initXLog success, log file: {}",
-        log_file_path.display()
+        "XOne initXLog success, log file: {}/{}",
+        c.path, log_filename
     ));
 
     Ok(())
