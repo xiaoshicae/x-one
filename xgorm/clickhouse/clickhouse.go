@@ -1,0 +1,188 @@
+// Package clickhouse 给 xgorm 加上 ClickHouse 驱动。
+//
+// 匿名 import 即可，不需要写任何代码：
+//
+//	import (
+//		"github.com/xiaoshicae/x-one/xgorm"
+//		_ "github.com/xiaoshicae/x-one/xgorm/clickhouse"
+//	)
+//
+// 然后配置里写 Driver: clickhouse，拿到的还是原生的 *gorm.DB：
+//
+//	XGorm:
+//	  Driver: clickhouse
+//	  DSN: "${CH_DSN}"     # clickhouse://user:pass@host:9000/db
+//
+// 为什么是独立的 module：实测一个只 import xgorm 的应用模块图是 65 个，
+// 加上这个包变成 146 个（编译包 140 → 183）。多出来的大头是 Docker 和
+// testcontainers —— clickhouse-go 用它们跑集成测试，而 go.mod 分不出
+// 「只测试用」，所以它们落在主 require 块里，一路传给每个使用者。
+// Go 的 MVS 按模块图强加版本要求，不用 ClickHouse 的人不该为它付这个钱。
+//
+// 驱动版本要盯着：gorm.io/driver/clickhouse v0.6.1 的 go.mod 里还积着
+// 126 个 cloud.google.com/* 的陈年 indirect 项，用它模块图是 733 个；
+// 升到 v0.7.0 直接降到 146。
+package clickhouse
+
+import (
+	"context"
+	"errors"
+	"net/url"
+	"strings"
+
+	chgo "github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/hashicorp/go-version"
+	"gorm.io/driver/clickhouse"
+	"gorm.io/gorm"
+
+	"github.com/xiaoshicae/x-one/xgorm"
+)
+
+// Driver 配置里 Driver 那一项要写的值
+const Driver xgorm.Driver = "clickhouse"
+
+// dialTimeoutKey ClickHouse DSN 里建连超时对应的 query 参数
+const dialTimeoutKey = "dial_timeout"
+
+// schemes 驱动认的 URL scheme。http / https 走 HTTP 协议，其余走 native
+var schemes = []string{"clickhouse://", "tcp://", "http://", "https://"}
+
+// DSN 解不出来时报的错。一律不回显 DSN：url.Parse 和驱动的解析错误里
+// 都带着 DSN 片段，而 DSN 多半带着密码
+var (
+	errNotURL = errors.New("DSN must be a URL starting with clickhouse://, tcp://, http:// or https:// " +
+		"(details omitted to keep credentials out of logs)")
+	errMalformedDSN = errors.New("failed to parse DSN, check the format of " + xgorm.ConfigKey +
+		" (details omitted to keep credentials out of logs)")
+	errMalformedQuery = errors.New("failed to parse the query part of the DSN, check the format of " + xgorm.ConfigKey +
+		" (a literal % in a password must be written as %25; details omitted to keep credentials out of logs)")
+)
+
+// dialect 注册进 xgorm 的那一份。单独成变量，测试才看得到它接的是哪几个函数
+var dialect = xgorm.Dialect{
+	Name:    Driver,
+	Open:    open,
+	Resolve: resolve,
+	Ready:   probeVersion,
+}
+
+// init 只注册，不初始化。真正建连由 xgorm 在框架的 StageClient 里做。
+func init() { xgorm.RegisterDialect(dialect) }
+
+// open 造 Dialector，并关掉它在 Initialize 里那次查版本。
+//
+// 那次 SELECT version() 用的是写死的 context.Background()
+// （gorm.io/driver/clickhouse v0.7.0 的 Initialize），而且就在 gorm.Open 里：
+// 实测对一个收下连接却不回话的地址，ctx 早已取消也要等满 dial_timeout
+// 才返回（300ms 配 300ms），失败了直接报错——xgorm 的三次建连重试一次都
+// 没轮上，一次抖动就让服务起不来。
+//
+// 版本号本身还要：驱动靠它决定老版本上改不改得了列名（< 20.4）、
+// 列类型带不带精度（< 21.11），不查的话迁移会在老集群上生成它不认的 DDL。
+// 所以这次查询挪到 probeVersion，由 xgorm 在建连验证里做：受 ctx 管，跟着重试。
+func open(dsn string) gorm.Dialector {
+	return clickhouse.New(clickhouse.Config{DSN: dsn, SkipInitializeWithVersion: true})
+}
+
+// probeVersion 查服务端版本，按驱动自己的规则设好那两个开关。
+//
+// 规则抄自 v0.7.0 的 Initialize，升级驱动时要对一遍。
+func probeVersion(ctx context.Context, db *gorm.DB) error {
+	d, ok := db.Dialector.(*clickhouse.Dialector)
+	if !ok {
+		return nil // 不是我们造的 Dialector，没有开关可设
+	}
+	var v string
+	if err := db.ConnPool.QueryRowContext(ctx, "SELECT version()").Scan(&v); err != nil {
+		return err
+	}
+	d.Version = v
+	applyVersion(d.Config, v)
+	return nil
+}
+
+// applyVersion 按版本号设老版本不支持的两项
+func applyVersion(c *clickhouse.Config, v string) {
+	parsed, err := version.NewVersion(v)
+	if err != nil {
+		return // 解不出来就按新版本处理，与驱动一致
+	}
+	noRename, _ := version.NewConstraint("< 20.4")
+	noPrecision, _ := version.NewConstraint("< 21.11")
+	if noRename.Check(parsed) {
+		c.DontSupportRenameColumn = true
+	}
+	if noPrecision.Check(parsed) {
+		c.DontSupportColumnPrecision = true
+	}
+}
+
+// resolve 把配置里的建连超时注入 DSN，并解出可安全记录的连接信息
+//
+// 只认 URL 形式（clickhouse://user:pass@host:9000/db?k=v），别的一律拒绝。
+// 驱动并不接受裸的 host:port（实测 clickhouse.ParseDSN("10.255.255.1:9000")
+// 报 first path segment in URL cannot contain colon），而原样透传的话，
+// 驱动建连时的解析错误会连同整串 DSN、包括明文密码一起进日志。
+// scheme 拼错（clickhous://）驱动倒是认，但会跳过这里的超时注入，
+// 前面多一个空格则又是一次带着整串 DSN 的解析错误——都在这里挡掉。
+func resolve(c xgorm.ClientConfig) (string, xgorm.ConnInfo, error) {
+	if !isURL(c.DSN) {
+		return "", xgorm.ConnInfo{}, errNotURL
+	}
+
+	u, err := url.Parse(c.DSN)
+	if err != nil {
+		// 不回传原始错误：url.Parse 的错误里带着整串 DSN，而错误会被记下来
+		return "", xgorm.ConnInfo{}, errMalformedDSN
+	}
+
+	// 显式 ParseQuery 而不是 u.Query()：后者会把错误吞掉，只返回解得出的那部分。
+	// 于是密码里带一个字面 % （构成非法的百分号转义）时，那一项会被静默丢掉，
+	// 回写之后 DSN 里就没有密码了——服务报「认证失败」，而配置文件里密码明明写着。
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return "", xgorm.ConnInfo{}, errMalformedQuery
+	}
+
+	// 使用者在 DSN 里显式写了的，一律不覆盖——配置里的值只是默认值
+	if v := dialTimeout(c); v != "" && !q.Has(dialTimeoutKey) {
+		q.Set(dialTimeoutKey, v)
+		u.RawQuery = q.Encode()
+	}
+	dsn := u.String()
+
+	// 用驱动自己的解析器再过一遍：它的错误同样可能带着凭证（http_proxy 解析失败时
+	// 回显的是整个代理地址），留到建连时才报就是原样进日志。
+	// 这里报出来的只有一句不带内容的话；常见的是 https:// 没配 secure=true
+	opts, err := chgo.ParseDSN(dsn)
+	if err != nil {
+		return "", xgorm.ConnInfo{}, errMalformedDSN
+	}
+
+	// DialTimeout 取驱动读出来的：DSN 里写了更长的 dial_timeout，
+	// xgorm 建连验证的预算才会跟着放宽。两处都没写时驱动自己补 30s（v2.30.0）
+	return dsn, xgorm.ConnInfo{
+		Driver:      string(Driver),
+		Addr:        u.Host,
+		DB:          strings.TrimPrefix(u.Path, "/"),
+		DialTimeout: opts.DialTimeout,
+	}, nil
+}
+
+// isURL 判断是不是驱动认的 URL 形式
+func isURL(dsn string) bool {
+	for _, p := range schemes {
+		if strings.HasPrefix(dsn, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// dialTimeout 把建连超时写成 ClickHouse 认的时长字符串，<=0 表示不注入
+func dialTimeout(c xgorm.ClientConfig) string {
+	if c.DialTimeout <= 0 {
+		return ""
+	}
+	return c.DialTimeout.String()
+}

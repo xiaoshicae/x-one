@@ -1,0 +1,596 @@
+package xcache
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/xiaoshicae/x-one/internal/config"
+	"github.com/xiaoshicae/x-one/internal/hook"
+	"github.com/xiaoshicae/x-one/internal/xclient"
+	"github.com/xiaoshicae/x-one/xerror"
+)
+
+func load(t *testing.T, yml string) Config {
+	t.Helper()
+	c := DefaultConfig()
+	path := filepath.Join(t.TempDir(), "application.yml")
+	if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.LoadInto(path, ConfigKey, &c); err != nil {
+		t.Fatalf("加载失败：%v", err)
+	}
+	return c
+}
+
+func loadErr(t *testing.T, yml string) error {
+	t.Helper()
+	c := DefaultConfig()
+	path := filepath.Join(t.TempDir(), "application.yml")
+	os.WriteFile(path, []byte(yml), 0o644)
+	return config.LoadInto(path, ConfigKey, &c)
+}
+
+// withInstances 装一套实例，测试结束后还原
+func withInstances(t testing.TB, cfgs map[string]ClientConfig) {
+	t.Helper()
+	built := map[string]instance{}
+	for name, c := range cfgs {
+		cache, closer, err := New(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = closer.Close() })
+		built[name] = instance{cache: cache, ttl: c.DefaultTTL}
+	}
+	publish(t, built)
+}
+
+// publish 把一组现成的实例经 xclient.Build 发布出去，测试结束后清空
+func publish(t testing.TB, insts map[string]instance) {
+	t.Helper()
+	keep := func(_ context.Context, v instance) (instance, io.Closer, error) { return v, nil, nil }
+	if err := xclient.Build(context.Background(), reg, insts, keep); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = xclient.Build(context.Background(), reg, nil, keep) })
+}
+
+func TestConfig_单实例写法(t *testing.T) {
+	c := load(t, "XCache:\n  MaxCost: 500\n")
+	got, ok := c.Clients[DefaultName]
+	if !ok {
+		t.Fatalf("单实例写法应规整成名为 %s 的实例，got=%v", DefaultName, c.Clients)
+	}
+	if got.MaxCost != 500 {
+		t.Errorf("写了的字段应生效，got=%+v", got)
+	}
+	if got.NumCounters != 1_000_000 || got.DefaultTTL != 5*time.Minute {
+		t.Errorf("没写的字段应保持默认，got=%+v", got)
+	}
+}
+
+func TestConfig_多实例写法(t *testing.T) {
+	c := load(t, "XCache:\n  Clients:\n    default: {MaxCost: 100}\n    session: {MaxCost: 200, DefaultTTL: 30m}\n")
+	if len(c.Clients) != 2 {
+		t.Fatalf("应解出两个实例，got=%v", c.Clients)
+	}
+	if c.Clients["session"].DefaultTTL != 30*time.Minute {
+		t.Errorf("写了的字段应生效，got=%+v", c.Clients["session"])
+	}
+	if c.Clients["default"].DefaultTTL != 5*time.Minute {
+		t.Errorf("一个实例改了 TTL 不该影响另一个，got=%+v", c.Clients["default"])
+	}
+}
+
+func TestConfig_拼写错误要失败(t *testing.T) {
+	if err := loadErr(t, "XCache:\n  MaxCoat: 1\n"); err == nil {
+		t.Fatal("字段拼错应当启动失败")
+	}
+	if err := loadErr(t, "XCache:\n  Clients:\n    a: {MaxCoat: 1}\n"); err == nil {
+		t.Fatal("实例里的字段拼错也应当启动失败")
+	}
+}
+
+func TestConfig_两种写法不能混用(t *testing.T) {
+	if err := loadErr(t, "XCache:\n  MaxCost: 1\n  Clients:\n    a: {MaxCost: 2}\n"); err == nil {
+		t.Fatal("混用两种写法应当失败")
+	}
+}
+
+func TestConfig_没配就没有实例(t *testing.T) {
+	if c := load(t, "# 没有 XCache 这一块\n"); len(c.Clients) != 0 {
+		t.Errorf("没配就不该建缓存，got=%v", c.Clients)
+	}
+}
+
+func TestValidate(t *testing.T) {
+	ok := DefaultClientConfig()
+	if err := ok.validate(); err != nil {
+		t.Errorf("默认配置应当合法：%v", err)
+	}
+	for name, mutate := range map[string]func(*ClientConfig){
+		"NumCounters 为 0": func(c *ClientConfig) { c.NumCounters = 0 },
+		"MaxCost 为 0":     func(c *ClientConfig) { c.MaxCost = 0 },
+		"BufferItems 为 0": func(c *ClientConfig) { c.BufferItems = 0 },
+		// ristretto 对 ttl<0 的写入直接丢弃，配成负数就一条都存不进去
+		"DefaultTTL 为负": func(c *ClientConfig) { c.DefaultTTL = -time.Second },
+	} {
+		c := ok
+		mutate(&c)
+		if err := c.validate(); err == nil {
+			t.Errorf("%s 应当报错", name)
+		}
+	}
+}
+
+func TestNew_拿到的是原生缓存(t *testing.T) {
+	cache, closer, err := New(DefaultClientConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closer.Close()
+
+	cache.SetWithTTL("k", 42, 1, time.Minute)
+	cache.Wait() // 写入走环形缓冲异步生效，要确定性地读到就得先等
+	if v, ok := cache.Get("k"); !ok || v != 42 {
+		t.Errorf("应读到刚写的值，got=%v ok=%v", v, ok)
+	}
+}
+
+func TestSet_用配置里的默认TTL(t *testing.T) {
+	// 包级 Set 的全部价值就在这里：不用每次都把 cost 和 TTL 写一遍
+	withInstances(t, map[string]ClientConfig{DefaultName: func() ClientConfig {
+		c := DefaultClientConfig()
+		c.DefaultTTL = 90 * time.Second
+		return c
+	}()})
+
+	Set("k", "v")
+	C().Wait()
+
+	ttl, ok := C().GetTTL("k")
+	if !ok {
+		t.Fatal("应能读到刚写的键")
+	}
+	if ttl > 90*time.Second || ttl < 80*time.Second {
+		t.Errorf("应当用配置里的 TTL，got=%v", ttl)
+	}
+	if got := DefaultTTL(); got != 90*time.Second {
+		t.Errorf("DefaultTTL 应返回配置值，got=%v", got)
+	}
+}
+
+func TestGetSetDel(t *testing.T) {
+	withInstances(t, map[string]ClientConfig{DefaultName: DefaultClientConfig()})
+
+	Set("k", "v")
+	C().Wait()
+	if v, ok := Get("k"); !ok || v != "v" {
+		t.Errorf("应读到刚写的值，got=%v ok=%v", v, ok)
+	}
+
+	Del("k")
+	C().Wait()
+	if _, ok := Get("k"); ok {
+		t.Error("删掉之后不该还读得到")
+	}
+}
+
+func TestSetWithTTL(t *testing.T) {
+	withInstances(t, map[string]ClientConfig{DefaultName: DefaultClientConfig()})
+
+	SetWithTTL("k", "v", 10*time.Second)
+	C().Wait()
+	ttl, ok := C().GetTTL("k")
+	if !ok || ttl > 10*time.Second {
+		t.Errorf("应当用传进去的 TTL，got=%v ok=%v", ttl, ok)
+	}
+}
+
+func TestC_取不到就panic(t *testing.T) {
+	withInstances(t, nil)
+	defer func() {
+		msg := fmt.Sprint(recover())
+		if msg == "<nil>" {
+			t.Fatal("取不到实例应当 panic")
+		}
+		if !strings.Contains(msg, ConfigKey) {
+			t.Errorf("一个都没配时该提示去看配置块，got=%v", msg)
+		}
+	}()
+	C()
+}
+
+func TestDefaultTTL_名字写错时panic而不是返回永不过期(t *testing.T) {
+	// 0 在 ristretto 里是「永不过期」：名字写错时静默拿到它，
+	// 按这个 TTL 写进去的每一条就都不会过期了
+	withInstances(t, map[string]ClientConfig{"session": DefaultClientConfig()})
+	defer func() {
+		msg := fmt.Sprint(recover())
+		if !strings.Contains(msg, "session") {
+			t.Errorf("该和 C() 一样 panic 并列出已配置的实例名，got=%v", msg)
+		}
+	}()
+	DefaultTTL("typo")
+}
+
+func TestSet_没配默认实例时panic(t *testing.T) {
+	// 包级 Set 走的是另一条取实例的路径，别漏了这层保护
+	withInstances(t, map[string]ClientConfig{"session": DefaultClientConfig()})
+	defer func() {
+		msg := fmt.Sprint(recover())
+		if !strings.Contains(msg, "session") {
+			t.Errorf("应列出已配置的实例名，got=%v", msg)
+		}
+	}()
+	Set("k", "v")
+}
+
+func TestHasNames(t *testing.T) {
+	withInstances(t, map[string]ClientConfig{"session": DefaultClientConfig(), "page": DefaultClientConfig()})
+	if !Has("page") || Has("nope") || Has() {
+		t.Error("Has 应如实反映是否配过")
+	}
+	if got := Names(); len(got) != 2 || got[0] != "page" {
+		t.Errorf("Names 应按名字排序，got=%v", got)
+	}
+}
+
+func TestRegister_登记内容与框架对得上(t *testing.T) {
+	// 这是本包和框架之间唯一的一根线：钩子漏登记、档位挂错，
+	// 表现是「配置不生效」或者「实例比用它的东西晚就绪」，别处都测不出来
+	var got *hook.Entry
+	for _, e := range hook.Start() {
+		if e.Pkg == "github.com/xiaoshicae/x-one/xcache" {
+			got = &e
+			break
+		}
+	}
+	if got == nil {
+		t.Fatal("没有登记启动钩子")
+	}
+	if got.Stage != hook.StageClient {
+		t.Errorf("缓存要在业务之前就绪（StageClient），got=%v", got.Stage)
+	}
+
+	var stopped bool
+	for _, e := range hook.Stop() {
+		if e.Pkg == "github.com/xiaoshicae/x-one/xcache" {
+			stopped = true
+			if e.Stage != hook.StageClient {
+				// 启动和停止不在同一档的话，业务还在用的时候它就被关了
+				t.Errorf("停止钩子也该在 StageClient，got=%v", e.Stage)
+			}
+		}
+	}
+	if true != stopped {
+		t.Errorf("停止钩子登记情况不对，got=%v", stopped)
+	}
+}
+
+func TestInitAll_建起来又关干净(t *testing.T) {
+	c := Config{Clients: map[string]ClientConfig{"a": DefaultClientConfig(), "b": DefaultClientConfig()}}
+
+	err := initComponent(t, c)
+	if err != nil {
+		t.Fatalf("应当建得起来：%v", err)
+	}
+	if got := Names(); len(got) != 2 {
+		t.Fatalf("应有两个实例，got=%v", got)
+	}
+	if err := reg.Close(); err != nil {
+		t.Errorf("关闭不该报错：%v", err)
+	}
+	if got := Names(); len(got) != 0 {
+		t.Errorf("关闭后应清空，否则 C() 会返回已关闭的实例，got=%v", got)
+	}
+}
+
+func TestInitAll_一个失败就全部回滚(t *testing.T) {
+	bad := DefaultClientConfig()
+	bad.MaxCost = -1
+	cfg := Config{Clients: map[string]ClientConfig{"a": DefaultClientConfig(), "z": bad}}
+
+	if err := initComponent(t, cfg); err == nil {
+		t.Fatal("配置非法时应当报错")
+	} else if !strings.Contains(err.Error(), `"z"`) {
+		t.Errorf("错误里应点名是哪个实例，got=%v", err)
+	}
+	if got := Names(); len(got) != 0 {
+		t.Errorf("失败时不该发布任何实例，got=%v", got)
+	}
+}
+
+func TestInitAll_没配就什么都不做(t *testing.T) {
+	cfg := DefaultConfig()
+
+	err := initComponent(t, cfg)
+	if err != nil {
+		t.Fatalf("没配不该报错：%v", err)
+	}
+	reg.Close()
+	if len(Names()) != 0 {
+		t.Errorf("不该建出实例，got=%v", Names())
+	}
+}
+
+func TestNew_MaxCost就是能存多少条(t *testing.T) {
+	// ristretto 默认把每条 56 字节的内部开销加进 cost，于是 cost=1 的写入
+	// 实际占 57。不关掉的话 MaxCost=2000 只能存下三十几条，
+	// 配置里写的数字和实际容量差着五十多倍，而且没有任何地方会提到
+	c := DefaultClientConfig()
+	c.MaxCost = 2000
+	c.NumCounters = 20000
+	cache, closer, err := New(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closer.Close()
+
+	const n = 2000
+	for i := range n {
+		cache.SetWithTTL(strconv.Itoa(i), i, 1, time.Hour)
+	}
+	cache.Wait()
+
+	live := 0
+	for i := range n {
+		if _, ok := cache.Get(strconv.Itoa(i)); ok {
+			live++
+		}
+	}
+	// 准入策略本来就会丢掉一部分，这里只要求同一个量级
+	if live < n/2 {
+		t.Errorf("MaxCost=%d、每条 cost=1，应该能装下接近 %d 条，实际只剩 %d 条", c.MaxCost, n, live)
+	}
+}
+
+// initComponent 走一遍框架真正会走的路径：按这份配置把实例挨个建出来。
+// 多实例的建法（排序、失败回滚、panic 隔离）全在那条路上。
+func initComponent(t *testing.T, c Config) error {
+	t.Helper()
+	t.Cleanup(func() { _ = reg.Close() })
+	return install(context.Background(), c)
+}
+
+// useConf 把一份配置装进全局配置，走的是框架真正会走的那条路
+func useConf(t *testing.T, yml string) {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "application.yml")
+	if err := os.WriteFile(p, []byte(yml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config.Reset()
+	if err := config.Load(p); err != nil {
+		t.Fatalf("加载配置失败：%v", err)
+	}
+	t.Cleanup(config.Reset)
+}
+
+func TestInitXCache_没写这一块就一个实例都不建(t *testing.T) {
+	// 本地缓存没有「默认给你开一个」的道理：没配就是不用。
+	// 少了这道判断，每个进程都会白白吃下一份内存
+	t.Cleanup(func() { _ = closeXCache(context.Background()) })
+	useConf(t, "App:\n  Name: demo\n")
+
+	if err := initXCache(context.Background()); err != nil {
+		t.Fatalf("没配不该报错：%v", err)
+	}
+	if got := Names(); len(got) != 0 {
+		t.Errorf("不该建出实例，got=%v", got)
+	}
+}
+
+func TestInitXCache_写了空块也不建(t *testing.T) {
+	t.Cleanup(func() { _ = closeXCache(context.Background()) })
+	useConf(t, "XCache:\n")
+
+	if err := initXCache(context.Background()); err != nil {
+		t.Fatalf("空块不该报错：%v", err)
+	}
+	if got := Names(); len(got) != 0 {
+		t.Errorf("不该建出实例，got=%v", got)
+	}
+}
+
+func TestInitXCache_配置写错时启动失败(t *testing.T) {
+	// 拼错的字段被静默忽略的话，使用者会一直以为自己配上了
+	t.Cleanup(func() { _ = closeXCache(context.Background()) })
+	useConf(t, "XCache:\n  MaxCos: 500\n")
+
+	if err := initXCache(context.Background()); err == nil {
+		t.Fatal("字段拼错应当让启动失败")
+	}
+	if got := Names(); len(got) != 0 {
+		t.Errorf("失败时不该留下实例，got=%v", got)
+	}
+}
+
+func TestInitXCache_按配置建好再关干净(t *testing.T) {
+	t.Cleanup(func() { _ = closeXCache(context.Background()) })
+	useConf(t, "XCache:\n  Clients:\n    read:\n      MaxCost: 500\n    write:\n      MaxCost: 500\n")
+
+	if err := initXCache(context.Background()); err != nil {
+		t.Fatalf("应当建得起来：%v", err)
+	}
+	if got := Names(); len(got) != 2 {
+		t.Fatalf("应有两个实例，got=%v", got)
+	}
+
+	if err := closeXCache(context.Background()); err != nil {
+		t.Errorf("关闭不该报错：%v", err)
+	}
+	if got := Names(); len(got) != 0 {
+		t.Errorf("关完还取得到实例，调用方会摸到一个已经关掉的缓存，got=%v", got)
+	}
+}
+
+func TestCloseXCache_没建过也能关(t *testing.T) {
+	// 本包压根没配时停止钩子照样会被调到，不能在这里炸
+	if err := closeXCache(context.Background()); err != nil {
+		t.Errorf("want nil, got %v", err)
+	}
+}
+
+func TestClose_关闭时还有人在读写也不崩(t *testing.T) {
+	// ristretto v2.4.2 的 Close 先 close(setBuf)、最后才置 isClosed，
+	// 于是和它并发的 Set / Del 会 send on closed channel；policy 的 itemsCh
+	// 也是这么关的，并发的 Get 同样会炸。拿着原生 *Cache 的调用方
+	// 我们拦不住，所以关闭这一步本身必须对并发读写是安全的。
+	// 实测直接调 Close 时这 100 轮里有 750 个协程 panic，并且 -race 报数据竞争
+	const rounds, workers = 100, 8
+	small := DefaultClientConfig()
+	small.NumCounters, small.MaxCost = 1000, 100 // 默认的 100 万个计数器每轮要分配 4MB，太慢
+	var panics atomic.Int64
+	for i := 0; i < rounds; i++ {
+		cache, closer, err := New(small)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		stop := make(chan struct{})
+		for w := 0; w < workers; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer func() {
+					if recover() != nil {
+						panics.Add(1)
+					}
+				}()
+				for n := 0; ; n++ {
+					select {
+					case <-stop:
+						return
+					default:
+					}
+					k := strconv.Itoa(n % 64)
+					cache.SetWithTTL(k, n, 1, time.Minute)
+					cache.Get(k)
+					if n%16 == 0 {
+						cache.Del(k)
+					}
+				}
+			}()
+		}
+		time.Sleep(200 * time.Microsecond)
+		if err := closer.Close(); err != nil {
+			t.Fatalf("关闭不该报错：%v", err)
+		}
+		time.Sleep(200 * time.Microsecond) // 关完之后还在写的也算
+		close(stop)
+		wg.Wait()
+	}
+	if n := panics.Load(); n > 0 {
+		t.Fatalf("关闭时有并发读写，%d 个协程 panic 了", n)
+	}
+}
+
+func TestClose_关闭之后条目都释放了(t *testing.T) {
+	// 关闭不走 ristretto 的 Close（理由见 New），但缓存里的东西必须放掉：
+	// 否则一个停下来的实例还攥着 MaxCost 那么多条目直到进程退出
+	cache, closer, err := New(DefaultClientConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache.Set("k", 1, 1)
+	cache.Wait()
+	if _, ok := cache.Get("k"); !ok {
+		t.Fatal("前提：应能读到刚写的值")
+	}
+	if err := closer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cache.Get("k"); ok {
+		t.Error("关闭之后条目应当被清掉")
+	}
+}
+
+// assertOneFrame 断言错误恰好是一层本模块的 xerror，op 是期望的那个。
+// 一个模块边界一个 xerror：每层都包的话模块名重复出现，真正的 op 被压进里层
+func assertOneFrame(t *testing.T, err error, module, op string) {
+	t.Helper()
+	var xe *xerror.Error
+	if !errors.As(err, &xe) {
+		t.Fatalf("应当是 xerror，got %v", err)
+	}
+	if xe.Module != module || xe.Op != op {
+		t.Errorf("want module=%s op=%s，got module=%s op=%s（%v）", module, op, xe.Module, xe.Op, err)
+	}
+	var inner *xerror.Error
+	if errors.As(xe.Err, &inner) {
+		t.Errorf("同一个模块只该有一层 xerror，got %v", err)
+	}
+}
+
+func TestInstall_错误只包一层且op如实(t *testing.T) {
+	bad := DefaultClientConfig()
+	bad.MaxCost = -1
+	err := initComponent(t, Config{Clients: map[string]ClientConfig{"a": bad}})
+	assertOneFrame(t, err, "xcache", "config")
+	if !strings.Contains(err.Error(), `"a"`) {
+		t.Errorf("错误里要点名实例，got %v", err)
+	}
+}
+
+func TestInitXCache_没配时C说的是没配而不是调早了(t *testing.T) {
+	// 没配也要让注册表知道启动钩子跑过了。否则 C() 会把「没配」说成「调早了」，
+	// 使用者会去查调用时机，而真正该查的是配置文件
+	t.Cleanup(func() { _ = closeXCache(context.Background()) })
+	useConf(t, "App:\n  Name: demo\n")
+	if err := initXCache(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		msg := fmt.Sprint(recover())
+		if !strings.Contains(msg, "none is configured") {
+			t.Errorf("没配时要说没配，got=%v", msg)
+		}
+	}()
+	C()
+}
+
+// 便利写法每次都先经注册表取到默认实例，再交给 ristretto
+func BenchmarkGet_命中(b *testing.B) {
+	withInstances(b, map[string]ClientConfig{DefaultName: DefaultClientConfig()})
+	Set("k", "v")
+	C().Wait()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Get("k")
+	}
+}
+
+func BenchmarkGet_命中_并发(b *testing.B) {
+	withInstances(b, map[string]ClientConfig{DefaultName: DefaultClientConfig()})
+	Set("k", "v")
+	C().Wait()
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			Get("k")
+		}
+	})
+}
+
+func BenchmarkSet_默认TTL(b *testing.B) {
+	withInstances(b, map[string]ClientConfig{DefaultName: DefaultClientConfig()})
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Set("k", "v")
+	}
+}

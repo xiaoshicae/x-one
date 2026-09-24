@@ -1,0 +1,94 @@
+# e2e 服务的配置。连接串、地址、端口都是 ${VAR}，由 harness 按用例注入；
+# 带默认值的 ${VAR:默认} 是给测试切换的开关，不设就是这里写的默认。
+#
+# 开关一览（环境变量 → 配置项）：
+#   E2E_PORT               XGin.Port（必填）
+#   E2E_PG_DSN             XGorm.Clients.default.DSN（必填，PostgreSQL）
+#   E2E_MYSQL_DSN          XGorm.Clients.mysql.DSN（必填，MySQL）
+#   E2E_REDIS_ADDR         XRedis.Addr（必填）
+#   E2E_TABLE              Service.Table，订单表是它加 _orders
+#   E2E_KEY_PREFIX         Service.KeyPrefix
+#   E2E_DOWNSTREAM_URL     Service.Downstream，/proxy 调的下游
+#   E2E_SPAN_FILE          Service.SpanFile，留空不写 Span
+#   E2E_SPAN_DISCARD       Service.SpanDiscard，挂 BatchSpanProcessor + 只计数的 exporter（压测用）
+#   E2E_STOP_TIMEOUT       Service.StopTimeout → xone.WithStopTimeout
+#   E2E_START_STALL        Service.StartStall，warmup 启动钩子不看 ctx 地睡这么久
+#   E2E_DRAIN              Service.Drain，服务的 Start 在 xgin 返回之后收尾这么久
+#   E2E_LOG_LEVEL          XLog.Level
+#   E2E_LOG_CONSOLE        XLog.Console（标准输出）
+#   E2E_LOG_FILE           XLog.File.Enable，目录是 E2E_LOG_DIR
+#   E2E_SAMPLE_RATIO       XTrace.SampleRatio
+#   E2E_SQL_LOG            XGorm.Clients.default.Log
+#   E2E_MYSQL_SQL_LOG      XGorm.Clients.mysql.Log
+#   E2E_HTTP_TIMEOUT       XHttp.Timeout
+#   E2E_ACCESS_LOG         XGin.Log
+#   E2E_LOG_REQUEST_BODY   XGin.LogRequestBody
+#   E2E_LOG_RESPONSE_BODY  XGin.LogResponseBody
+#
+# 环境变量覆盖不了的（列表、map），harness 用 Options.Overlay 叠一份 profile 上来。
+
+App:
+  Name: xone.e2e.service
+  Version: e2e
+
+XLog:
+  Level: ${E2E_LOG_LEVEL:info}
+  Format: json
+  Console: ${E2E_LOG_CONSOLE:true}
+  File:
+    Enable: ${E2E_LOG_FILE:false}
+    Path: ${E2E_LOG_DIR:}      # 留空保持默认值；只在 Enable 时用到
+    Name: app.log
+
+XTrace:
+  SampleRatio: ${E2E_SAMPLE_RATIO:1}
+  ForwardHeaders:          # 只收 XGin.TrustedProxies 里的对端发来的值，默认谁都不信
+    - X-Request-Id
+
+XMetric:
+  Namespace: e2e
+
+# 两个实例：default 是 PG（C() 取的就是它），mysql 是 MySQL（C("mysql")）。
+# 每个实例的配置各管各的，overlay 里写 XGorm.Clients.<名字>.<字段> 单独改一个
+XGorm:
+  Clients:
+    default:
+      Driver: postgres
+      DSN: "${E2E_PG_DSN}"
+      Log: ${E2E_SQL_LOG:false}
+    mysql:
+      Driver: mysql
+      DSN: "${E2E_MYSQL_DSN}"
+      Log: ${E2E_MYSQL_SQL_LOG:false}
+
+XRedis:
+  Addr: "${E2E_REDIS_ADDR}"
+
+XCache:
+  NumCounters: 100000
+  MaxCost: 10000
+  DefaultTTL: 30s
+
+XHttp:
+  Timeout: ${E2E_HTTP_TIMEOUT:5s}
+
+XFlow:
+  RollbackTimeout: 5s
+
+XGin:
+  Host: 127.0.0.1
+  Port: ${E2E_PORT}
+  Log: ${E2E_ACCESS_LOG:true}
+  LogRequestBody: ${E2E_LOG_REQUEST_BODY:false}
+  LogResponseBody: ${E2E_LOG_RESPONSE_BODY:false}
+
+Service:
+  Table: "${E2E_TABLE:e2e_users}"
+  KeyPrefix: "${E2E_KEY_PREFIX:e2e:}"
+  Downstream: "${E2E_DOWNSTREAM_URL:}"
+  SpanFile: "${E2E_SPAN_FILE:}"
+  SpanDiscard: ${E2E_SPAN_DISCARD:false}
+  UserTTL: 60s
+  StopTimeout: ${E2E_STOP_TIMEOUT:15s}
+  StartStall: ${E2E_START_STALL:0s}
+  Drain: ${E2E_DRAIN:0s}
