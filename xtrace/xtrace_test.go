@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +26,7 @@ import (
 	"github.com/xiaoshicae/x-one/internal/config"
 	"github.com/xiaoshicae/x-one/internal/hook"
 	"github.com/xiaoshicae/x-one/xapp"
+	"github.com/xiaoshicae/x-one/xerror"
 	"github.com/xiaoshicae/x-one/xlog"
 )
 
@@ -158,6 +160,59 @@ func TestNew_装好的Propagator只收可信对端的透传Header(t *testing.T) 
 				t.Errorf("%s的对端：%s 透传=%v，want %v", from.name, h, got, from.want)
 			}
 		}
+	}
+}
+
+func TestNew_装好的Propagator只收可信对端的baggage(t *testing.T) {
+	// baggage 和透传 Header 是同一种东西：上游给的键值原样带进每一次调用。
+	// 谁发来的都收的话，ForwardHeaders 挡在门外的 X-Tenant-Id 改写成
+	// baggage: tenant=… 照样进了内网。traceparent 只是链路标识，谁发来的都接
+	tr, closer, err := New(context.Background(), DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closer.Close()
+
+	in := http.Header{
+		"Baggage":     {"tenant=forged"},
+		"Traceparent": {"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"},
+	}
+	for _, from := range []struct {
+		name    string
+		carrier propagation.TextMapCarrier
+		want    string
+	}{
+		{"不可信", headerCarrier(in), ""},
+		{"可信", trusted(in), "tenant=forged"},
+	} {
+		ctx := tr.Propagator.Extract(context.Background(), from.carrier)
+		out := http.Header{}
+		tr.Propagator.Inject(ctx, headerCarrier(out))
+		if got := out.Get("Baggage"); got != from.want {
+			t.Errorf("%s的对端：下游收到 baggage=%q，want %q", from.name, got, from.want)
+		}
+		if !strings.Contains(out.Get("Traceparent"), "4bf92f3577b34da6a3ce929d0e0e4736") {
+			t.Errorf("%s的对端：traceparent 不受信任边界影响，got=%q", from.name, out.Get("Traceparent"))
+		}
+	}
+}
+
+func TestTrustedBaggage_不可信对端带来baggage时只告警一次(t *testing.T) {
+	var buf strings.Builder
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	b := &trustedBaggage{}
+	b.Extract(context.Background(), headerCarrier(http.Header{"X-Other": {"x"}}))
+	if buf.Len() != 0 {
+		t.Fatalf("没带 baggage 就不该告警，got=%s", buf.String())
+	}
+	for range 3 {
+		b.Extract(context.Background(), headerCarrier(http.Header{"Baggage": {"k=v"}}))
+	}
+	if n := strings.Count(buf.String(), "xtrace ignored baggage from an untrusted peer"); n != 1 {
+		t.Errorf("该只告警一次，got=%d 次：%s", n, buf.String())
 	}
 }
 
@@ -823,6 +878,28 @@ func TestInitXTrace_取值非法时启动失败(t *testing.T) {
 
 	if err := initXTrace(context.Background()); err == nil {
 		t.Fatal("ShutdownTimeout 配成 0 应当让启动失败")
+	}
+}
+
+func TestInitXTrace_透传规则写错在读配置时就失败(t *testing.T) {
+	// Validate 连透传规则一起查：xconfig.Unmarshal 读这一块时就拦下，
+	// 错误出自 xconfig、点名是哪一块，不必等到装配 Propagator
+	for name, conf := range map[string]string{
+		"通配写错":    "XTrace:\n  ForwardHeaderRules:\n    - Domains: [\"*trusted.com\"]\n      Headers: [X-Internal-Token]\n",
+		"一个头两边都写": "XTrace:\n  ForwardHeaders: [X-Token]\n  ForwardHeaderRules:\n    - Domains: [api.internal.com]\n      Headers: [x-token]\n",
+		"采样率越界":   "XTrace:\n  SampleRatio: 2\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			keepGlobals(t)
+			loadConfig(t, conf)
+			err := initXTrace(context.Background())
+			if err == nil {
+				t.Fatal("配错的 XTrace 块应当在读配置时就失败")
+			}
+			if !xerror.Is(err, "xconfig") || !strings.Contains(err.Error(), ConfigKey) {
+				t.Errorf("错误该出自 xconfig 并点名 %s，got=%v", ConfigKey, err)
+			}
+		})
 	}
 }
 

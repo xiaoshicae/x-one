@@ -57,9 +57,19 @@ type HeaderPropagator struct {
 // 那是一份自相矛盾的配置——一边说发给所有人，一边说只发给这些人。
 // 猜哪边为准都可能把内部标识发给第三方，所以让它在启动时就停下。
 func NewHeaderPropagator(globalHeaders []string, rules []ForwardHeaderRule) (*HeaderPropagator, error) {
+	p, err := newHeaderPropagator(globalHeaders, rules)
+	if err != nil {
+		return nil, xerror.New("xtrace", "config", err)
+	}
+	return p, nil
+}
+
+// newHeaderPropagator 同 NewHeaderPropagator，返回普通 error：
+// Config.Validate 也用它查透传配置，那一层的错误由调用方包
+func newHeaderPropagator(globalHeaders []string, rules []ForwardHeaderRule) (*HeaderPropagator, error) {
 	normalizedRules, err := normalizeRules(rules)
 	if err != nil {
-		return nil, xerror.Newf("xtrace", "config", "invalid ForwardHeaderRules: %w", err)
+		return nil, fmt.Errorf("invalid ForwardHeaderRules: %w", err)
 	}
 
 	restricted := make(map[string]struct{})
@@ -78,7 +88,7 @@ func NewHeaderPropagator(globalHeaders []string, rules []ForwardHeaderRule) (*He
 	}
 	if len(conflicts) > 0 {
 		sort.Strings(conflicts)
-		return nil, xerror.Newf("xtrace", "config", "header %s appears in both ForwardHeaders and ForwardHeaderRules; "+
+		return nil, fmt.Errorf("header %s appears in both ForwardHeaders and ForwardHeaderRules; "+
 			"the former sends it to every domain, the latter only to the listed ones — remove one of them",
 			strings.Join(conflicts, ", "))
 	}
@@ -240,6 +250,36 @@ func (p *HeaderPropagator) warnUntrusted(c propagation.TextMapCarrier) {
 		}
 	}
 }
+
+// trustedBaggage W3C baggage，只收可信对端发来的。
+//
+// baggage 和透传 Header 是同一种东西：上游给的键值原样带给下游、进每一次调用。
+// OTel 自带的 propagation.Baggage 谁发来的都收，于是 ForwardHeaders 挡在门外的
+// X-Tenant-Id，公网客户端改写成 baggage: tenant=… 照样被当成自己人给的、带进内网。
+// 所以它和 HeaderPropagator.Extract 认同一个记号：carrier 实现 TrustedPeer() 并返回 true。
+//
+// 注入不设限：ctx 里的 baggage 要么来自可信的上游，要么是本进程自己写的。
+type trustedBaggage struct {
+	propagation.Baggage
+
+	// warned 不可信的对端发来 baggage 时，只告警一次
+	warned atomic.Bool
+}
+
+// Extract 可信对端发来的才收，见 trustedBaggage
+func (b *trustedBaggage) Extract(ctx context.Context, carrier propagation.TextMapCarrier) context.Context {
+	if !fromTrustedPeer(carrier) {
+		// 只告警一次，理由同 warnUntrusted
+		if carrier.Get(baggageHeader) != "" && b.warned.CompareAndSwap(false, true) {
+			slog.Warn("xtrace ignored baggage from an untrusted peer, only peers in XGin.TrustedProxies are trusted")
+		}
+		return ctx
+	}
+	return b.Baggage.Extract(ctx, carrier)
+}
+
+// baggageHeader W3C baggage 的请求头
+const baggageHeader = "baggage"
 
 // Inject 把 context 里的透传值写进下游请求。
 //

@@ -15,7 +15,9 @@ import (
 
 	"github.com/go-resty/resty/v2"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/xiaoshicae/x-one/xconfig"
@@ -36,11 +38,12 @@ const fallbackTimeout = 30 * time.Second
 //
 // 一个例外：cfg.Metric 开着时（默认开着）耗时直方图要注册到 xmetric
 // 的全局 Registry —— 指标本来就只有一份，注册到别处就导不出去。
-// 不想碰它就把 cfg.Metric 关掉。
+// 不想碰它就把 cfg.Metric 关掉。注册失败（比如同名指标已被注册成别的类型）
+// 不让 New 失败，只记一条错误日志，那组指标导不出去。
 //
 // 返回的 io.Closer 释放连接池里的空闲连接。
 func New(cfg Config) (*resty.Client, io.Closer, error) {
-	if err := cfg.validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, nil, xerror.Newf("xhttp", "config", "invalid config: %w", err)
 	}
 
@@ -66,10 +69,14 @@ func New(cfg Config) (*resty.Client, io.Closer, error) {
 
 	if cfg.Metric {
 		// 用 RegisterAs 的返回值：重复注册时它给的是已有那个实例，
-		// 记到新建的那个上会永远导不出去
+		// 记到新建的那个上会永远导不出去。
+		//
+		// 注册失败只记日志、照常交回客户端，与 xgin / xgorm / xredis 一致：
+		// 指标导不出去是可观测性问题，不该让所有出站调用跟着起不来。
+		// 出错时 RegisterAs 交回的是新建的那个，照常打点，只是导不出去
 		hist, err := xmetric.RegisterAs(newDurationHistogram())
 		if err != nil {
-			return nil, nil, xerror.New("xhttp", "register", err)
+			slog.Error("xhttp failed to register the request duration metric, values recorded through it will not be exported", "error", err)
 		}
 		installMetrics(client, hist)
 	}
@@ -89,17 +96,38 @@ func newResty(hc *http.Client) *resty.Client {
 
 // traced 在连接池外面包上链路那几层
 //
-//	client → xtrace.Transport → otelhttp.Transport → scrubURL → 调好参数的 http.Transport
+//	Trace 开着：client → xtrace.Transport → otelhttp.Transport → scrubURL → 调好参数的 http.Transport
+//	Trace 关着：client → xtrace.Transport → propagateOnly → 调好参数的 http.Transport
 //
 // xtrace.Transport 把目标 host 写进 ctx，按域名透传 Header 的规则才能生效。
-// otelhttp 无论链路是否采样都会调用全局 Propagator 注入，所以不需要
-// 「链路关了就自己注入」的第二种包装——这一点由本包的测试钉住。
+// otelhttp 无论链路是否采样都会调用全局 Propagator 注入（本包的测试钉着）。
+//
+// Trace 只管「开不开出站 Span」。traceparent、baggage、透传 Header 带不带给下游
+// 是另一件事：原先关掉 Trace 连 xtrace.Transport 一起摘了，X-Request-Id 这类
+// 透传头和上游的链路标识就悄悄断在这一跳。所以关着时换成只注入、不开 Span 的那一层。
 func traced(cfg Config, pool http.RoundTripper) http.RoundTripper {
-	if !cfg.Trace {
-		return pool
+	next := http.RoundTripper(propagateOnly{next: pool})
+	if cfg.Trace {
+		next = otelhttp.NewTransport(scrubURL{next: pool}, otelhttp.WithSpanNameFormatter(spanName))
 	}
-	return &xtrace.Transport{
-		Next: otelhttp.NewTransport(scrubURL{next: pool}, otelhttp.WithSpanNameFormatter(spanName)),
+	return &xtrace.Transport{Next: next}
+}
+
+// propagateOnly 用全局 Propagator 把 ctx 里的链路标识和透传 Header 写进请求头，
+// 不开 Span。Trace 关着时顶替 otelhttp 做它注入的那一半。
+type propagateOnly struct{ next http.RoundTripper }
+
+// RoundTrip 按 RoundTripper 的约定不改入参：注入写在克隆出来的请求上
+func (p propagateOnly) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	otel.GetTextMapPropagator().Inject(r.Context(), propagation.HeaderCarrier(r.Header))
+	return p.next.RoundTrip(r)
+}
+
+// CloseIdleConnections 转给连接池，理由见 xtrace.Transport 的同名方法
+func (p propagateOnly) CloseIdleConnections() {
+	if c, ok := p.next.(interface{ CloseIdleConnections() }); ok {
+		c.CloseIdleConnections()
 	}
 }
 

@@ -57,7 +57,7 @@ func (t *Tracing) Install() {
 // 等待上限由 cfg.ShutdownTimeout 控制。链路关着时也要关：procs 收不到 Span，
 // 但它们持有的连接和协程照样要有人收。
 func New(ctx context.Context, cfg Config, procs ...sdktrace.SpanProcessor) (*Tracing, io.Closer, error) {
-	if err := cfg.validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, nil, xerror.Newf("xtrace", "config", "invalid config: %w", err)
 	}
 
@@ -108,12 +108,15 @@ func processors(procs []sdktrace.SpanProcessor) []sdktrace.TracerProviderOption 
 
 // newPropagator 组装 Propagator。
 //
+// baggage 用的是 trustedBaggage，与透传 Header 同一条信任边界；
+// traceparent、b3 只是链路标识，谁发来的都接。
+//
 // 链路关掉时仍然保留 Header 透传：X-Request-Id 该不该带给下游，
 // 跟要不要采样 Span 是两个问题，关掉一个不该让另一个静默失效。
 func newPropagator(cfg Config) (propagation.TextMapPropagator, error) {
 	var list []propagation.TextMapPropagator
 	if cfg.Enable {
-		list = append(list, propagation.TraceContext{}, propagation.Baggage{}, b3.New())
+		list = append(list, propagation.TraceContext{}, &trustedBaggage{}, b3.New())
 	}
 	if cfg.forwardEnabled() {
 		hp, err := NewHeaderPropagator(cfg.ForwardHeaders, cfg.ForwardHeaderRules)
@@ -228,10 +231,11 @@ func (c *providerCloser) shutdown(parent context.Context) error {
 // 没有它，ForwardHeaderRules 里的 header 一条都不会被注入——
 // Inject 不知道这个请求要发给谁。
 //
-// 只需要这一层。otelhttp 无论 TracerProvider 是不是 noop，都会调用全局
-// Propagator 注入，所以不存在「链路关了得自己注入」的第二种包装——
-// 关掉链路时它注入透传 header、不注入 traceparent，正是想要的行为。
-// 这个前提由 xhttp 的测试钉住（它本来就依赖 otelhttp，放在那里不额外增加依赖）。
+// 它自己不注入，注入是它下面那一层的事：otelhttp 无论 TracerProvider 是不是 noop，
+// 都会调用全局 Propagator 注入——XTrace.Enable 关掉时它注入透传 header、
+// 不注入 traceparent，正是想要的行为。这个前提由 xhttp 的测试钉住（它本来就依赖
+// otelhttp，放在那里不额外增加依赖）。不要出站 Span 的（XHttp.Trace: false），
+// xhttp 在这一层下面换上一个只注入、不开 Span 的，透传照常。
 type Transport struct {
 	// Next 实际执行请求的 RoundTripper，为 nil 时用 http.DefaultTransport
 	Next http.RoundTripper

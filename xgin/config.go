@@ -91,7 +91,7 @@ type Config struct {
 	//
 	//	TrustedProxies: ["10.0.0.0/8"]
 	//
-	// 它同时决定收不收透传 Header（XTrace.ForwardHeaders / ForwardHeaderRules）：
+	// 它同时决定收不收透传 Header（XTrace.ForwardHeaders / ForwardHeaderRules）和 baggage：
 	// 只有直连的对端在这张表里，那些值才会被收下、带给下游。「谁是自己人」
 	// 只在这一处说。所以这里只写确实可信的那一跳——负载均衡会原样转发客户端
 	// 发来的头，要先在它那里剥掉 X-Tenant-Id 这类头，再把它写进来。
@@ -121,7 +121,11 @@ type Config struct {
 	// LogResponseBody 是否把响应体记进访问日志。默认不记。
 	LogResponseBody bool `yaml:"LogResponseBody"`
 
-	// Trace 是否启用链路中间件。默认启用。
+	// Trace 是否为入站请求开服务端 Span。默认启用。
+	//
+	// 只管 Span。关掉之后照样接上游传来的 traceparent、baggage 和透传 Header
+	// （可信规则同 TrustedProxies），日志里的 trace_id 是上游的那条，
+	// 经 xhttp 发出的请求也照样带给下游；响应里不再回带 X-Trace-Id。
 	Trace bool `yaml:"Trace"`
 
 	// Metric 是否启用指标中间件。默认启用。

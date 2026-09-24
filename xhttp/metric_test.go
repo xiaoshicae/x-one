@@ -2,6 +2,7 @@ package xhttp
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -152,15 +153,62 @@ func TestMetric_重复注册复用已有实例(t *testing.T) {
 	}
 }
 
-func TestNewDurationHistogram_类型冲突时报错(t *testing.T) {
+func TestNew_指标注册失败只记日志客户端照常可用(t *testing.T) {
+	// 指标导不出去是可观测性问题，与 xgin / xgorm / xredis 一致：
+	// 不该让所有出站调用跟着起不来
 	m := withMetrics(t)
-	// 先用同名注册一个 Counter，New 应当报错而不是默默记不出去
 	m.Registry.MustRegister(prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "http_client_request_duration_seconds", Help: "占位",
 	}))
+	var buf strings.Builder
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&lockedWriter{w: &buf}, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
 
-	if _, _, err := New(DefaultConfig()); err == nil {
-		t.Fatal("指标名被占成别的类型时应当报错")
+	client, closer, err := New(DefaultConfig())
+	if err != nil {
+		t.Fatalf("指标名被占成别的类型时 New 不该失败：%v", err)
+	}
+	defer closer.Close()
+	client.SetLogger(discardLogger{})
+	srv, _ := echo(t, nil)
+	if _, err := client.R().SetContext(context.Background()).Get(srv.URL); err != nil {
+		t.Fatalf("注册失败之后客户端照样要能用：%v", err)
+	}
+	if got := buf.String(); !strings.Contains(got, "xhttp failed to register the request duration metric") || !strings.Contains(got, `"level":"ERROR"`) {
+		t.Errorf("注册失败要打一条错误日志，got=%s", got)
+	}
+}
+
+func TestMetric_method标签收敛到固定集合(t *testing.T) {
+	// 方法是自由 token：照抄进标签的话 CUSTOM1、CUSTOM2 各是一组时间序列
+	srv, _ := echo(t, nil)
+	client, m := newQuiet(t, DefaultConfig())
+	for _, method := range []string{"CUSTOM1", "CUSTOM2", "get", http.MethodPatch} {
+		if _, err := client.R().SetContext(context.Background()).Execute(method, srv.URL); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out := scrape(t, m)
+	for _, bad := range []string{`method="CUSTOM1"`, `method="CUSTOM2"`, `method="get"`} {
+		if strings.Contains(out, bad) {
+			t.Errorf("不认识的方法不该原样进标签：%s\n实际=\n%s", bad, out)
+		}
+	}
+	if !strings.Contains(out, `method="OTHER"`) || !strings.Contains(out, `method="PATCH"`) {
+		t.Errorf("不认识的记成 OTHER、认识的原样保留\n实际=\n%s", out)
+	}
+}
+
+func TestNormalizeMethod(t *testing.T) {
+	for in, want := range map[string]string{
+		"GET": "GET", "POST": "POST", "PATCH": "PATCH", "CONNECT": "CONNECT",
+		"get": methodOther, "CUSTOM": methodOther, "": methodOther,
+	} {
+		if got := normalizeMethod(in); got != want {
+			t.Errorf("normalizeMethod(%q)=%q，want %q", in, got, want)
+		}
 	}
 }
 

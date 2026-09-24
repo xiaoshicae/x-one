@@ -95,4 +95,8 @@ func TestInitXMetric_配置里写空列表启动失败(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "HTTPDurationBuckets") {
 		t.Fatalf("空列表应当让启动失败并点名字段，got %v", err)
 	}
+	// 在读配置时就拦下（xconfig.Unmarshal 调 Validate），不是等到 New
+	if !xerror.Is(err, "xconfig") {
+		t.Errorf("错误该出自读配置那一步，got %v", err)
+	}
 }

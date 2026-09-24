@@ -104,8 +104,11 @@ var reservedLabels = map[string]string{
 	"version": "go_info in the Go runtime metrics",
 }
 
-// validate 检查配置本身说不通的地方，在建任何指标之前就失败
-func (c Config) validate() error {
+// Validate 检查配置本身说不通的地方，在建任何指标之前就失败。
+//
+// xconfig.Unmarshal 解完配置文件里的 XMetric 块会调它；直接调 New 的，New 也会调一次。
+// 返回普通 error，由调它的那一层包一次 xerror。
+func (c Config) Validate() error {
 	if c.Namespace != "" && !nameRE.MatchString(c.Namespace) {
 		return fmt.Errorf("Namespace %q is not a valid metric name prefix: use letters, digits and underscores, not starting with a digit", c.Namespace)
 	}

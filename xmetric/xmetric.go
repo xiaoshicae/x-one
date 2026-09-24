@@ -53,7 +53,7 @@ type Metrics struct {
 //
 // 桶为 nil 的补上默认值，见 Config.withDefaults。
 func New(cfg Config) (*Metrics, io.Closer, error) {
-	if err := cfg.validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, nil, xerror.Newf("xmetric", "config", "invalid config: %w", err)
 	}
 	cfg = cfg.withDefaults()

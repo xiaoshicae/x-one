@@ -22,7 +22,7 @@ const (
 
 // Trace 为每个请求开一个服务端 Span，并接上上游传来的链路。
 //
-// 透传 Header（XTrace.ForwardHeaders）只收可信对端发来的值，可信与否由 xgin
+// 透传 Header（XTrace.ForwardHeaders）和 baggage 只收可信对端发来的值，可信与否由 xgin
 // 按 XGin.TrustedProxies 判断直连的对端。单独用本中间件、没经过 xgin 装配时
 // 没人做这个判断，一律当作不可信。链路标识（traceparent 等）不受影响。
 func Trace() gin.HandlerFunc {
@@ -80,6 +80,18 @@ func Trace() gin.HandlerFunc {
 			c.Header(TraceIDHeader, sc.TraceID().String())
 		}
 
+		c.Next()
+	}
+}
+
+// Propagate 只接上上游传来的链路标识、baggage 和透传 Header，不开 Span。
+//
+// XGin.Trace 关掉时 xgin 装的是它而不是 Trace：Trace 只管 Span，
+// 上游的 traceparent、X-Request-Id 这些照样要能带给下游、进日志，
+// 不该因为这一跳不记 Span 就断掉。可信对端的规则与 Trace 相同。
+func Propagate() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Request = c.Request.WithContext(otel.GetTextMapPropagator().Extract(c.Request.Context(), inbound(c)))
 		c.Next()
 	}
 }
