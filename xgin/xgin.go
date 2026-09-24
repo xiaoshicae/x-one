@@ -316,8 +316,13 @@ func (g *XGin) Start(ctx context.Context) error {
 	}
 	c := g.conf
 
+	tlsCfg, err := c.serverTLS()
+	if err != nil {
+		return xerror.New("xgin", "config", err)
+	}
 	addr := net.JoinHostPort(c.Host, strconv.Itoa(c.Port))
 	srv := g.newServer(c, addr)
+	srv.TLSConfig = tlsCfg // ListenAndServeTLS 在它的副本上补证书和 h2
 
 	g.mu.Lock()
 	if g.stopping {
@@ -334,9 +339,9 @@ func (g *XGin) Start(ctx context.Context) error {
 	g.srv = srv
 	g.mu.Unlock()
 
-	slog.Info("xgin listening", "addr", addr, "tls", c.tlsEnabled(), "h2c", c.UseH2C && !c.tlsEnabled())
+	slog.Info("xgin listening", "addr", addr, "tls", c.tlsEnabled(), "mtls", c.tlsEnabled() && c.ClientCAFile != "",
+		"h2c", c.UseH2C && !c.tlsEnabled())
 
-	var err error
 	if c.tlsEnabled() {
 		err = srv.ListenAndServeTLS(c.CertFile, c.KeyFile)
 	} else {

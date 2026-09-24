@@ -10,8 +10,11 @@
 package xgin
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"time"
 )
@@ -41,6 +44,18 @@ type Config struct {
 
 	// KeyFile TLS 私钥路径。
 	KeyFile string `yaml:"KeyFile"`
+
+	// ClientCAFile 校验客户端证书用的 CA（PEM，可以放好几张）。默认空，不要客户端证书。
+	//
+	// 配了就是双向认证（tls.RequireAndVerifyClientCert）：客户端必须出示这个 CA 签的证书，
+	// 不出示、或者不是它签的，握手就失败，请求到不了任何 handler——/metrics 这类
+	// 框架挂的路由也一样。只能和 CertFile / KeyFile 一起配。
+	ClientCAFile string `yaml:"ClientCAFile"`
+
+	// MinVersion 接受的最低 TLS 版本："1.2" 或 "1.3"。默认 "1.2"。只在配了证书时生效。
+	//
+	// 更低的版本不收：TLS 1.0 / 1.1 早已被弃用（RFC 8996）。
+	MinVersion string `yaml:"MinVersion"`
 
 	// ReadHeaderTimeout 读请求头的超时。默认 10s，必须大于 0。
 	//
@@ -158,6 +173,7 @@ func DefaultConfig() Config {
 		Trace:              true,
 		Metric:             true,
 		MetricPath:         "/metrics",
+		MinVersion:         "1.2",
 	}
 }
 
@@ -173,6 +189,13 @@ func (c Config) Validate() error {
 	// 而配置文件看上去是配了证书的
 	if (c.CertFile == "") != (c.KeyFile == "") {
 		return fmt.Errorf("CertFile and KeyFile must both be set or both be empty")
+	}
+	// 同理：以为开了双向认证，实际是谁都能连的明文
+	if c.ClientCAFile != "" && !c.tlsEnabled() {
+		return fmt.Errorf("ClientCAFile requires CertFile and KeyFile, mutual TLS runs on top of TLS")
+	}
+	if _, ok := tlsVersions[c.MinVersion]; !ok {
+		return fmt.Errorf("unknown MinVersion=%q, supported: 1.2 / 1.3", c.MinVersion)
 	}
 	if c.MaxMultipartMemory <= 0 {
 		return fmt.Errorf("MaxMultipartMemory must be > 0, got=%d", c.MaxMultipartMemory)
@@ -232,3 +255,30 @@ func isIPOrCIDR(s string) bool {
 
 // tlsEnabled 是否配了 TLS
 func (c Config) tlsEnabled() bool { return c.CertFile != "" && c.KeyFile != "" }
+
+// tlsVersions MinVersion 收的写法
+var tlsVersions = map[string]uint16{"1.2": tls.VersionTLS12, "1.3": tls.VersionTLS13}
+
+// serverTLS 服务端的 TLS 设置，没配证书时是 nil。证书本身由 ListenAndServeTLS 读。
+//
+// Go 1.25 的服务端默认最低也是 TLS 1.2，这里照样显式写上：默认值会随 Go 版本变，
+// 配置文件里写着的 1.2 不该跟着变。
+func (c Config) serverTLS() (*tls.Config, error) {
+	if !c.tlsEnabled() {
+		return nil, nil
+	}
+	cfg := &tls.Config{MinVersion: tlsVersions[c.MinVersion]}
+	if c.ClientCAFile != "" {
+		pem, err := os.ReadFile(c.ClientCAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read ClientCAFile: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("ClientCAFile %s contains no PEM certificate", c.ClientCAFile)
+		}
+		cfg.ClientCAs = pool
+		cfg.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return cfg, nil
+}

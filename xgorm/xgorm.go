@@ -55,8 +55,17 @@ func open(ctx context.Context, name string, cfg ClientConfig) (*gorm.DB, io.Clos
 		return nil, nil, xerror.New("xgorm", "config", err)
 	}
 
+	tlsCfg, err := cfg.TLS.Build()
+	if err != nil {
+		return nil, nil, xerror.Newf("xgorm", "config", "invalid TLS config: %w", err)
+	}
+
 	dialect, _ := lookupDialect(cfg.Driver) // Validate 已经确认它注册过
-	dialector := dialect.Open(dsn)          // Logger 要看它的占位符长什么样，所以先造出来
+	// Logger 要看它的占位符长什么样，所以先造出来
+	dialector, err := dialect.dialector(dsn, tlsCfg)
+	if err != nil {
+		return nil, nil, xerror.New("xgorm", "config", err)
+	}
 
 	// 关掉 GORM 自带的那次 ping：它用的是自己的 context，我们的退出信号
 	// 和重试都管不到它。开着的话，连一个不可达的地址时 New 会先在里面

@@ -2,6 +2,9 @@ package xclient
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
+	"net"
 	"time"
 
 	"github.com/xiaoshicae/x-one/xutil"
@@ -34,16 +37,41 @@ type ProbePolicy struct {
 //
 // 返回值：
 //   - 成功时 nil；
-//   - 认证被拒时，就是 fn 返回的那个错误，一次都不多试；
+//   - 认证被拒、或者 TLS 握手因为证书被拒时（见 tlsRejected），就是 fn 返回的那个错误，一次都不多试；
 //   - 其余情况同 xutil.Retry：最后一次的错误，ctx 被取消时还同时满足 errors.Is(err, ctx.Err())。
 //
 // 调用方拿 p.AuthFailed 再问一次，就能决定报「认证失败」还是「连不上」。
 func Probe(ctx context.Context, p ProbePolicy, fn func(context.Context) error) error {
 	return xutil.Retry(ctx, p.Attempts, p.Timeout, p.Interval, func(ctx context.Context) error {
 		err := fn(ctx)
-		if err != nil && p.AuthFailed != nil && p.AuthFailed(err) {
+		if err != nil && (tlsRejected(err) || p.AuthFailed != nil && p.AuthFailed(err)) {
 			return xutil.Permanent(err)
 		}
 		return err
 	})
+}
+
+// tlsRejected 握手因为证书被明确拒绝了：我们不认对端的证书（CA 不对、名字对不上、过期），
+// 或者对端不认我们的（没带客户端证书、不是它认的 CA 签的）。
+//
+// 和密码错一样，再试几次还是同一张证书、同一个结论，所以不重试。
+//
+// 对端的拒绝是它发来的 TLS 告警。TCP 上 crypto/tls 把它包成 Op 为 "remote error" 的
+// *net.OpError，里面的告警类型没有导出（tls.AlertError 只给 QUIC 用），所以按告警的文字认：
+// bad_certificate、unknown_ca、certificate_required（TLS 1.3 下没带客户端证书时服务端发的）。
+// 实测 go-redis v9.22.0 连 tls-auth-clients yes 的 Redis 7.0.15，不带证书是
+// remote error: tls: certificate required，带着别的 CA 签的是 remote error: tls: unknown certificate authority。
+func tlsRejected(err error) bool {
+	var verr *tls.CertificateVerificationError
+	if errors.As(err, &verr) {
+		return true
+	}
+	var op *net.OpError
+	if errors.As(err, &op) && op.Op == "remote error" && op.Err != nil {
+		switch op.Err.Error() {
+		case "tls: bad certificate", "tls: unknown certificate authority", "tls: certificate required":
+			return true
+		}
+	}
+	return false
 }

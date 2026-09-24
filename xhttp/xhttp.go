@@ -2,6 +2,7 @@ package xhttp
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -52,7 +53,15 @@ func New(cfg Config) (*resty.Client, io.Closer, error) {
 	// 那个方法是靠类型断言往下找的：链路开着时中间隔着 otelhttp.Transport，
 	// 而它没有实现这个方法，断言到那里就断了——整条调用变成空操作，
 	// 而链路默认是开着的。自己持有，关的时候直接关它。
-	pool := tunedTransport(cfg)
+	tlsCfg, err := cfg.TLS.Build()
+	if err != nil {
+		return nil, nil, xerror.Newf("xhttp", "config", "invalid TLS config: %w", err)
+	}
+	pool := tunedTransport(cfg, tlsCfg)
+	if _, ok := pool.(*http.Transport); tlsCfg != nil && !ok {
+		// 交不进去就别假装配上了：照样发出去的请求用的是系统根证书、不带客户端证书
+		return nil, nil, xerror.Newf("xhttp", "config", "http.DefaultTransport has been replaced by %T, the TLS block cannot be applied", pool)
+	}
 	client := newResty(&http.Client{
 		Transport: traced(cfg, pool),
 		Timeout:   cfg.Timeout,
@@ -167,7 +176,10 @@ func (s scrubURL) RoundTrip(r *http.Request) (*http.Response, error) {
 //     stopped after 10 redirects。跨 host 跳转时标准库只去掉 Authorization、Cookie 这几个，
 //     自定义的凭证头（实测 X-Api-Key）照样带给新 host；302 把 POST 变成不带 body 的 GET，
 //     307 保留方法和 body。要改就在原生 client 上 SetRedirectPolicy。
-func tunedTransport(cfg Config) http.RoundTripper {
+//
+// tlsCfg 不为 nil 时换掉 TLSClientConfig（配置里的 TLS 块）。换了之后 HTTP/2 照旧：
+// ForceAttemptHTTP2 让标准库在自定义的 TLSClientConfig 上也补上 h2（实测协商出 HTTP/2.0）。
+func tunedTransport(cfg Config, tlsCfg *tls.Config) http.RoundTripper {
 	t, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		slog.Warn("xhttp cannot tune the connection pool", "default_transport_type", fmt.Sprintf("%T", http.DefaultTransport))
@@ -180,6 +192,9 @@ func tunedTransport(cfg Config) http.RoundTripper {
 	t.MaxConnsPerHost = cfg.MaxConnsPerHost
 	t.IdleConnTimeout = cfg.IdleConnTimeout
 	t.DialContext = (&net.Dialer{Timeout: cfg.DialTimeout, KeepAlive: cfg.DialKeepAlive}).DialContext
+	if tlsCfg != nil {
+		t.TLSClientConfig = tlsCfg
+	}
 	return t
 }
 

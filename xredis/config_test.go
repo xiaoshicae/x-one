@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9/maintnotifications"
 
 	"github.com/xiaoshicae/x-one/internal/config"
+	"github.com/xiaoshicae/x-one/xtls"
 )
 
 func load(t *testing.T, yml string) Config {
@@ -187,7 +188,7 @@ func TestValidate(t *testing.T) {
 		"MinRetryBackoff 为 -2ns": func(c *ClientConfig) { c.MinRetryBackoff = -2 },
 		"MaxRetryBackoff 为 -1s":  func(c *ClientConfig) { c.MaxRetryBackoff = -time.Second },
 		"没开 TLS 却写了 CAFile":      func(c *ClientConfig) { c.TLS.CAFile = "/etc/ca.pem" },
-		"CertFile 没配 KeyFile":    func(c *ClientConfig) { c.TLS = TLSConfig{Enable: true, CertFile: "c.pem"} },
+		"CertFile 没配 KeyFile":    func(c *ClientConfig) { c.TLS = xtls.Config{Enable: true, CertFile: "c.pem"} },
 	} {
 		c := ok
 		mutate(&c)

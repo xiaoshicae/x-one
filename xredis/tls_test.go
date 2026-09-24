@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/xiaoshicae/x-one/xtls"
 )
 
 // testPKI 测试时现造的一套证书：一个 CA，它签的服务端证书（127.0.0.1 / redis.internal）
@@ -83,16 +85,16 @@ func TestNew_TLS(t *testing.T) {
 
 	cases := []struct {
 		name string
-		tls  TLSConfig
+		tls  xtls.Config
 		ok   bool
 	}{
-		{"CAFile 认得服务端证书", TLSConfig{Enable: true, CAFile: pki.caFile}, true},
+		{"CAFile 认得服务端证书", xtls.Config{Enable: true, CAFile: pki.caFile}, true},
 		// 不填 CAFile 用系统根证书，自签的 CA 不在里面：证书校验真的开着
-		{"不填 CAFile 时自签证书过不了校验", TLSConfig{Enable: true}, false},
-		{"ServerName 对不上证书就失败", TLSConfig{Enable: true, CAFile: pki.caFile, ServerName: "other.internal"}, false},
-		{"ServerName 按证书上的域名填", TLSConfig{Enable: true, CAFile: pki.caFile, ServerName: "redis.internal"}, true},
+		{"不填 CAFile 时自签证书过不了校验", xtls.Config{Enable: true}, false},
+		{"ServerName 对不上证书就失败", xtls.Config{Enable: true, CAFile: pki.caFile, ServerName: "other.internal"}, false},
+		{"ServerName 按证书上的域名填", xtls.Config{Enable: true, CAFile: pki.caFile, ServerName: "redis.internal"}, true},
 		// 没开 TLS 就是明文，明文打到 TLS 端口上连不上
-		{"没开 TLS 就是明文", TLSConfig{}, false},
+		{"没开 TLS 就是明文", xtls.Config{}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -121,7 +123,7 @@ func TestNew_TLS双向认证(t *testing.T) {
 	})
 
 	cfg := liveCfg(f)
-	cfg.TLS = TLSConfig{Enable: true, CAFile: pki.caFile}
+	cfg.TLS = xtls.Config{Enable: true, CAFile: pki.caFile}
 	if _, _, err := New(context.Background(), cfg); err == nil {
 		t.Fatal("服务端要客户端证书时，不带证书该连不上")
 	}
@@ -139,7 +141,7 @@ func TestNew_TLS文件读不出来是配置错误(t *testing.T) {
 	notPEM := filepath.Join(t.TempDir(), "junk.pem")
 	os.WriteFile(notPEM, []byte("not a certificate"), 0o600)
 
-	for name, tc := range map[string]TLSConfig{
+	for name, tc := range map[string]xtls.Config{
 		"CAFile 不存在":   {Enable: true, CAFile: missing},
 		"CAFile 里没有证书": {Enable: true, CAFile: notPEM},
 		"客户端证书读不出来":    {Enable: true, CertFile: missing, KeyFile: missing},

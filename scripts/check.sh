@@ -32,12 +32,13 @@ echo "✓ 核心模块图 $n 个（上限 3）"
 echo "✓ 核心不依赖任何集成模块"
 
 # ---- 3. xhook 与基础包必须零第三方依赖 ----
-# xhook 是集成包唯一认识的东西，一旦它有依赖，所有集成都被迫背上
-for pkg in ./xhook ./xerror ./xutil; do
+# xhook 是集成包唯一认识的东西，一旦它有依赖，所有集成都被迫背上。
+# xtls 同理：它是 xgorm / xredis / xhttp 配置结构体里的一个字段类型
+for pkg in ./xhook ./xerror ./xutil ./xtls; do
   d=$(GOWORK=off go list -deps "$pkg" | grep -E '^[^/]*\.' | grep -vc xiaoshicae || true)
   [ "$d" -eq 0 ] || fail "$pkg 混进了 $d 个第三方包"
 done
-echo "✓ xhook / xerror / xutil 零第三方依赖"
+echo "✓ xhook / xerror / xutil / xtls 零第三方依赖"
 
 # ---- 4. 只有集成包可以有 init() ----
 # 集成包的 init 只登记不初始化；核心自己则连登记都不该有。
@@ -69,7 +70,12 @@ x=$(go doc -all ./xconfig | grep -cE '^(func|type) ')
 # 想往里加「再帮你做一件事」的，先问那件事是不是该由 xone.Run 或被测包自己做
 tt=$(go doc -all ./xonetest | grep -cE '^(func|type) ')
 [ "$tt" -le 3 ] || fail "xonetest 公开 API $tt 个，超过上限 3"
-echo "✓ 公开 API：根包 $a（上限 15）、xhook $r（上限 6）、xconfig $x（上限 6）、xonetest $tt（上限 3）"
+# xtls 是各客户端集成共用的 TLS 块：一个配置类型，外加校验和装出 *tls.Config 两个方法。
+# 它出现在使用者的配置结构体里（xredis.ClientConfig.TLS），同样是永久 API。
+# 服务端那一侧（xgin 的 ClientCAFile / MinVersion）形状不同，留在 xgin 里，不往这里加
+tl=$(go doc -all ./xtls | grep -cE '^(func|type) ')
+[ "$tl" -le 3 ] || fail "xtls 公开 API $tl 个，超过上限 3"
+echo "✓ 公开 API：根包 $a（上限 15）、xhook $r（上限 6）、xconfig $x（上限 6）、xonetest $tt（上限 3）、xtls $tl（上限 3）"
 
 # ---- 6. 集成包必须导出纯构造器 New，且不得引用根包 ----
 # New 保证「零装配」永远只是默认路径，不是唯一路径：
@@ -182,7 +188,7 @@ echo "✓ 错误都走 xerror（%w 保住错误链）"
 # 使用者照着 README 和 example/ 抄。几轮重构之后，那里还留着 Component.Init、
 # registry.Register 这些早就不存在的名字，注释里还在教一个已经撤掉的写法——
 # 比没有文档更糟，因为它看上去是对的。删掉一个公开名字时，把它加进这张表
-gone='Component\.Init|registry\.(Declare|Provide|Register)|ProvideEach|\.OnInit\(|xgin\.With(Config|Log|Trace|Metric|MetricPath|SkipPaths|RequestBodyLog|ResponseBodyLog|ZHTranslations)\('
+gone='xredis\.TLSConfig|Component\.Init|registry\.(Declare|Provide|Register)|ProvideEach|\.OnInit\(|xgin\.With(Config|Log|Trace|Metric|MetricPath|SkipPaths|RequestBodyLog|ResponseBodyLog|ZHTranslations)\('
 hits=$(files '*.go' '*.md' '*.yml' | xargs grep -nE "$gone" || true)
 [ -z "$hits" ] || fail "还在提已经删掉的名字（改文档，或者确认它真的还在）：
 $hits"

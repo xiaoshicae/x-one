@@ -107,6 +107,9 @@ type pkg struct {
 	aliases   map[string]ast.Expr          // 具名标量，如 type Driver string
 	docs      map[string]*ast.CommentGroup // 类型上的注释
 	configKey string
+
+	// shared 仓库里别的包，按包名。字段的类型写成 xtls.Config 这样跨包的，去这里找
+	shared map[string]*pkg
 }
 
 func build(repo string) (*root, error) {
@@ -133,11 +136,21 @@ func build(repo string) (*root, error) {
 		},
 	}
 
+	// 先全部解一遍：配置块的字段可以引用别的包里的结构体（各模块共用的 xtls.Config）
+	pkgs := make([]*pkg, 0, len(dirs))
+	shared := map[string]*pkg{}
 	for _, dir := range dirs {
 		p, err := parsePkg(dir)
 		if err != nil {
 			return nil, err
 		}
+		p.shared = shared
+		pkgs = append(pkgs, p)
+		shared[filepath.Base(dir)] = p
+	}
+
+	for i, dir := range dirs {
+		p := pkgs[i]
 		if p.configKey == "" {
 			continue // 没有 ConfigKey 的包不是配置块
 		}

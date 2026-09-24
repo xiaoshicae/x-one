@@ -132,9 +132,18 @@ func typeNode(p *pkg, expr ast.Expr) (*node, error) {
 		return identNode(p, t.Name)
 
 	case *ast.SelectorExpr:
-		// 目前只有 time.Duration 一种跨包类型
-		if x, ok := t.X.(*ast.Ident); ok && x.Name == "time" && t.Sel.Name == "Duration" {
+		// 跨包的类型：标准库只认 time.Duration，其余的是仓库里别的包的结构体（如 xtls.Config）。
+		// 按包名找，所以包名要和目录名一致
+		x, ok := t.X.(*ast.Ident)
+		if ok && x.Name == "time" && t.Sel.Name == "Duration" {
 			return &node{Type: "string", duration: true}, nil
+		}
+		if ok {
+			if sp, found := p.shared[x.Name]; found {
+				if st, found := sp.structs[t.Sel.Name]; found {
+					return structNode(sp, st, docOf(sp, t.Sel.Name))
+				}
+			}
 		}
 		return nil, fmt.Errorf("没见过的类型 %s.%s", exprName(t.X), t.Sel.Name)
 
