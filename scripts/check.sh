@@ -197,12 +197,14 @@ echo "✓ 文档和示例里没有已经删掉的名字"
 # ---- 12. 变异模式都还对得上代码 ----
 # 全量变异测试要几分钟，不在这里跑；但「模式恰好匹配 N 处」只是字符串比对，
 # 不到一秒。代码挪走了、变异没跟着挪，这里当场就红，不用等下一次想起来跑全量
-python3 scripts/mutate.py --dry-run || fail "有变异的模式对不上代码了，改 scripts/mutate.py 里对应的那条"
+python3 scripts/mutate.py --dry-run || fail "有变异的模式对不上代码了，改 scripts/mutations/ 下对应的那条"
 
 # ---- 13. 基本卫生 ----
 unformatted=$(files '*.go' | xargs gofmt -l)
 [ -z "$unformatted" ] || fail "有文件未格式化：$unformatted"
+# 过了不出声，不过的话把 vet 的原话带出来：只说「未通过」得自己再跑一遍才知道是哪一行
 for m in $modules; do
-  (cd "$m" && GOWORK=off go vet ./... >/dev/null 2>&1) || fail "$m go vet 未通过"
+  out=$(cd "$m" && GOWORK=off go vet ./... 2>&1) || fail "$m go vet 未通过：
+$out"
 done
 echo "✓ gofmt / go vet（$(echo "$modules" | wc -w) 个模块）"

@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# PR 又推了新提交，还在跑的那轮就没意义了；main 上的每个提交都跑完
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -15,7 +20,9 @@ jobs:
           # 取各模块里最高的那个下限。核心自己只要 1.22，
           # 但集成模块因为上游需要 1.25，CI 得跑得动全部
           go-version: '1.25'
-          cache: false
+          # 每个 module 有自己的 go.sum，缓存键要把它们全算进去
+          cache: true
+          cache-dependency-path: '**/go.sum'
 
       # 设计约束的检查，内容见 scripts/check.sh
       - run: scripts/check.sh
@@ -31,6 +38,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          cache: false
+          cache: true
+          cache-dependency-path: go.sum
       - run: GOTOOLCHAIN=local GOWORK=off go build ./...
       - run: GOTOOLCHAIN=local GOWORK=off go vet ./...

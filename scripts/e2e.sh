@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # 跑 e2e/ 下的真实 Web 服务测试：真的 PostgreSQL、MySQL、Redis、ClickHouse，真的进程和信号。
 #
 #   scripts/e2e.sh                 # 全部（压测除外）
@@ -7,13 +7,21 @@
 #
 # 压测要独占机器：压测器、被测服务、PG 本来就挤在同一台机器上，再有别的负载数字就没法看了。
 #
-# PG / MySQL / Redis 已经在跑就直接用，没在跑就按本机的装法拉起来。
-# ClickHouse 跑在 Docker 容器 xone-ch 里（XONE_E2E_CH_CONTAINER）：停着就 docker start；
-# 没有 Docker、没有这个容器或起不来时不算失败——CH 的用例各自跳过并说明原因，其余照跑。
+# 服务从哪来，三种都行：
+#   - 本机装的：已经在跑就直接用，没在跑就按本机的装法拉起来（pg_ctlcluster / service mysql / redis-server）；
+#   - docker compose：docker compose -f e2e/compose.yml up -d --wait，账号密码和这里的默认值一致；
+#   - 别处管着的（CI 的服务容器、另一台机器）：XONE_E2E_EXTERNAL=1，或者地址不在本机——
+#     这时只等它就绪（最多 60 秒），不去启动。
+# 就绪只看 TCP 连不连得上（bash 的 /dev/tcp），不要求装 psql / mysqladmin / redis-cli；
+# 装了客户端的话再用测试的账号连一次，账号或库不对在这里说一遍，而不是每个用例各报一遍。
+#
+# ClickHouse 是可选的：在跑就用；本机的话跑在 Docker 容器 xone-ch 里（XONE_E2E_CH_CONTAINER），
+# 停着就 docker start。没有 Docker、没有这个容器或起不来时不算失败——CH 的用例各自跳过
+# 并说明原因，其余照跑。事先设了 XONE_E2E_CH=0 就不碰 CH。
 # 连接参数都能用环境变量盖掉，默认值和 e2e/harness 里的一致。
 #
-# 不在 CI 里、也不在 scripts/test.sh 里：那两处没有数据库，e2e 的每个测试
-# 在 XONE_E2E 不为 1 时都会跳过。
+# 不在 scripts/test.sh 里：那里没有数据库，e2e 的每个测试在 XONE_E2E 不为 1 时都会跳过。
+# CI 里是单独的工作流（.github/workflows/e2e.yml），只在 go.mod / go.sum 变了的 PR、每晚和手动时跑。
 set -e
 cd "$(dirname "$0")/.."
 
@@ -50,38 +58,52 @@ export XONE_E2E_MYSQL_ADDR XONE_E2E_MYSQL_USER XONE_E2E_MYSQL_PASSWORD XONE_E2E_
 : "${XONE_E2E_CH_CONTAINER:=xone-ch}"
 export XONE_E2E_CH_ADDR XONE_E2E_CH_HTTP_ADDR XONE_E2E_CH_USER XONE_E2E_CH_PASSWORD XONE_E2E_CH_DB
 
-pg_host=${XONE_E2E_PG_ADDR%:*}
-pg_port=${XONE_E2E_PG_ADDR##*:}
-mysql_host=${XONE_E2E_MYSQL_ADDR%:*}
-mysql_port=${XONE_E2E_MYSQL_ADDR##*:}
-redis_host=${XONE_E2E_REDIS_ADDR%:*}
-redis_port=${XONE_E2E_REDIS_ADDR##*:}
+# 地址是 host:port；取 host 时去掉 IPv6 的方括号
+host_of() { h=${1%:*}; h=${h#[}; echo "${h%]}"; }
+is_local() { case $(host_of "$1") in 127.*|localhost|::1) ;; *) return 1;; esac; }
+# tcp_up 地址：连得上就算起来了。只用 bash 自带的 /dev/tcp；timeout 防的是连一个黑洞地址挂住
+tcp_up() { timeout 2 bash -c ': <>"/dev/tcp/$0/$1"' "$(host_of "$1")" "${1##*:}" 2>/dev/null; }
+has() { command -v "$1" >/dev/null 2>&1; }
 
-# wait_for 名字 命令...：命令成功为止，最多等 10 秒
+# wait_for 次数 命令...：命令成功为止，每 0.2 秒试一次
 wait_for() {
-  what=$1
+  tries=$1
   shift
   i=0
   until "$@" >/dev/null 2>&1; do
     i=$((i + 1))
-    [ "$i" -lt 50 ] || { echo "✗ $what 没起来"; exit 1; }
+    [ "$i" -lt "$tries" ] || return 1
     sleep 0.2
   done
 }
 
+# ensure 名字 地址 启动命令...：在跑就用；别处管着的、或者本机没有这个启动命令，就只等它；否则拉起来
+ensure() {
+  what=$1 addr=$2
+  shift 2
+  if tcp_up "$addr"; then
+    echo "✓ $what 已在 $addr 运行"
+    return
+  fi
+  if [ "${XONE_E2E_EXTERNAL:-}" = 1 ] || ! is_local "$addr" || ! has "$1"; then
+    echo "== 等 $what 在 $addr 就绪"
+    wait_for 300 tcp_up "$addr" || {
+      echo "✗ $what 在 $addr 上 60 秒内没连上。本机没装的话：docker compose -f e2e/compose.yml up -d --wait"
+      exit 1
+    }
+  else
+    echo "== 启动 $what（$*）"
+    "$@" >/dev/null
+    wait_for 50 tcp_up "$addr" || { echo "✗ $what 没起来"; exit 1; }
+  fi
+  echo "✓ $what 已就绪"
+}
+
 # ---- PostgreSQL ----
-if pg_isready -q -h "$pg_host" -p "$pg_port"; then
-  echo "✓ PostgreSQL 已在 $XONE_E2E_PG_ADDR 运行"
-else
-  echo "== 启动 PostgreSQL（pg_ctlcluster $XONE_E2E_PG_CLUSTER start）"
-  # shellcheck disable=SC2086
-  pg_ctlcluster $XONE_E2E_PG_CLUSTER start
-  wait_for PostgreSQL pg_isready -q -h "$pg_host" -p "$pg_port"
-  echo "✓ PostgreSQL 已启动"
-fi
-# 用测试的账号连一次：账号或库不对的话在这里说一遍，而不是每个用例各报一遍
-if ! PGPASSWORD=$XONE_E2E_PG_PASSWORD psql -h "$pg_host" -p "$pg_port" -U "$XONE_E2E_PG_USER" \
-  -d "$XONE_E2E_PG_DB" -tAc 'SELECT 1' >/dev/null 2>&1; then
+# shellcheck disable=SC2086  # $XONE_E2E_PG_CLUSTER 是两个参数
+ensure PostgreSQL "$XONE_E2E_PG_ADDR" pg_ctlcluster $XONE_E2E_PG_CLUSTER start
+if has psql && ! PGPASSWORD=$XONE_E2E_PG_PASSWORD psql -h "$(host_of "$XONE_E2E_PG_ADDR")" -p "${XONE_E2E_PG_ADDR##*:}" \
+  -U "$XONE_E2E_PG_USER" -d "$XONE_E2E_PG_DB" -tAc 'SELECT 1' >/dev/null 2>&1; then
   cat <<TIP
 ✗ 用 $XONE_E2E_PG_USER 连不上 $XONE_E2E_PG_ADDR 上的库 $XONE_E2E_PG_DB。第一次跑的话先建账号和库：
 
@@ -94,18 +116,10 @@ TIP
 fi
 
 # ---- MySQL ----
+ensure MySQL "$XONE_E2E_MYSQL_ADDR" service mysql start
 # 密码经 MYSQL_PWD 交给客户端，不出现在命令行上（ps 看得见命令行）
-mysql_ping() { MYSQL_PWD=$XONE_E2E_MYSQL_PASSWORD mysqladmin -h "$mysql_host" -P "$mysql_port" -u "$XONE_E2E_MYSQL_USER" ping; }
-if mysql_ping >/dev/null 2>&1; then
-  echo "✓ MySQL 已在 $XONE_E2E_MYSQL_ADDR 运行"
-else
-  echo "== 启动 MySQL（service mysql start）"
-  service mysql start >/dev/null
-  wait_for MySQL mysql_ping
-  echo "✓ MySQL 已启动"
-fi
-if ! MYSQL_PWD=$XONE_E2E_MYSQL_PASSWORD mysql -h "$mysql_host" -P "$mysql_port" -u "$XONE_E2E_MYSQL_USER" \
-  -D "$XONE_E2E_MYSQL_DB" -Nse 'SELECT 1' >/dev/null 2>&1; then
+if has mysql && ! MYSQL_PWD=$XONE_E2E_MYSQL_PASSWORD mysql -h "$(host_of "$XONE_E2E_MYSQL_ADDR")" -P "${XONE_E2E_MYSQL_ADDR##*:}" \
+  -u "$XONE_E2E_MYSQL_USER" -D "$XONE_E2E_MYSQL_DB" -Nse 'SELECT 1' >/dev/null 2>&1; then
   cat <<TIP
 ✗ 用 $XONE_E2E_MYSQL_USER 连不上 $XONE_E2E_MYSQL_ADDR 上的库 $XONE_E2E_MYSQL_DB。第一次跑的话先建账号和库：
 
@@ -118,32 +132,34 @@ TIP
 fi
 
 # ---- Redis ----
-if redis-cli -h "$redis_host" -p "$redis_port" ping >/dev/null 2>&1; then
-  echo "✓ Redis 已在 $XONE_E2E_REDIS_ADDR 运行"
-else
-  echo "== 启动 Redis（redis-server --port $redis_port --daemonize yes --save '' --appendonly no）"
-  # 不落盘：脚本此刻的工作目录是仓库根，Redis 的 dir 默认就是它。带着默认的
-  # save 规则（300 秒内 100 次改动就 BGSAVE），跑一轮 e2e 就会在仓库根留下 dump.rdb
-  redis-server --port "$redis_port" --daemonize yes --save '' --appendonly no >/dev/null
-  wait_for Redis redis-cli -h "$redis_host" -p "$redis_port" ping
-  echo "✓ Redis 已启动"
-fi
+# 不落盘：脚本此刻的工作目录是仓库根，Redis 的 dir 默认就是它。带着默认的
+# save 规则（300 秒内 100 次改动就 BGSAVE），跑一轮 e2e 就会在仓库根留下 dump.rdb
+ensure Redis "$XONE_E2E_REDIS_ADDR" redis-server --port "${XONE_E2E_REDIS_ADDR##*:}" --daemonize yes --save '' --appendonly no
 
 # ---- ClickHouse ----
-# 起不来就 XONE_E2E_CH=0：harness.RequireCH 据此跳过 CH 的用例，并在跳过原因里说清楚
-ch_ping() { curl -sf "http://$XONE_E2E_CH_HTTP_ADDR/ping" >/dev/null 2>&1; }
-# 凭证经 curl -K - 从标准输入给，不出现在命令行上
+# 起不来就 XONE_E2E_CH=0：harness.RequireCH 据此跳过 CH 的用例，并在跳过原因里说清楚。
+# 没有 curl 时退回只看 native 端口连不连得上
+ch_ping() {
+  if has curl; then curl -sf "http://$XONE_E2E_CH_HTTP_ADDR/ping" >/dev/null 2>&1; else tcp_up "$XONE_E2E_CH_ADDR"; fi
+}
+# 凭证经 curl -K - 从标准输入给，不出现在命令行上；没有 curl 就不查，交给用例去报
 ch_auth() {
+  has curl || return 0
   printf 'user = "%s:%s"\n' "$XONE_E2E_CH_USER" "$XONE_E2E_CH_PASSWORD" |
     curl -sf -K - "http://$XONE_E2E_CH_HTTP_ADDR/?database=$XONE_E2E_CH_DB" --data-binary 'SELECT 1' >/dev/null 2>&1
 }
 ch_skip() {
-  echo "⚠ ClickHouse 不可用（$1），CH 的用例会跳过；要跑它们：docker start $XONE_E2E_CH_CONTAINER"
+  echo "⚠ ClickHouse 不可用（$1），CH 的用例会跳过；要跑它们：docker start $XONE_E2E_CH_CONTAINER，或者 docker compose -f e2e/compose.yml up -d --wait"
   export XONE_E2E_CH=0
 }
-if ch_ping; then
+if [ "${XONE_E2E_CH:-}" = 0 ]; then
+  echo "⚠ XONE_E2E_CH=0，CH 的用例会跳过"
+elif ch_ping; then
   echo "✓ ClickHouse 已在 $XONE_E2E_CH_ADDR 运行"
-elif ! command -v docker >/dev/null 2>&1; then
+elif [ "${XONE_E2E_EXTERNAL:-}" = 1 ] || ! is_local "$XONE_E2E_CH_ADDR"; then
+  echo "== 等 ClickHouse 在 $XONE_E2E_CH_ADDR 就绪"
+  if wait_for 300 ch_ping; then echo "✓ ClickHouse 已就绪"; else ch_skip "$XONE_E2E_CH_ADDR 上 60 秒内没连上"; fi
+elif ! has docker; then
   ch_skip "没有 docker 命令"
 elif ! docker inspect "$XONE_E2E_CH_CONTAINER" >/dev/null 2>&1; then
   ch_skip "没有名为 $XONE_E2E_CH_CONTAINER 的容器"
@@ -151,12 +167,7 @@ else
   echo "== 启动 ClickHouse（docker start $XONE_E2E_CH_CONTAINER）"
   if docker start "$XONE_E2E_CH_CONTAINER" >/dev/null 2>&1; then
     # ClickHouse 冷启动比 PG 慢，给到 30 秒
-    i=0
-    until ch_ping; do
-      i=$((i + 1))
-      [ "$i" -lt 150 ] || break
-      sleep 0.2
-    done
+    wait_for 150 ch_ping || true
   fi
   if ch_ping; then echo "✓ ClickHouse 已启动"; else ch_skip "docker start 之后 30 秒仍没有就绪，看 docker logs $XONE_E2E_CH_CONTAINER"; fi
 fi

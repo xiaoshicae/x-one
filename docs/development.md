@@ -48,13 +48,15 @@ xone/
 ├── e2e/                 真实 Web 服务测试：真的进程、真的 PG / MySQL / Redis / ClickHouse、真的信号（独立 module，不发布）
 │   ├── service/         被测服务：用齐各集成，配置全部来自 YAML
 │   ├── baseline/        裸 gin 的对照服务，压测时比出框架的开销
-│   └── harness/         起进程、读日志 / Span / 指标 / /proc、TCP 故障代理、下游桩、压测器
+│   ├── harness/         起进程、读日志 / Span / 指标 / /proc、TCP 故障代理、下游桩、压测器
+│   └── compose.yml      e2e 要的 PG / MySQL / Redis / ClickHouse，本机没装时用
 ├── config_schema.json   配置的 JSON Schema，由结构体生成，给 IDE 用
-├── .github/workflows/   CI：check.sh + test.sh，外加用 Go 1.22 单独编译一遍核心
+├── .github/workflows/   ci.yml：check.sh + test.sh，外加用 Go 1.22 单独编译一遍核心；e2e.yml：e2e + 全量变异
 └── scripts/
     ├── check.sh         把设计约束编译成检查
     ├── test.sh          跑全仓库测试（go test ./... 不跨模块边界）
     ├── mutate.py        变异测试：把每条承诺改坏，看有没有测试会失败
+    ├── mutations/       变异表，一个 module 一个文件（core.py 是根模块）
     ├── e2e.sh           拉起 PG / MySQL / Redis / ClickHouse，跑 e2e/ 的真实 Web 服务测试
     └── release.sh       打 tag 发布，推送之后 --verify 验证装得上
 ```
@@ -78,9 +80,9 @@ xone/
 | 命令 | 干什么 | 在 CI 里 |
 |---|---|---|
 | `scripts/check.sh` | 架构约束 + 依赖边界 + 文档 + gofmt / vet | 是 |
-| `scripts/test.sh [go test 参数]` | 逐模块 `GOWORK=off go test -race ./...` | 是（`-count=1`） |
-| `scripts/mutate.py` | 变异测试，几分钟，要干净工作区 | 否（`--dry-run` 在 check.sh 里） |
-| `scripts/e2e.sh [--load] [-run X]` | 真实 Web 服务测试，要 PG / MySQL / Redis（ClickHouse 可选） | 否 |
+| `scripts/test.sh [go test 参数]` | 逐模块 `GOWORK=off go test -race ./...`，一个模块红了也跑完其余的，最后一起报 | 是（`-count=1`） |
+| `scripts/mutate.py [-j N] [--only X] [-k X]` | 变异测试，并行跑，不动工作区 | 每晚（`--dry-run` 在 check.sh 里） |
+| `scripts/e2e.sh [--load] [-run X]` | 真实 Web 服务测试，要 PG / MySQL / Redis（ClickHouse 可选） | 改了 go.mod / go.sum 的 PR、每晚（不含压测） |
 | `scripts/release.sh vX.Y.Z [--apply \| --verify]` | 打 tag / 验证发布 | 否 |
 
 ### check.sh
@@ -112,16 +114,26 @@ go run ./internal/schemagen      # 重新生成
 
 ### mutate.py
 
-不在 CI 里（要几分钟，而且要改工作区），改完安全或生命周期相关的代码之后手动跑一次。
+全量每晚在 CI 里跑一次（`e2e.yml` 的 `mutate`），改完安全或生命周期相关的代码之后也手动跑一次。
 它把每条承诺对应的代码改坏，看有没有测试会失败——活下来的变异 = 一条没有牙齿的承诺：
 代码写着、文档写着，改坏了却没人知道。
 
 ```bash
-scripts/mutate.py              # 全量：改坏、编译、跑测试
-scripts/mutate.py --dry-run    # 只查每条变异的模式还对不对得上代码，不到一秒
+scripts/mutate.py                  # 全量：改坏、编译、跑测试，默认开 CPU 数那么多路
+scripts/mutate.py -j 2             # 只开两路
+scripts/mutate.py --only xgorm     # 只跑一个表 / module / 路径前缀（xgorm 连带 xgorm/clickhouse；xlog/ 只跑改 xlog 的）
+scripts/mutate.py -k 超时          # 只跑名字里带这段的
+scripts/mutate.py --dry-run        # 只查每条变异的模式还对不对得上代码，不到一秒（过滤照样生效）
 ```
 
-每条变异是表里的一行 `mutate(名字, 文件, 模块, 测试过滤, 改法...)`，改法只用 `swap()` / `cut()`，
+改坏的副本放在临时目录，经 `go test -overlay` 换进编译，工作区一个字节都不动：
+不要求干净的工作区，跑的时候照样可以改代码，Ctrl-C 了也没有要写回的文件。
+结果按表里的顺序打印，不按完成的先后，两轮的输出可以直接 diff。
+
+变异表在 `scripts/mutations/` 下，一个 Go module 一个文件：`core.py` 是根模块（含 `./xhook` 这类
+根模块里的目录），其余按 module 目录名，如 `xgin.py`、`xgorm.py`、`clickhouse.py`、`schemagen.py`。
+一行放在哪个文件，看它在哪个目录下跑测试（第三个参数），放错了 `mutate.py` 直接报错。
+每条变异是一行 `mutate(名字, 文件, 目录, 测试过滤, 改法...)`，改法只用 `swap()` / `cut()`，
 它们自带「模式恰好匹配 N 处」的断言。重构挪动了代码，对应的变异要跟着挪；
 变异要打在调用点上，不只是被调用的函数里。规矩的全文见 `.claude/CLAUDE.md`。
 
@@ -130,11 +142,19 @@ scripts/mutate.py --dry-run    # 只查每条变异的模式还对不对得上�
 多模块仓库每个 module 有自己的 tag，发布前要把开发用的 `replace` 换成真实版本号。
 
 ```bash
-scripts/release.sh v0.1.0            # 只打印要做什么，不改任何东西
+scripts/release.sh v0.1.0            # 跑检查、测试和 e2e，再打印要做什么，不改任何东西
 scripts/release.sh v0.1.0 --apply    # 改 go.mod、提交、打 tag，再提交一次把 replace 还原（不推送）
 git push origin main --tags          # 推送由人来做：module proxy 永久缓存 tag，推错了删不掉
 scripts/release.sh v0.1.0 --verify   # 推送之后：在一个全新的外部工程里 go get，验证装得上、跑得起来
 ```
+
+发布前要一轮绿的 e2e：第 2 步会跑 `scripts/e2e.sh`（要 PG / MySQL / Redis）。这个提交刚在别处跑绿过
+（比如手动触发了一次 CI 的 e2e 工作流）的话，加 `--e2e-passed` 跳过，由你担保。
+检查、测试、e2e 的输出都照常打印，红了直接看得到是哪一行。
+
+各子模块 `go.mod` 里仓库内的 require 一律钉成要发的版本，不管原来写的是 `v0.0.0`
+还是 go 工具补的伪版本（`xgin` 里 `xmetric` 的 `v0.0.0-2026…`）；仓库内的 replace 全部去掉，
+只出现在 replace 里、没被 require 的不会被补成 require。
 
 只收 v0 / v1（模块路径没有 `/vN` 后缀）。`example`、`e2e`、`internal/schemagen` 不发布。
 
@@ -212,10 +232,21 @@ func C() *Client { /* ... */ }
   只有 `TestClickHouse_*` 起的进程激活它（`harness.Options.ClickHouse`）；
 - 故障经 harness 里的 TCP 代理注入（断开、拒绝新连接、加延迟、模拟主机宕机），不去停真的 PG / MySQL / Redis；
 - 用例之间各用各的端口、表名和 key 前缀；
-- PG / MySQL / Redis 没在跑时脚本会先拉起来，连接参数可以用 `XONE_E2E_PG_ADDR`、`XONE_E2E_MYSQL_ADDR`、`XONE_E2E_REDIS_ADDR` 等环境变量覆盖；
+- PG / MySQL / Redis 没在跑时脚本会先按本机的装法拉起来（`pg_ctlcluster` / `service mysql` / `redis-server`），
+  连接参数可以用 `XONE_E2E_PG_ADDR`、`XONE_E2E_MYSQL_ADDR`、`XONE_E2E_REDIS_ADDR` 等环境变量覆盖；
+  服务归别处管（CI 的服务容器、docker compose、另一台机器）时设 `XONE_E2E_EXTERNAL=1`，或者地址本来就不在本机，
+  脚本就只等它就绪（最多 60 秒），不去启动。就绪只看 TCP 连不连得上，不要求装 `psql` / `mysqladmin` / `redis-cli`；
 - ClickHouse 跑在 Docker 容器 `xone-ch` 里（`XONE_E2E_CH_CONTAINER`；native 127.0.0.1:9000、HTTP 127.0.0.1:8123，`XONE_E2E_CH_*` 覆盖），
   停着就 `docker start`；没有 Docker、没有容器或起不来时脚本打一行提示并设 `XONE_E2E_CH=0`，`TestClickHouse_*` 各自跳过，其余照跑；
 - 后面的参数原样交给 `go test`。
+
+本机没装这些服务的话，用 `e2e/compose.yml` 一次起齐，账号密码和脚本的默认值一致：
+
+```bash
+docker compose -f e2e/compose.yml up -d --wait   # 起来并等到健康；默认端口被占了用 XONE_E2E_PG_PORT 等换一个
+scripts/e2e.sh
+docker compose -f e2e/compose.yml down           # 数据在 tmpfs 里，down 了就没了
+```
 
 ```bash
 scripts/e2e.sh                   # 全部（压测除外）
@@ -248,6 +279,8 @@ QPS、p50 / p90 / p99 / max、错误数、服务进程每请求的 CPU 微秒和
 用例又都 `t.Parallel`。上界写成「量出来的数 × 3」或「文档推出来的数 + 一个具名的余量常量」
 （`faultSlack`、`faultUnaffected`），常量的注释里写清量出来是多少、反例是多少，二者之间要隔得开。
 
-它不在 CI 里：`test.sh` 遍历到 `e2e` 模块时，每个测试都因为 `XONE_E2E` 不为 1 而跳过，
-没有数据库的机器上照样全绿。用例照文档写的行为断言，揭示了框架的 bug 时不改断言去迁就它，
+`test.sh` 遍历到 `e2e` 模块时，每个测试都因为 `XONE_E2E` 不为 1 而跳过，
+没有数据库的机器上照样全绿。CI 里它是单独的工作流 `.github/workflows/e2e.yml`：改了任何 `go.mod` / `go.sum`
+的 PR、每晚、手动触发时跑（不含压测），四个服务是服务容器；PG / MySQL / Redis 的 TLS 用例要以 root
+在本机另起实例，runner 上跳过。任务摘要里写着 `KNOWN BUG` 跳过了几条。用例照文档写的行为断言，揭示了框架的 bug 时不改断言去迁就它，
 而是标成 `KNOWN BUG` 跳过，证据写在用例的注释里。
