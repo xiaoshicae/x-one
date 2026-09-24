@@ -13,7 +13,7 @@ import (
 
 // docs/config.md XHttp 的默认值，以及这组用例配的 Timeout
 const (
-	faultHTTPTimeout          = 300 * time.Millisecond // E2E_HTTP_TIMEOUT，和文档里「实测 1.24s」那一例同一个数
+	faultHTTPTimeout          = 300 * time.Millisecond // XHttp.Timeout，和文档里「实测 1.24s」那一例同一个数
 	faultHTTPRetryWaitTime    = 100 * time.Millisecond // RetryWaitTime 默认
 	faultHTTPRetryMaxWaitTime = 2 * time.Second        // RetryMaxWaitTime 默认
 )
@@ -33,11 +33,7 @@ type faultDownstreamCall struct {
 // faultStartDownstream 起一个 /proxy 连 downstream 的服务：Timeout 300ms，XHttp 再叠 overlay
 func faultStartDownstream(t *testing.T, downstream, overlay string) *harness.Process {
 	t.Helper()
-	o := harness.Options{Downstream: downstream, Env: map[string]string{"E2E_HTTP_TIMEOUT": faultHTTPTimeout.String()}}
-	if overlay != "" {
-		o.Overlay = "XHttp:\n" + overlay
-	}
-	return harness.Start(t, o)
+	return harness.Start(t, harness.Options{Downstream: downstream, Overlay: "XHttp:\n  Timeout: " + faultHTTPTimeout.String() + "\n" + overlay})
 }
 
 // faultCallDownstream GET /proxy?token=...[&method=...]

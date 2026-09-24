@@ -79,31 +79,23 @@ var (
 // 标准输出一律接 /dev/null：访问日志一秒几万行，收进 harness 的内存既占地方又会拖慢
 // 被测进程。真实部署里标准输出后面是一根管道和采集器，比 /dev/null 贵，这里量不到
 func (m mw) options(table string) harness.Options {
-	b := strconv.FormatBool
-	o := harness.Options{
+	xlog := fmt.Sprintf("XLog:\n  Console: %v\n", !m.file)
+	if m.level != "" {
+		xlog += "  Level: " + m.level + "\n"
+	}
+	xtrace := fmt.Sprintf("XTrace:\n  Enable: %v\n", m.trace)
+	if m.sample != "" {
+		xtrace += "  SampleRatio: " + m.sample + "\n"
+	}
+	return harness.Options{
 		Table:         table,
 		DiscardStdout: true,
-		Env: map[string]string{
-			"E2E_ACCESS_LOG":        b(m.log),
-			"E2E_LOG_REQUEST_BODY":  b(m.body),
-			"E2E_LOG_RESPONSE_BODY": b(m.body),
-			"E2E_SPAN_DISCARD":      b(m.export),
-		},
-		Overlay: fmt.Sprintf("XGin:\n  Trace: %v\n  Metric: %v\nXTrace:\n  Enable: %v\n"+
-			"XGorm:\n  Clients:\n    default:\n      Trace: %v\n    mysql:\n      Trace: %v\n",
-			m.trace, m.metric, m.trace, m.trace, m.trace),
+		LogFile:       m.file,
+		Overlay: fmt.Sprintf("XGin:\n  Log: %v\n  LogRequestBody: %v\n  LogResponseBody: %v\n  Trace: %v\n  Metric: %v\n",
+			m.log, m.body, m.body, m.trace, m.metric) + xlog + xtrace +
+			fmt.Sprintf("XGorm:\n  Clients:\n    default:\n      Trace: %v\n    mysql:\n      Trace: %v\n", m.trace, m.trace) +
+			fmt.Sprintf("Service:\n  SpanDiscard: %v\n", m.export),
 	}
-	if m.file {
-		o.LogFile = true
-		o.Env["E2E_LOG_CONSOLE"] = "false"
-	}
-	if m.level != "" {
-		o.Env["E2E_LOG_LEVEL"] = m.level
-	}
-	if m.sample != "" {
-		o.Env["E2E_SAMPLE_RATIO"] = m.sample
-	}
-	return o
 }
 
 // endpoint 被压的接口。baseline 和 xone 服务的路径略有不同：

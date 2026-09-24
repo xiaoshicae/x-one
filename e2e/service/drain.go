@@ -19,7 +19,7 @@ import (
 // Shutdown 一开始就返回了，在途请求是 xgin.Stop 自己等的，不是 Run 等的——
 // 把 Run 里那次等待删掉，别的用例照样全过。
 //
-// Service.Drain（E2E_DRAIN）为 0 时不套这一层，服务就是 xgin 本身
+// Service.Drain为 0 时不套这一层，服务就是 xgin 本身
 type drainer struct {
 	*xgin.XGin
 	d time.Duration

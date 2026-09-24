@@ -158,7 +158,7 @@ func TestCoverage_日志的Level_Format_Timezone_AddSource(t *testing.T) {
 
 	t.Run("Level: warn 滤掉 info，留下 warn / error", func(t *testing.T) {
 		t.Parallel()
-		p := harness.Start(t, harness.Options{Env: map[string]string{"E2E_LOG_LEVEL": "warn"}})
+		p := harness.Start(t, harness.Options{Overlay: logLevel("warn")})
 		covLogLine(t, p, "info", "cov-info")
 		covLogLine(t, p, "warn", "cov-warn")
 		covLogLine(t, p, "error", "cov-error")
@@ -173,7 +173,7 @@ func TestCoverage_日志的Level_Format_Timezone_AddSource(t *testing.T) {
 
 	t.Run("Level: debug 放出 debug", func(t *testing.T) {
 		t.Parallel()
-		p := harness.Start(t, harness.Options{Env: map[string]string{"E2E_LOG_LEVEL": "debug"}})
+		p := harness.Start(t, harness.Options{Overlay: debugLogs})
 		covLogLine(t, p, "debug", "cov-debug")
 		p.WaitLog(t, waitFor, func(l harness.Log) bool { return l.Msg() == "cov-debug" && l.Level() == "DEBUG" })
 	})

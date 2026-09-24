@@ -215,7 +215,7 @@ func TestFunctional_采样率为0时不导出Span但照常生成并透传TraceID
 	t.Parallel()
 
 	stub := harness.NewStub(t)
-	p := harness.Start(t, harness.Options{Spans: true, Downstream: stub.URL, Env: map[string]string{"E2E_SAMPLE_RATIO": "0"}})
+	p := harness.Start(t, harness.Options{Spans: true, Downstream: stub.URL, Overlay: sampleRatio("0")})
 
 	r := p.PostJSON(t, "/users", map[string]string{"name": "unsampled"})
 	tid := traceIDOf(t, r)

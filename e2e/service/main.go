@@ -6,7 +6,7 @@
 // 再加上 E2E_CH_DSN=clickhouse://u:p@127.0.0.1:9000/db 与 --profile=ch 就多一个 ClickHouse 实例 ch。
 //
 // 它就是使用者会写的样子：匿名 import 即装配，配置全部来自 application.yml，
-// main 里只有读业务配置、挂一个 Span 出口、一行 MustRun（E2E_DRAIN 时服务外面套一层收尾，见 drain.go）。
+// main 里只有读业务配置、挂一个 Span 出口、一行 MustRun（Service.Drain 大于 0 时服务外面套一层收尾，见 drain.go）。
 //
 // 接口（细节见各 handler 的注释）：
 //
@@ -40,7 +40,7 @@ import (
 
 	// 匿名 import 就是全部「装配」：各包在 init 里登记自己，框架按档位起、逆序关
 	_ "github.com/xiaoshicae/x-one/e2e/service/store"  // 建表的启动钩子
-	_ "github.com/xiaoshicae/x-one/e2e/service/warmup" // 不看 ctx 的启动钩子，E2E_START_STALL 时才睡
+	_ "github.com/xiaoshicae/x-one/e2e/service/warmup" // 不看 ctx 的启动钩子，Service.StartStall 大于 0 时才睡
 	_ "github.com/xiaoshicae/x-one/xapp"
 	_ "github.com/xiaoshicae/x-one/xcache"
 	_ "github.com/xiaoshicae/x-one/xflow"

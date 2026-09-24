@@ -23,8 +23,6 @@ package e2e
 import (
 	"fmt"
 	"net/url"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -169,42 +167,31 @@ func mustNotContain(t *testing.T, where, text string, secrets ...string) {
 	}
 }
 
-// configWithout 把 service/application.yml 里以这些前缀开头的行删掉，写成一份临时配置，返回路径。
-//
-// 给「框架的默认值」用：application.yml 为了让用例能用环境变量切开关，把一些项写死成了
-// ${VAR:默认}，照原样起服务的话读到的是这份配置写的值，框架自己的默认值根本没被用上，
-// 默认值改错了也测不出来。每个前缀必须恰好删掉一行：配置文件改了、删不到的时候当场报错，
-// 而不是悄悄又测回配置文件的值
-func configWithout(t *testing.T, prefixes ...string) string {
-	t.Helper()
-	base, err := os.ReadFile(filepath.Join(harness.ModuleDir(), "service", "application.yml"))
-	if err != nil {
-		t.Fatal(err)
+// 开关的 Overlay 片段。顶层块各不相同的片段可以直接拼起来；同一个顶层块里的几项要写在一个片段里
+// （YAML 里同一个 key 出现两次是错误）。service/application.yml 没写这些项，不叠就是框架的默认值
+const (
+	// bodyLogs 访问日志连同请求体、响应体一起记
+	bodyLogs = "XGin:\n  LogRequestBody: true\n  LogResponseBody: true\n"
+	// debugLogs 日志级别 debug
+	debugLogs = "XLog:\n  Level: debug\n"
+)
+
+// logLevel 日志级别
+func logLevel(level string) string { return "XLog:\n  Level: " + level + "\n" }
+
+// sampleRatio 链路采样率
+func sampleRatio(r string) string { return "XTrace:\n  SampleRatio: " + r + "\n" }
+
+// stopTimeout 整个退出流程的预算（Service.StopTimeout → xone.WithStopTimeout）
+func stopTimeout(d time.Duration) string { return fmt.Sprintf("Service:\n  StopTimeout: %v\n", d) }
+
+// sqlLog 打开这几个 xgorm 实例（default 是 PG、mysql、ch）的 SQL 日志
+func sqlLog(clients ...string) string {
+	s := "XGorm:\n  Clients:\n"
+	for _, c := range clients {
+		s += "    " + c + ":\n      Log: true\n"
 	}
-	var kept []string
-	hits := map[string]int{}
-	for _, l := range strings.Split(string(base), "\n") {
-		drop := false
-		for _, p := range prefixes {
-			if strings.HasPrefix(l, p) {
-				hits[p]++
-				drop = true
-			}
-		}
-		if !drop {
-			kept = append(kept, l)
-		}
-	}
-	for _, p := range prefixes {
-		if hits[p] != 1 {
-			t.Fatalf("service/application.yml 里以 %q 开头的行应恰好有 1 行，实际 %d 行", p, hits[p])
-		}
-	}
-	cfg := filepath.Join(t.TempDir(), "application.yml")
-	if err := os.WriteFile(cfg, []byte(strings.Join(kept, "\n")), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return cfg
+	return s
 }
 
 // pgPassword harness 连 PG 用的密码，从它拼出来的 DSN 里取，不在这里再抄一遍默认值

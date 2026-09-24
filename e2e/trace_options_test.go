@@ -142,7 +142,7 @@ func TestCoverage_SampleRatio按比例采根Span_有上游时听上游的(t *tes
 	t.Parallel()
 
 	stub := harness.NewStub(t)
-	p := harness.Start(t, harness.Options{Spans: true, Downstream: stub.URL, Env: map[string]string{"E2E_SAMPLE_RATIO": "0.5"}})
+	p := harness.Start(t, harness.Options{Spans: true, Downstream: stub.URL, Overlay: sampleRatio("0.5")})
 
 	const roots = 400
 	rootIDs := map[string]bool{}

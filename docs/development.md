@@ -187,8 +187,10 @@ PG / MySQL / Redis 的 TLS 用例要以 root 在本机另起实例，runner 上�
   里有一行不是 JSON——使用者的日志平台按行解析 JSON，哪个三方库绕开 slog 写了一行纯文本，在他们那边就是一条解析失败的垃圾。
   放过的只有框架自己预期会写的（xlog 装好之前的默认格式行、`MustRun` 的最后一行错误、运行时的 panic 输出、被信号杀掉时没写完的一截）；
   输出本来就不是 JSON 的用例在 `Options.NonJSON` 里写上理由。
-- **加开关走 `Options.Overlay`，不加新的 `E2E_*` 环境变量。** Overlay 是叠在 `service/application.yml` 上的一份 profile，
-  用例里写的就是使用者会写的 YAML。现有的 `E2E_*` 只减不增。被测服务要多一个接口给 `TestCoverage_*` 用时挂在 `/probe` 下。
+- **开关一律走 `Options.Overlay`。** Overlay 是叠在 `service/application.yml` 上的一份 profile，
+  用例里写的就是使用者会写的 YAML；常用的片段（`stopTimeout`、`sqlLog`、`bodyLogs`……）在 `functional_test.go`。
+  `E2E_*` 环境变量只用来注入每个进程各不相同的值（端口、连接串、表名、文件路径），不当开关用。
+  `application.yml` 不替框架写默认值：没写的项就是框架的默认值，测默认行为的用例拿到的是真的默认值。被测服务要多一个接口给 `TestCoverage_*` 用时挂在 `/probe` 下。
 - **时长断言**：下界照实卡，上界给慢机器留余量——带 `-race` 的服务慢几倍，用例又都 `t.Parallel`。上界写成「量出来的数 × 3」
   或「文档推出来的数 + 一个具名的余量常量」（`faultSlack`、`faultUnaffected`），常量的注释里写清量出来是多少、反例是多少。
 - **用例照文档写的行为断言**，揭示了框架的 bug 时不改断言去迁就它，而是标成 `KNOWN BUG` 跳过，证据写在用例的注释里。

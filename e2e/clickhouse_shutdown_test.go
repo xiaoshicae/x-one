@@ -40,7 +40,7 @@ func TestClickHouse_SIGTERM时在途的ClickHouse查询做完才关连接池(t *
 		stucks = 2
 		sleep  = 1500 * time.Millisecond
 	)
-	p := chStart(t, harness.Options{Env: map[string]string{"E2E_STOP_TIMEOUT": budget.String()}})
+	p := chStart(t, harness.Options{Overlay: stopTimeout(budget)})
 
 	type shot struct {
 		path string
@@ -168,7 +168,7 @@ func TestClickHouse_卡住的ClickHouse查询_请求ctx被取消时当场返回_
 			closeAt    = serverPart - serverPart/5 // 1.6s
 		)
 		chp := harness.NewProxy(t, harness.CHAddr())
-		p := chStart(t, harness.Options{CHAddr: chp.Addr(), Env: map[string]string{"E2E_STOP_TIMEOUT": budget.String()}})
+		p := chStart(t, harness.Options{CHAddr: chp.Addr(), Overlay: stopTimeout(budget)})
 		ids, _ := chInsert(t, p, "stalled", 1)
 		chp.SetDelay(time.Hour)
 		done := make(chan struct{})

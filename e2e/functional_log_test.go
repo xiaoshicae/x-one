@@ -27,10 +27,8 @@ func TestFunctional_访问日志字段齐全并和业务日志与Span共用trace
 	harness.Require(t)
 	t.Parallel()
 
-	// 下面要核对「body 日志默认不记」这个框架默认值，而 application.yml 把这两项写死成了
-	// ${E2E_LOG_*_BODY:false}：照原样起的话读到的是配置文件写的 false，xgin 的默认值改成 true 也测不出来。
-	// 删掉这两行，让 XGin 块里这两项落回 xgin.DefaultConfig
-	p := harness.Start(t, harness.Options{Spans: true, Config: configWithout(t, "  LogRequestBody:", "  LogResponseBody:")})
+	// 下面要核对「body 日志默认不记」这个框架默认值：service/application.yml 没写这两项，读到的就是 xgin.DefaultConfig
+	p := harness.Start(t, harness.Options{Spans: true})
 
 	start := time.Now()
 	r := p.PostJSON(t, "/users", map[string]string{"name": "logan", "email": "logan@example.com"},
@@ -140,10 +138,7 @@ func TestFunctional_打开请求体日志后敏感信息全部被遮掉(t *testi
 	harness.Require(t)
 	t.Parallel()
 
-	p := harness.Start(t, harness.Options{Env: map[string]string{
-		"E2E_LOG_REQUEST_BODY":  "true",
-		"E2E_LOG_RESPONSE_BODY": "true",
-	}})
+	p := harness.Start(t, harness.Options{Overlay: bodyLogs})
 	var secrets []string // 每个子测试用到的明文，最后在整个输出里再查一遍
 	secret := func(label string) string {
 		s := label + "-" + harness.NewID()
@@ -366,10 +361,7 @@ func TestFunctional_PG密码不出现在任何日志和错误里(t *testing.T) {
 		pg := harness.NewProxy(t, harness.PGAddr())
 		p := harness.Start(t, harness.Options{
 			PGAddr: pg.Addr(), Spans: true, Downstream: stub.URL,
-			Env: map[string]string{
-				"E2E_SQL_LOG": "true", "E2E_LOG_LEVEL": "debug",
-				"E2E_LOG_REQUEST_BODY": "true", "E2E_LOG_RESPONSE_BODY": "true",
-			},
+			Overlay: sqlLog("default") + debugLogs + bodyLogs,
 		})
 		var bodies []string
 		keep := func(r harness.Response) { bodies = append(bodies, string(r.Body)) }
@@ -514,7 +506,7 @@ func TestFunctional_SQL日志只记占位符不记参数值(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
-	p := harness.Start(t, harness.Options{Spans: true, Env: map[string]string{"E2E_SQL_LOG": "true"}})
+	p := harness.Start(t, harness.Options{Spans: true, Overlay: sqlLog("default")})
 	name, email := "sql-name-"+harness.NewID(), "sql-email-"+harness.NewID()+"@example.com"
 	r := p.PostJSON(t, "/users", map[string]string{"name": name, "email": email})
 	tid := traceIDOf(t, r)

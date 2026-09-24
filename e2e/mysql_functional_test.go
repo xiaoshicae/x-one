@@ -86,7 +86,7 @@ func TestMySQL_增删改查走第二个实例且数据真的落在MySQL上(t *te
 func TestMySQL_SQL日志只记问号占位符不记参数值_和Span的db_query_text一致_Log按实例生效(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
-	p := harness.Start(t, harness.Options{Spans: true, Env: map[string]string{"E2E_MYSQL_SQL_LOG": "true"}})
+	p := harness.Start(t, harness.Options{Spans: true, Overlay: sqlLog("mysql")})
 	name, email := "sql-"+harness.NewID(), "sql-"+harness.NewID()+"@example.com"
 
 	sqlOf := func(t *testing.T, tid string) []harness.Log {
@@ -262,10 +262,7 @@ func TestMySQL_密码不出现在任何日志Span指标和响应里(t *testing.T
 	dsn := harness.MySQLDSN(my.Addr())
 	p := harness.Start(t, harness.Options{
 		MySQLAddr: my.Addr(), Spans: true,
-		Env: map[string]string{
-			"E2E_MYSQL_SQL_LOG": "true", "E2E_LOG_LEVEL": "debug",
-			"E2E_LOG_REQUEST_BODY": "true", "E2E_LOG_RESPONSE_BODY": "true",
-		},
+		Overlay: sqlLog("mysql") + debugLogs + bodyLogs,
 	})
 	var bodies []string
 	keep := func(r harness.Response) harness.Response { bodies = append(bodies, string(r.Body)); return r }
@@ -428,7 +425,7 @@ func TestMySQL_卡住或宕机时_查询在调用方给的截止时间返回(t *
 func TestXGorm_服务端错误原文里的参数值不进SQL日志和Span(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
-	p := harness.Start(t, harness.Options{Spans: true, Env: map[string]string{"E2E_SQL_LOG": "true", "E2E_MYSQL_SQL_LOG": "true"}})
+	p := harness.Start(t, harness.Options{Spans: true, Overlay: sqlLog("default", "mysql")})
 
 	// 顺带：建连日志写着是哪个实例（两个实例连的库名一样，只看 addr / db 分不清）
 	for _, name := range []string{"default", "mysql"} {

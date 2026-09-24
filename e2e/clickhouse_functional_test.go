@@ -106,7 +106,7 @@ func TestClickHouse_建连探测查到的版本号设进了Dialector_24点8上�
 func TestClickHouse_SQL日志只记问号占位符不记参数值_和Span的db_query_text一致(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
-	p := chStart(t, harness.Options{Spans: true, Env: map[string]string{"E2E_CH_SQL_LOG": "true"}})
+	p := chStart(t, harness.Options{Spans: true, Overlay: sqlLog("ch")})
 	name := "sql-" + harness.NewID()
 
 	sqlOf := func(t *testing.T, tid string) []harness.Log {
@@ -261,7 +261,7 @@ func TestClickHouse_SQL的Span带上这个实例自己的连接信息(t *testing
 func TestClickHouse_服务端错误原文里的参数值不进SQL日志和Span(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
-	p := chStart(t, harness.Options{Spans: true, Env: map[string]string{"E2E_CH_SQL_LOG": "true"}})
+	p := chStart(t, harness.Options{Spans: true, Overlay: sqlLog("ch")})
 	value := "leak-" + harness.NewID()
 	r := p.Do(t, http.MethodPost, "/bad-sql", map[string]string{"db": "ch", "value": value})
 	if r.Status != http.StatusInternalServerError {
@@ -352,10 +352,7 @@ func TestClickHouse_密码不出现在任何日志Span指标和响应里(t *test
 	dsn := harness.CHDSN(chp.Addr())
 	p := chStart(t, harness.Options{
 		CHAddr: chp.Addr(), Spans: true,
-		Env: map[string]string{
-			"E2E_CH_SQL_LOG": "true", "E2E_LOG_LEVEL": "debug",
-			"E2E_LOG_REQUEST_BODY": "true", "E2E_LOG_RESPONSE_BODY": "true",
-		},
+		Overlay: sqlLog("ch") + debugLogs + bodyLogs,
 	})
 	var bodies []string
 	keep := func(r harness.Response) harness.Response { bodies = append(bodies, string(r.Body)); return r }

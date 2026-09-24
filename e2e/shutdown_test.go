@@ -36,7 +36,7 @@ import (
 func TestShutdown_压力下收到SIGTERM_在途请求全部做完_新连接被拒_以0退出(t *testing.T) {
 	harness.Require(t)
 	const budget = 5 * time.Second
-	p := harness.Start(t, harness.Options{Env: map[string]string{"E2E_STOP_TIMEOUT": budget.String()}})
+	p := harness.Start(t, harness.Options{Overlay: stopTimeout(budget)})
 
 	var ids []int64
 	for i := range 20 {
@@ -238,7 +238,7 @@ func TestShutdown_压力下收到SIGTERM_在途请求全部做完_新连接被�
 // 「Stop + 等 Start 返回」；Stop 返回不等于服务已经停干净，框架等 Start 真正返回
 // 才关其余组件，不然还在跑的活会摸到已经关掉的数据库和缓存。
 //
-// 服务配 E2E_DRAIN：Start 在 xgin 返回之后再收 drain 这么久的尾（不看 ctx），
+// 服务配 Service.Drain：Start 在 xgin 返回之后再收 drain 这么久的尾（不看 ctx），
 // 然后查一次 PG、Ping 一次 Redis，记一条 drain finished（见 service/drain.go）。
 // xgin.Stop 没有在途请求要等，一上来就返回——此后还没关组件，全靠 Run 在等 Start。
 // 框架要是 Stop 一返回就去关组件，收尾要么摸到关掉的连接池，要么进程先退出、它根本没做完
@@ -248,10 +248,7 @@ func TestShutdown_Start返回之前不关数据库和缓存(t *testing.T) {
 		budget = 5 * time.Second
 		drain  = 500 * time.Millisecond
 	)
-	p := harness.Start(t, harness.Options{Env: map[string]string{
-		"E2E_STOP_TIMEOUT": budget.String(),
-		"E2E_DRAIN":        drain.String(),
-	}})
+	p := harness.Start(t, harness.Options{Overlay: fmt.Sprintf("Service:\n  StopTimeout: %v\n  Drain: %v\n", budget, drain)})
 
 	exit := p.Terminate(t, budget+5*time.Second)
 	t.Logf("退出：%v（收尾 %v，预算 %v）", exit, drain, budget)
@@ -361,7 +358,7 @@ func TestShutdown_不看ctx的handler在途时收到SIGTERM_报出仍在运行�
 		closeAt    = serverPart - serverPart/5 // 1.6s：剩余时间的 20% 是 0.4s，不到 1s
 		tolerance  = 300 * time.Millisecond    // 实测误差在 20ms 以内（信号投递 + 10ms 的轮询间隔）
 	)
-	p := harness.Start(t, harness.Options{Env: map[string]string{"E2E_STOP_TIMEOUT": budget.String()}})
+	p := harness.Start(t, harness.Options{Overlay: stopTimeout(budget)})
 
 	type result struct {
 		path string
@@ -448,7 +445,7 @@ func TestShutdown_退出卡住时第二个信号立刻终止进程(t *testing.T)
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			p := harness.Start(t, harness.Options{Env: map[string]string{"E2E_STOP_TIMEOUT": "60s"}})
+			p := harness.Start(t, harness.Options{Overlay: stopTimeout(time.Minute)})
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			go func() { _, _ = p.Request(ctx, http.MethodGet, "/stuck?ms=60000", nil) }()
@@ -498,7 +495,7 @@ func TestShutdown_退出卡住时第二个信号立刻终止进程(t *testing.T)
 //
 // 这两例里被打断的建连看到 ctx 取消就返回错误，runStart 走的是出错那条路——第 2 条的
 // 「框架在每个钩子之前再查一次」一次都轮不到（把那次复查删掉，这两例照样全过）。
-// 所以还有第三例：一个不看 ctx 的启动钩子（warmup，E2E_START_STALL）睡着时收到信号，
+// 所以还有第三例：一个不看 ctx 的启动钩子（warmup，Service.StartStall）睡着时收到信号，
 // 睡完照样成功返回；它算建好了，框架得自己在下一个钩子之前停下
 func TestShutdown_启动期间收到SIGTERM_不启动服务_已建好的逆序关掉_以0退出(t *testing.T) {
 	harness.Require(t)
@@ -512,16 +509,15 @@ func TestShutdown_启动期间收到SIGTERM_不启动服务_已建好的逆序�
 		hook   string // 卡住的那个启动钩子
 		target string // 经代理压住回话的对端；空表示不用代理
 		opts   func(addr string) harness.Options
+		stall  time.Duration // warmup 启动钩子不看 ctx 地睡多久（Service.StartStall），0 是不睡
 		// completes 卡住的那个钩子不看 ctx、睡完照样成功返回：它算建好了，要跟着关
 		completes bool
 		limit     time.Duration // 信号之后多久之内退出，0 表示 immediate
 	}{
 		{name: "PG建连中", hook: "xgorm.initXGorm", target: harness.PGAddr(),
 			opts: func(a string) harness.Options { return harness.Options{PGAddr: a} }},
-		{name: "不看ctx的启动钩子", hook: "warmup.preload", completes: true, limit: stall + immediate,
-			opts: func(string) harness.Options {
-				return harness.Options{Env: map[string]string{"E2E_START_STALL": stall.String()}}
-			}},
+		{name: "不看ctx的启动钩子", hook: "warmup.preload", completes: true, limit: stall + immediate, stall: stall,
+			opts: func(string) harness.Options { return harness.Options{} }},
 		{name: "Redis建连中", hook: "xredis.initXRedis", target: harness.RedisAddr(),
 			// go-redis 只认 ctx 的截止时间、取消叫不醒阻塞在读上的 Ping，xredis 的探测因此放在协程里跑、
 			// 这边看着 ctx：从前信号要等这次读撞上 ReadTimeout 才生效（默认 500ms 时约 450ms，配 3s 时约 2.95s）。
@@ -542,10 +538,7 @@ func TestShutdown_启动期间收到SIGTERM_不启动服务_已建好的逆序�
 				o = c.opts("")
 			}
 			o.NoWait = true
-			if o.Env == nil {
-				o.Env = map[string]string{}
-			}
-			o.Env["E2E_STOP_TIMEOUT"] = "5s"
+			o.Overlay += fmt.Sprintf("Service:\n  StopTimeout: 5s\n  StartStall: %v\n", c.stall)
 			p := harness.Start(t, o)
 
 			p.WaitLog(t, 15*time.Second, func(l harness.Log) bool { return l.Msg() == "starting" && l.Str("hook") == c.hook })
@@ -679,7 +672,7 @@ func TestShutdown_断连之后_传了请求ctx的PG调用停得下来_Redis调�
 		t.Run(c.name, func(t *testing.T) {
 			proxy := harness.NewProxy(t, c.target)
 			o := c.opts(proxy.Addr())
-			o.Env = map[string]string{"E2E_STOP_TIMEOUT": budget.String()}
+			o.Overlay += stopTimeout(budget)
 			p := harness.Start(t, o)
 			u := createUser(t, p, "slowcall", "slowcall@example.com")
 			path := fmt.Sprintf(c.path, u.ID)

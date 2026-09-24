@@ -4,7 +4,6 @@
 # 这样没有 ClickHouse 的机器上，别的 e2e 照样跑得起来。
 #
 #   E2E_CH_DSN       XGorm.Clients.ch.DSN（激活时必填），clickhouse://user:pass@host:9000/db
-#   E2E_CH_SQL_LOG   XGorm.Clients.ch.Log
 #
 # 其余配置项一律取 xgorm 的默认值：DialTimeout 500ms 注进 DSN 的 dial_timeout，
 # read_timeout 不注入（驱动默认 300s），连接池 50 / 50 / 5m / 5m。
@@ -14,4 +13,3 @@ XGorm:
     ch:
       Driver: clickhouse
       DSN: "${E2E_CH_DSN}"
-      Log: ${E2E_CH_SQL_LOG:false}

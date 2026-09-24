@@ -19,12 +19,12 @@ import (
 
 // Options 起一个进程的参数。零值就能用：直连 PG / MySQL / Redis、随机端口、按测试生成表名
 type Options struct {
-	// Env 额外的环境变量，覆盖 harness 设的同名变量。开关的名字见 service/application.yml 开头
+	// Env 额外的环境变量，覆盖 harness 设的同名变量（名字见 service/application.yml 开头）。
+	// 只用来换注入的值，比如一条故意写错的 DSN；切开关用 Overlay
 	Env map[string]string
 
 	// Overlay 叠加在配置文件上的 YAML，写成一份 profile（--profile=e2e）叠上去：
-	// map 递归合并、列表整体替换，和生产上的 profile 一个规矩。环境变量盖不了的
-	// 列表、map（TrustedProxies、ForwardHeaderRules……）用它
+	// map 递归合并、列表整体替换，和生产上的 profile 一个规矩。配置项的开关都用它
 	Overlay string
 
 	// Config 换一份配置文件，默认 e2e/service/application.yml。只对 Start 有效

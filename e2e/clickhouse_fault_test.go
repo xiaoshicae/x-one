@@ -423,7 +423,7 @@ func TestClickHouse_启动时ClickHouse不回话期间收到SIGTERM_最多再等
 			t.Parallel()
 			chp := harness.NewProxy(t, harness.CHAddr())
 			m.inject(chp)
-			p := chStart(t, harness.Options{CHAddr: chp.Addr(), NoWait: true, Env: map[string]string{"E2E_STOP_TIMEOUT": "5s"}})
+			p := chStart(t, harness.Options{CHAddr: chp.Addr(), NoWait: true, Overlay: stopTimeout(5 * time.Second)})
 			p.WaitLog(t, 15*time.Second, func(l harness.Log) bool { return l.Msg() == "starting" && l.Str("hook") == "xgorm.initXGorm" })
 			time.Sleep(100 * time.Millisecond) // 让第一次尝试卡进拨号或握手里
 			p.Signal(syscall.SIGTERM)

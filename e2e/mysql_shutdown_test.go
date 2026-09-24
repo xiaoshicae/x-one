@@ -33,7 +33,7 @@ func TestMySQL_SIGTERM时在途的MySQL查询做完才关连接池(t *testing.T)
 		stucks = 2
 		sleep  = 1500 * time.Millisecond
 	)
-	p := harness.Start(t, harness.Options{Env: map[string]string{"E2E_STOP_TIMEOUT": budget.String()}})
+	p := harness.Start(t, harness.Options{Overlay: stopTimeout(budget)})
 
 	type shot struct {
 		path string
@@ -160,8 +160,7 @@ func TestMySQL_卡住的MySQL查询_请求ctx被取消时当场返回_不等Read
 			closeAt    = serverPart - serverPart/5 // 1.6s
 		)
 		my := harness.NewProxy(t, harness.MySQLAddr())
-		p := harness.Start(t, harness.Options{MySQLAddr: my.Addr(), Overlay: overlay,
-			Env: map[string]string{"E2E_STOP_TIMEOUT": budget.String()}})
+		p := harness.Start(t, harness.Options{MySQLAddr: my.Addr(), Overlay: overlay + stopTimeout(budget)})
 		u, _ := mysqlCreate(t, p, "stalled", "stalled@example.com")
 		my.SetDelay(time.Hour)
 		done := make(chan struct{})
@@ -213,7 +212,7 @@ func TestMySQL_启动时MySQL不回话期间收到SIGTERM_当场退出(t *testin
 	const immediate = 200 * time.Millisecond // 同 TestShutdown_启动期间收到SIGTERM 的「当场放弃」
 	my := harness.NewProxy(t, harness.MySQLAddr())
 	my.SetDelay(time.Hour)
-	p := harness.Start(t, harness.Options{MySQLAddr: my.Addr(), NoWait: true, Env: map[string]string{"E2E_STOP_TIMEOUT": "5s"}})
+	p := harness.Start(t, harness.Options{MySQLAddr: my.Addr(), NoWait: true, Overlay: stopTimeout(5 * time.Second)})
 	p.WaitLog(t, 15*time.Second, func(l harness.Log) bool { return l.Msg() == "starting" && l.Str("hook") == "xgorm.initXGorm" })
 	deadline := time.Now().Add(5 * time.Second)
 	for my.Accepted() == 0 && time.Now().Before(deadline) {
