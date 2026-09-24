@@ -65,48 +65,28 @@ func TestDecodeStrict_默认值铺得上(t *testing.T) {
 	}
 }
 
-func TestHasKey(t *testing.T) {
-	var n yaml.Node
-	if err := yaml.Unmarshal([]byte("A: 1\nClients:\n  x: 1\n"), &n); err != nil {
-		t.Fatal(err)
-	}
-	doc := n.Content[0]
-
-	if !HasKey(doc, "Clients") || !HasKey(doc, "A") {
-		t.Error("有的 key 应当认得出来")
-	}
-	if HasKey(doc, "Nope") {
-		t.Error("没有的 key 不该认成有")
-	}
-	if HasKey(nil, "A") {
-		t.Error("nil 节点不该 panic，也不该说有")
-	}
-
-	var scalar yaml.Node
-	yaml.Unmarshal([]byte("just-a-string\n"), &scalar)
-	if HasKey(scalar.Content[0], "A") {
-		t.Error("不是 mapping 的节点不该说有 key")
-	}
-}
-
 type client struct {
 	Addr string `yaml:"Addr"`
 	Max  int    `yaml:"Max"`
 }
 
-// client 故意不写 UnmarshalYAML：两种写法的默认值都该由 DecodeClients 铺
+// client 故意不写 UnmarshalYAML：两种写法的默认值都该由 UnmarshalClients 铺
 func defClient() client { return client{Addr: "127.0.0.1", Max: 50} }
 
+// clients 把 src 作为 XMod 这一块装进全局配置，再按两种写法解出来
 func clients(t *testing.T, src string) (map[string]client, error) {
 	t.Helper()
-	var n yaml.Node
-	if err := yaml.Unmarshal([]byte(src), &n); err != nil {
-		t.Fatal(err)
+	body := "XMod:\n"
+	for _, line := range strings.SplitAfter(src, "\n") {
+		if line != "" {
+			body += "  " + line
+		}
 	}
-	return DecodeClients(n.Content[0], defClient)
+	useConf(t, body)
+	return UnmarshalClients("XMod", defClient)
 }
 
-func TestDecodeClients_单实例写法(t *testing.T) {
+func TestUnmarshalClients_单实例写法(t *testing.T) {
 	got, err := clients(t, "Addr: 10.0.0.1\n")
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +103,7 @@ func TestDecodeClients_单实例写法(t *testing.T) {
 	}
 }
 
-func TestDecodeClients_多实例写法(t *testing.T) {
+func TestUnmarshalClients_多实例写法(t *testing.T) {
 	got, err := clients(t, "Clients:\n  default: {Addr: a}\n  report: {Addr: b, Max: 5}\n")
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +117,7 @@ func TestDecodeClients_多实例写法(t *testing.T) {
 	}
 }
 
-func TestDecodeClients_多实例只写了名字也拿到默认值(t *testing.T) {
+func TestUnmarshalClients_多实例只写了名字也拿到默认值(t *testing.T) {
 	// report: 后面什么都没写，是「这个实例全用默认值」，不是「这个实例全是零值」
 	got, err := clients(t, "Clients:\n  default: {Addr: a}\n  report:\n")
 	if err != nil {
@@ -148,7 +128,7 @@ func TestDecodeClients_多实例只写了名字也拿到默认值(t *testing.T) 
 	}
 }
 
-func TestDecodeClients_实例里拼错时点名是哪个实例(t *testing.T) {
+func TestUnmarshalClients_实例里拼错时点名是哪个实例(t *testing.T) {
 	_, err := clients(t, "Clients:\n  a: {Addr: x}\n  b: {Adrr: y}\n")
 	if err == nil {
 		t.Fatal("拼错应当报错")
@@ -158,7 +138,7 @@ func TestDecodeClients_实例里拼错时点名是哪个实例(t *testing.T) {
 	}
 }
 
-func TestDecodeClients_两种写法不能混用(t *testing.T) {
+func TestUnmarshalClients_两种写法不能混用(t *testing.T) {
 	// 混着写时「default 到底是哪个」没有不让人意外的答案
 	_, err := clients(t, "Addr: a\nClients:\n  x: {Addr: b}\n")
 	if err == nil {
@@ -173,7 +153,7 @@ func TestDecodeClients_两种写法不能混用(t *testing.T) {
 	}
 }
 
-func TestDecodeClients_实例里拼错不该被报成混用(t *testing.T) {
+func TestUnmarshalClients_实例里拼错不该被报成混用(t *testing.T) {
 	// 「不能混用」这句话曾经是套在任何一个解码错误上的：实例里一个字段拼错
 	// （Clients.x.Adrr）报的也是它。那份配置根本没混用，使用者会照着这句话
 	// 去改一个没问题的地方，真正的拼写错误反而被这句提示盖住了。
@@ -192,13 +172,13 @@ func TestDecodeClients_实例里拼错不该被报成混用(t *testing.T) {
 	}
 }
 
-func TestDecodeClients_空的Clients要报错(t *testing.T) {
+func TestUnmarshalClients_空的Clients要报错(t *testing.T) {
 	if _, err := clients(t, "Clients: {}\n"); err == nil {
 		t.Fatal("写了 Clients 却是空的，应当报错")
 	}
 }
 
-func TestDecodeClients_拼写错误两种写法都要拦住(t *testing.T) {
+func TestUnmarshalClients_拼写错误两种写法都要拦住(t *testing.T) {
 	// 集合元素走的是自定义解码器，严格检查很容易在那里悄悄失效
 	if _, err := clients(t, "Adrr: a\n"); err == nil {
 		t.Error("单实例写法里拼错应当报错")
@@ -350,17 +330,7 @@ func TestHas_问过就算认领(t *testing.T) {
 	}
 }
 
-// multi 走 DecodeClients 的配置块，和 xredis 这些集成的写法一样
-type multi struct{ m map[string]client }
-
-func (c *multi) UnmarshalYAML(n *yaml.Node) (err error) {
-	c.m, err = DecodeClients(n, defClient)
-	return err
-}
-
-func TestDecodeClients_实例里拼错时报出配置文件和那一行(t *testing.T) {
-	// 实例的节点从前先解进 map[string]yaml.Node，那是又一次重新序列化出来的节点，
-	// 行号和配置文件对不上
+func TestUnmarshalClients_实例里拼错时报出配置文件和那一行(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "application.yml")
 	body := "XMod:\n  Clients:\n    a: {Addr: x}\n    b:\n      Max: 1\n      Adrr: y\n"
 	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
@@ -371,10 +341,45 @@ func TestDecodeClients_实例里拼错时报出配置文件和那一行(t *testi
 	if err := config.Load(p); err != nil {
 		t.Fatal(err)
 	}
-	var c multi
-	err := Unmarshal("XMod", &c)
-	want := p + ":6: Clients.b: field Adrr not found"
-	if err == nil || !strings.Contains(err.Error(), want) {
-		t.Errorf("报错该点名文件、行号和实例 %q，got=%v", want, err)
+	_, err := UnmarshalClients("XMod", defClient)
+	for _, want := range []string{"Clients.b: ", p + ":6: field Adrr not found"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("报错该点名实例、文件和行号 %q，got=%v", want, err)
+		}
+	}
+	var te *yaml.TypeError
+	if !errors.As(err, &te) {
+		t.Errorf("errors.As 该照样取得到 yaml 的类型错误，got=%v", err)
+	}
+}
+
+func TestUnmarshalClients_整块没配时返回nil且算认领(t *testing.T) {
+	useConf(t, "XMod:\n")
+	got, err := UnmarshalClients("XMod", defClient)
+	if err != nil || got != nil {
+		t.Fatalf("没配这一块该是 nil、不报错，got=%v err=%v", got, err)
+	}
+	if left := config.Unclaimed(); len(left) != 0 {
+		t.Errorf("问过就算认领，want 空，got=%v", left)
+	}
+}
+
+// checked 实现了 Validate 的实例类型
+type checked struct {
+	Max int `yaml:"Max"`
+}
+
+func (c *checked) Validate() error {
+	if c.Max <= 0 {
+		return errors.New("Max must be > 0")
+	}
+	return nil
+}
+
+func TestUnmarshalClients_每个实例都调一次Validate(t *testing.T) {
+	useConf(t, "XMod:\n  Clients:\n    a: {Max: 1}\n    b: {Max: 0}\n")
+	_, err := UnmarshalClients("XMod", func() checked { return checked{Max: 1} })
+	if err == nil || !strings.Contains(err.Error(), "Clients.b: Max must be > 0") {
+		t.Errorf("Validate 的话要带上来并点名实例，got=%v", err)
 	}
 }

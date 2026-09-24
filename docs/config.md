@@ -154,7 +154,7 @@ YAML 里就有字段补全、拼错标红和悬停说明：
 | 占位符的类型 | 按替换后的内容判定，`Port: ${PORT:8080}` 进的是 int 字段。加了引号就固定按字符串处理，数字形态的密码用 `"${PW}"` |
 | 占位符展开为空 | `${PORT:}` 或变量设成了空串，等于**这一项没写**：任何类型的字段都保持结构体里的默认值（注意是默认值，不是低优先级文件里的值——合并在展开之前）。真要空串就加引号：`"${PW:}"` |
 | 占位符的值是 null 写法 | 变量的值恰好是 `null`、`~`、`Null`、`NULL` 时**不**当成没写，固定按字符串处理：字符串字段拿到这个字面量，其他类型的字段启动失败并报类型错误。「这一项没写」只有展开为空这一种写法 |
-| 占位符与报错 | 类型不对时 yaml 的报错会带上值的前几个字符（超过 10 个字符留前 7 个）。由占位符展开出来的值在报错里换成配置里写的原文：密码填进了 int 字段，报的是 ``cannot unmarshal !!str `${DB_PASSWORD}` (expanded value redacted) into int``，凭证不会有一截进启动日志。按值认：配置里另有一个同值的字面量报错时也会被换掉 |
+| 占位符与报错 | 类型不对时 yaml 的报错会带上值的前几个字符（超过 10 个字符留前 7 个）。由占位符展开出来的值在报错里换成配置里写的原文：密码填进了 int 字段，报的是 ``cannot unmarshal !!str `${DB_PASSWORD}` (expanded value redacted) into int``，凭证不会有一截进启动日志。按项认：只换展开出来的那一项，配置里别处同值的字面量不受影响 |
 | 建连重试 | 连不上时按 3 次重试，两次之间的等待**逐次翻倍并带抖动**（`[0, 当前退避]` 之间取值）。退避从 **1s** 起，两次退避的上界是 1s、2s，所以启动时一个实例最多等 `3 × 单次探测预算 + 3s`（XGorm 连 PostgreSQL 默认 `3 × 1.5s + 3s = 7.5s`，XRedis 默认 `3 × 1s + 3s = 6s`）。翻倍是不想一直按同一个节奏敲正在恢复的下游，抖动是不想一群副本同时重启时在同一瞬间一起敲过去。XGorm 连 PostgreSQL 时**认证失败不重试**（SQLSTATE 第 28 类，密码错、用户不存在都是 28P01），连 MySQL 时同样（错误号 1045：密码错、用户不存在；1044：没有这个库的权限，没有全局权限的账号连一个不存在的库拿到的也是 1044；实测 MySQL 8.0.46），错误报 `authentication to <地址> failed` 而不是 `cannot reach`：服务端已经明确拒绝了，再试只是多等两轮退避。XRedis 同理（`WRONGPASS` / `NOAUTH`） |
 | 超时写 0 | **不是「不限时」而是「一点都不等」**。`XTrace.ShutdownTimeout`、`XFlow.RollbackTimeout` 写 0 直接启动失败。反过来 `XGin.ReadHeaderTimeout` / `IdleTimeout` 写 0 在 net/http 里是「不限时」，同样启动失败 |
 | 列表字段 | 文件里写了就整体替换，不会和默认值混在一起 |
@@ -869,21 +869,10 @@ import 语句的书写顺序决定，有先后要求的放进不同档位。
 **启动失败时框架不会调你的停止钩子**——一起登记的就是一对：停止钩子只在同一个包里、
 在它之前最近登记的那个启动钩子成功之后才执行，所以停止钩子里不必处理「资源还没建起来」。
 
-要支持「单实例 / 多实例两种写法」就再加两样：
+要支持「单实例 / 多实例两种写法」，读配置换成 `xconfig.UnmarshalClients`，
+建实例的地方从「一个」变成「按名字挨个建」：
 
 ```go
-// 配置分派。两种写法里的每个实例都先铺上 DefaultClientConfig 再解，
-// 文件里没写的字段保持默认，ClientConfig 不必自己写 UnmarshalYAML
-func (c *Config) UnmarshalYAML(n *yaml.Node) error {
-    clients, err := xconfig.DecodeClients(n, DefaultClientConfig)
-    if err != nil {
-        return err
-    }
-    c.Clients = clients
-    return nil
-}
-
-// 建实例的地方从「一个」变成「按名字挨个建」。
 // 存到哪、怎么取还是本包自己的事——下面是最直白的做法，一个加锁的 map
 var (
     mu    sync.RWMutex
@@ -891,14 +880,17 @@ var (
 )
 
 func initXMine(ctx context.Context) error {
-    c := DefaultConfig()
-    if err := xconfig.Unmarshal(ConfigKey, &c); err != nil {
+    // 有 Clients 就是多实例，没有就是单实例、名字是 default；两种混着写是错误。
+    // 每个实例都先铺上 DefaultClientConfig 再解，文件里没写的字段保持默认。
+    // 整块没配时 clients 是 nil
+    clients, err := xconfig.UnmarshalClients(ConfigKey, DefaultClientConfig)
+    if err != nil {
         return err
     }
     // 按名字排序挨个建，中间有一个建不起来就把已经建好的全关掉再报错，
     // 并在错误里点名是哪一个：启动钩子返回错误时框架不会调本包的停止钩子，
     // 不自己收拾就会漏掉那几个连接池
-    return buildAll(ctx, c.Clients)
+    return buildAll(ctx, clients)
 }
 
 func C(name ...string) *Client { ... }

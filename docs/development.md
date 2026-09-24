@@ -195,7 +195,7 @@ func C() *Client { /* ... */ }
 - 带三方依赖的集成做成独立的 Go module，别让它的依赖进核心。
 
 可运行的完整样例：[`example/component/xkv/`](../example/component/xkv/)。
-多实例写法（`xconfig.DecodeClients`、按名字的 `C(name...)` / `Has` / `Names`）和
+多实例写法（`xconfig.UnmarshalClients`、按名字的 `C(name...)` / `Has` / `Names`）和
 更多细节见 [`config.md`「写一个自己的集成」](config.md#写一个自己的集成)。
 
 ## e2e：真实 Web 服务测试

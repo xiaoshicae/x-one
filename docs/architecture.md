@@ -298,7 +298,7 @@ xone 接管的是 SIGINT 和 SIGTERM，做法是三件事一起：
 | 共用的东西 | 在哪 |
 |---|---|
 | 具名实例、建实例、失败回滚、逆序关闭 | `internal/xclient`（多实例模块共用，不对外） |
-| 单实例 / 多实例两种写法的解码 | `xconfig.DecodeClients` |
+| 单实例 / 多实例两种写法的解码 | `xconfig.UnmarshalClients` |
 | 带总预算的重试（建连验证用） | `xutil.Retry` |
 | 注册指标并断回具体类型 | `xmetric.RegisterAs` |
 
@@ -333,7 +333,7 @@ xone 接管的是 SIGINT 和 SIGTERM，做法是三件事一起：
 规则本身在 [`config.md`「通用规则」](config.md#通用规则)，这里只记为什么这样定：
 
 - **默认值预填在结构体里，不用 `*bool` 指针。** 文件没写的字段保持不变，`Enable: false` 就是 false。
-- **集合里的默认值。** 多实例的 `Clients` 由 `xconfig.DecodeClients` 逐个实例铺默认值。
+- **集合里的默认值。** 多实例的 `Clients` 由 `xconfig.UnmarshalClients` 逐个实例铺默认值。
   别的 map / 切片元素从零值开始解，要默认值就给元素类型写 `UnmarshalYAML`，里面用
   `xconfig.DecodeStrict`（**不能用 `node.Decode`，它会丢掉严格检查**）。
 - **单实例与多实例不能混用。** `XGorm.DSN` 是单实例写法，`XGorm.Clients.<名字>` 是多实例写法。

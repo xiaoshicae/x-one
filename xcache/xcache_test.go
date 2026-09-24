@@ -22,12 +22,17 @@ import (
 
 func load(t *testing.T, yml string) Config {
 	t.Helper()
-	c := DefaultConfig()
 	path := filepath.Join(t.TempDir(), "application.yml")
 	if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := config.LoadInto(path, ConfigKey, &c); err != nil {
+	config.Reset()
+	t.Cleanup(config.Reset)
+	if err := config.Load(path); err != nil {
+		t.Fatalf("加载失败：%v", err)
+	}
+	c, err := loadConfig()
+	if err != nil {
 		t.Fatalf("加载失败：%v", err)
 	}
 	return c
@@ -35,10 +40,15 @@ func load(t *testing.T, yml string) Config {
 
 func loadErr(t *testing.T, yml string) error {
 	t.Helper()
-	c := DefaultConfig()
 	path := filepath.Join(t.TempDir(), "application.yml")
 	os.WriteFile(path, []byte(yml), 0o644)
-	return config.LoadInto(path, ConfigKey, &c)
+	config.Reset()
+	t.Cleanup(config.Reset)
+	if err := config.Load(path); err != nil {
+		return err
+	}
+	_, err := loadConfig()
+	return err
 }
 
 // withInstances 装一套实例，测试结束后还原

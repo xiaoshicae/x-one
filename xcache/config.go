@@ -12,8 +12,6 @@ import (
 	"fmt"
 	"time"
 
-	"go.yaml.in/yaml/v3"
-
 	"github.com/xiaoshicae/x-one/xconfig"
 )
 
@@ -76,14 +74,11 @@ func DefaultClientConfig() ClientConfig {
 // DefaultConfig 默认没有任何实例——没配 XCache 就不建缓存
 func DefaultConfig() Config { return Config{} }
 
-// UnmarshalYAML 支持单实例和多实例两种写法，解码规则见 xconfig.DecodeClients
-func (c *Config) UnmarshalYAML(n *yaml.Node) error {
-	clients, err := xconfig.DecodeClients(n, DefaultClientConfig)
-	if err != nil {
-		return err
-	}
-	c.Clients = clients
-	return nil
+// loadConfig 读配置文件里的这一块。单实例和多实例两种写法都收，
+// 每个实例先铺上 DefaultClientConfig 再解，规则见 xconfig.UnmarshalClients
+func loadConfig() (Config, error) {
+	clients, err := xconfig.UnmarshalClients(ConfigKey, DefaultClientConfig)
+	return Config{Clients: clients}, err
 }
 
 // validate 检查配置本身说不通的地方

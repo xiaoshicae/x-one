@@ -256,8 +256,8 @@ func initXRedis(ctx context.Context) error {
 	if !xconfig.Has(ConfigKey) {
 		return xclient.Build(ctx, reg, nil, build)
 	}
-	c := DefaultConfig()
-	if err := xconfig.Unmarshal(ConfigKey, &c); err != nil {
+	c, err := loadConfig()
+	if err != nil {
 		return err
 	}
 	return install(ctx, c)
