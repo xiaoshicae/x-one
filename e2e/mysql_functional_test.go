@@ -3,6 +3,7 @@ package e2e
 import (
 	"bytes"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -79,10 +80,10 @@ func TestMySQL_增删改查走第二个实例且数据真的落在MySQL上(t *te
 }
 
 // docs/config.md XGorm.Log：「记的是带占位符的 SQL，不含参数值」「占位符就是发给数据库的那样：MySQL 是 ?」；
-// 日志里的语句就是 Span 的 db.statement（xgorm/trace.go：「记的是带占位符的 SQL，不记 Statement.Vars」）。
+// 日志里的语句就是 Span 的 db.query.text（xgorm/trace.go：「记的是带占位符的 SQL，不记 Statement.Vars」）。
 //
 // Log 按实例生效（它是 ClientConfig 的字段）：只给 mysql 开，default（PG）那边的 SQL 一条都不该记
-func TestMySQL_SQL日志只记问号占位符不记参数值_和Span的db_statement一致_Log按实例生效(t *testing.T) {
+func TestMySQL_SQL日志只记问号占位符不记参数值_和Span的db_query_text一致_Log按实例生效(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	p := harness.Start(t, harness.Options{Spans: true, Env: map[string]string{"E2E_MYSQL_SQL_LOG": "true"}})
@@ -113,8 +114,8 @@ func TestMySQL_SQL日志只记问号占位符不记参数值_和Span的db_statem
 		if len(spans) != 1 {
 			t.Fatalf("%s 的链路上应有一个 %s", what, spanName)
 		}
-		if sent := spans[0].Str("db.statement"); sent != logged {
-			t.Errorf("%s：SQL 日志和 Span 的 db.statement 应是同一条语句：日志 %q，Span %q", what, logged, sent)
+		if sent := spans[0].Str("db.query.text"); sent != logged {
+			t.Errorf("%s：SQL 日志和 Span 的 db.query.text 应是同一条语句：日志 %q，Span %q", what, logged, sent)
 		}
 		t.Logf("数字：%s 记下的 SQL：%s", what, logged)
 	}
@@ -133,8 +134,9 @@ func TestMySQL_SQL日志只记问号占位符不记参数值_和Span的db_statem
 	}
 }
 
-// Span 的属性（xgorm/trace.go startSpan / endSpan）：db.system 是驱动名、db.name 是库名、
-// server.address 是从 DSN 里解出来的地址、db.operation 是操作，结束时补 db.rows_affected；
+// Span 的属性（xgorm/trace.go，OTel 数据库语义约定 v1.43.0）：db.system.name 是数据库、db.namespace 是库名、
+// server.address / server.port 是从 DSN 里解出来的地址、db.operation.name 是语句的第一个关键字，
+// 结束时补 db.rows_affected；
 // 父是服务端 Span。每个实例用自己的连接信息：同一个请求里 PG 和 MySQL 的 Span 各报各的
 func TestMySQL_SQL的Span带上这个实例自己的连接信息(t *testing.T) {
 	harness.Require(t)
@@ -151,10 +153,10 @@ func TestMySQL_SQL的Span带上这个实例自己的连接信息(t *testing.T) {
 		what, span, op, rows string
 		r                    harness.Response
 	}{
-		{"POST /mysql/users", "gorm.create", "create", "1", r},
-		{"PUT /mysql/users/:id", "gorm.update", "update", "1", upd},
-		{"DELETE /mysql/users/:id", "gorm.delete", "delete", "1", del},
-		{"GET 删掉之后", "gorm.query", "query", "0", miss},
+		{"POST /mysql/users", "gorm.create", "INSERT", "1", r},
+		{"PUT /mysql/users/:id", "gorm.update", "UPDATE", "1", upd},
+		{"DELETE /mysql/users/:id", "gorm.delete", "DELETE", "1", del},
+		{"GET 删掉之后", "gorm.query", "SELECT", "0", miss},
 	} {
 		t.Run(c.what, func(t *testing.T) {
 			tid := traceIDOf(t, c.r)
@@ -167,9 +169,10 @@ func TestMySQL_SQL的Span带上这个实例自己的连接信息(t *testing.T) {
 			if s.ParentSpanID != srv.SpanID || s.Kind != "client" {
 				t.Errorf("%s 应是服务端 Span 的子 Span、kind=client，实际 parent=%s kind=%s", c.span, s.ParentSpanID, s.Kind)
 			}
+			host, port, _ := net.SplitHostPort(harness.MySQLAddr())
 			for k, want := range map[string]string{
-				"db.system": "mysql", "db.name": "xone_e2e", "server.address": harness.MySQLAddr(),
-				"db.operation": c.op, "db.rows_affected": c.rows,
+				"db.system.name": "mysql", "db.namespace": "xone_e2e", "server.address": host, "server.port": port,
+				"db.operation.name": c.op, "db.rows_affected": c.rows,
 			} {
 				if got := s.Str(k); got != want {
 					t.Errorf("%s 的 %s 应是 %q，实际 %q", c.span, k, want, got)
@@ -188,22 +191,23 @@ func TestMySQL_SQL的Span带上这个实例自己的连接信息(t *testing.T) {
 		tid := traceIDOf(t, pr)
 		serverSpan(t, p, tid)
 		q := spansNamed(traceSpans(t, p, tid), "gorm.query")
-		if len(q) != 1 || q[0].Str("db.system") != "postgres" || q[0].Str("server.address") != harness.PGAddr() {
-			t.Errorf("default 实例的 gorm.query 应报 postgres / %s，实际 %v", harness.PGAddr(), spanNames(q))
+		host, _, _ := net.SplitHostPort(harness.PGAddr())
+		if len(q) != 1 || q[0].Str("db.system.name") != "postgresql" || q[0].Str("server.address") != host {
+			t.Errorf("default 实例的 gorm.query 应报 postgresql / %s，实际 %v", host, spanNames(q))
 		}
 	})
 }
 
 // docs/config.md XGorm：「Metric: true # 连接池指标，按实例生效：Metric: false 的实例不出现在 /metrics 里」。
 // 指标按实例名打 name 标签，每个实例报自己的池子：给 mysql 配 MaxOpenConns: 7，
-// e2e_db_connections_max_open{name="mysql"} 就是 7，default 仍是默认的 50
+// e2e_db_pool_max_open{name="mysql"} 就是 7，default 仍是默认的 50
 func TestMySQL_连接池指标按实例名打标签_Metric按实例关得掉(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	pool := []string{
-		"e2e_db_connections_open", "e2e_db_connections_in_use", "e2e_db_connections_idle", "e2e_db_connections_max_open",
-		"e2e_db_connections_wait_total", "e2e_db_connections_wait_duration_seconds_total",
-		"e2e_db_connections_closed_max_idle_total", "e2e_db_connections_closed_max_lifetime_total",
+		"e2e_db_pool_open", "e2e_db_pool_in_use", "e2e_db_pool_idle", "e2e_db_pool_max_open",
+		"e2e_db_pool_wait_total", "e2e_db_pool_wait_duration_seconds_total",
+		"e2e_db_pool_closed_max_idle_total", "e2e_db_pool_closed_max_lifetime_total",
 	}
 
 	t.Run("两个实例各报各的", func(t *testing.T) {
@@ -218,16 +222,16 @@ func TestMySQL_连接池指标按实例名打标签_Metric按实例关得掉(t *
 				}
 			}
 		}
-		if got := m.Sum("e2e_db_connections_max_open", "name", "mysql"); got != 7 {
-			t.Errorf("mysql 实例配了 MaxOpenConns: 7，e2e_db_connections_max_open{name=\"mysql\"} 应是 7，实际 %v", got)
+		if got := m.Sum("e2e_db_pool_max_open", "name", "mysql"); got != 7 {
+			t.Errorf("mysql 实例配了 MaxOpenConns: 7，e2e_db_pool_max_open{name=\"mysql\"} 应是 7，实际 %v", got)
 		}
-		if got := m.Sum("e2e_db_connections_max_open", "name", "default"); got != 50 {
+		if got := m.Sum("e2e_db_pool_max_open", "name", "default"); got != 50 {
 			t.Errorf("MaxOpenConns 只改了 mysql 实例，default 应仍是默认的 50，实际 %v", got)
 		}
-		if got := m.Sum("e2e_db_connections_open", "name", "mysql"); got < 1 {
-			t.Errorf("跑过 MySQL 的 SQL 之后 e2e_db_connections_open{name=\"mysql\"} 应至少是 1，实际 %v", got)
+		if got := m.Sum("e2e_db_pool_open", "name", "mysql"); got < 1 {
+			t.Errorf("跑过 MySQL 的 SQL 之后 e2e_db_pool_open{name=\"mysql\"} 应至少是 1，实际 %v", got)
 		}
-		t.Logf("数字：open{default}=%v open{mysql}=%v", m.Sum("e2e_db_connections_open", "name", "default"), m.Sum("e2e_db_connections_open", "name", "mysql"))
+		t.Logf("数字：open{default}=%v open{mysql}=%v", m.Sum("e2e_db_pool_open", "name", "default"), m.Sum("e2e_db_pool_open", "name", "mysql"))
 	})
 
 	t.Run("mysql 配 Metric: false 就不出现", func(t *testing.T) {
@@ -413,6 +417,63 @@ func TestMySQL_卡住或宕机时_查询在调用方给的截止时间返回(t *
 				took = append(took, r.Server)
 			}
 			t.Logf("数字：MySQL %s、调用方给 %v：6 次依次用了 %v；%s", m.name, deadline, took, faultSummary(took))
+		})
+	}
+}
+
+// docs/config.md XGorm「服务端的错误原文不进日志和链路」：服务端报错的原文里就是参数值
+// （实测 MySQL 8.0.46 的 1366 是 Incorrect integer value: '<值>' for column 'id'，
+// PG 16 的 22P02 是 invalid input syntax for type bigint: "<值>"）。
+// SQL failed 日志的 error 字段和 Span 的状态、属性、事件里只有错误码；返回给业务的错误原样不变
+func TestXGorm_服务端错误原文里的参数值不进SQL日志和Span(t *testing.T) {
+	harness.Require(t)
+	t.Parallel()
+	p := harness.Start(t, harness.Options{Spans: true, Env: map[string]string{"E2E_SQL_LOG": "true", "E2E_MYSQL_SQL_LOG": "true"}})
+
+	// 顺带：建连日志写着是哪个实例（两个实例连的库名一样，只看 addr / db 分不清）
+	for _, name := range []string{"default", "mysql"} {
+		if n := len(p.FindLogs(func(l harness.Log) bool { return l.Msg() == "xgorm connected" && l.Str("name") == name })); n != 1 {
+			t.Errorf("应有一条 name=%s 的 xgorm connected，实际 %d 条", name, n)
+		}
+	}
+
+	for _, c := range []struct {
+		db, span, code string
+	}{
+		{"mysql", "gorm.raw", "1366"},
+		{"pg", "gorm.raw", "22P02"},
+	} {
+		t.Run(c.db, func(t *testing.T) {
+			value := "leak-" + harness.NewID()
+			r := p.Do(t, http.MethodPost, "/bad-sql", map[string]string{"db": c.db, "value": value})
+			if r.Status != http.StatusInternalServerError {
+				t.Fatalf("这条 SQL 应当失败，实际 %v", r)
+			}
+			if m := r.Map(t); m["error_has_value"] != true {
+				t.Errorf("返回给业务的错误要原样不变（原文里带着值），实际 %v", m)
+			}
+			tid := traceIDOf(t, r)
+			accessLog(t, p, tid)
+			logs := p.FindLogs(func(l harness.Log) bool { return l.Msg() == "SQL failed" && l.Str("trace_id") == tid })
+			if len(logs) != 1 {
+				t.Fatalf("应记 1 条 SQL failed，实际 %d 条", len(logs))
+			}
+			mustNotContain(t, "SQL failed 日志", logs[0].Line, value)
+			if logs[0].Str("error_code") != c.code || !strings.Contains(logs[0].Str("error"), c.code) {
+				t.Errorf("SQL failed 日志应记下错误码 %s，实际 %s", c.code, logs[0].Line)
+			}
+
+			serverSpan(t, p, tid)
+			spans := spansNamed(traceSpans(t, p, tid), c.span)
+			if len(spans) != 1 {
+				t.Fatalf("链路上应有一个 %s，实际 %s", c.span, spanNames(traceSpans(t, p, tid)))
+			}
+			s := spans[0]
+			if s.StatusCode != "Error" || s.Str("db.response.status_code") != c.code || s.Str("error.type") != c.code {
+				t.Errorf("Span 应标成 Error 并带上错误码 %s，实际 status=%s attrs=%v", c.code, s.StatusCode, s.Attributes)
+			}
+			mustNotContain(t, "Span "+c.span, fmt.Sprint(s.StatusDescription, s.Attributes, s.Events), value)
+			t.Logf("数字：%s 的 SQL failed error=%q", c.db, logs[0].Str("error"))
 		})
 	}
 }

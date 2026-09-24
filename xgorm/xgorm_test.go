@@ -111,32 +111,50 @@ func TestNew_配置有误时不建连(t *testing.T) {
 	}
 }
 
-func TestPingTimeout(t *testing.T) {
-	// 不能只用建连超时：Ping 是建连加一个往返，
+func TestProbeTimeout(t *testing.T) {
+	// 不能只用建连超时：探测是建连加一个往返，
 	// 拿建连预算当整体预算，连接刚建成就会被判超时
-	c := DefaultClientConfig()
-	c.Driver = DriverMySQL
+	c := mysqlCfg("u:p@tcp(h:3306)/d")
 	c.DialTimeout = time.Second
 	c.MySQL.ReadTimeout = 2 * time.Second
-	if got := pingTimeout(c, ConnInfo{}); got != 3*time.Second {
-		t.Errorf("MySQL 的 Ping 预算应为建连 + 读超时，got=%v", got)
+	if got := resolvedProbeTimeout(t, c); got != 3*time.Second {
+		t.Errorf("MySQL 的探测预算应为建连 + 读超时，got=%v", got)
 	}
 
 	// PG 注入的 connect_timeout 是向上取整的整秒，管的是整个建连（TCP、TLS、认证）。
 	// 预算比它短的话，一次慢一点但合法的握手会在 pgx 放弃之前就被我们判超时
-	c.Driver = DriverPostgres
+	c = pgCfg("host=h dbname=d")
 	c.DialTimeout = 500 * time.Millisecond
-	if got := pingTimeout(c, ConnInfo{}); got < time.Second+500*time.Millisecond {
+	if got := resolvedProbeTimeout(t, c); got != time.Second+500*time.Millisecond {
 		t.Errorf("PG 的预算要盖住注入的 connect_timeout（1s）再加一个往返，got=%v", got)
 	}
 
+	// 方言推算不出来的（没有 Resolve），按 2 × DialTimeout；DialTimeout 也是 0 就用兜底值
+	c = DefaultClientConfig()
+	c.DialTimeout = 300 * time.Millisecond
+	if got := probeTimeout(c, ConnInfo{}); got != 600*time.Millisecond {
+		t.Errorf("方言没给预算时应是 2 × DialTimeout，got=%v", got)
+	}
 	c.DialTimeout = 0
-	if got := pingTimeout(c, ConnInfo{}); got != fallbackPingTimeout {
+	if got := probeTimeout(c, ConnInfo{}); got != fallbackPingTimeout {
 		t.Errorf("推算不出预算时该用兜底值，got=%v", got)
+	}
+	if got := probeTimeout(c, ConnInfo{ProbeTimeout: 7 * time.Second}); got != 7*time.Second {
+		t.Errorf("方言给了预算就用它，got=%v", got)
 	}
 }
 
-func TestPingTimeout_DSN里写的超时更长时预算跟着放宽(t *testing.T) {
+// resolvedProbeTimeout 走一遍方言的 Resolve，取 New 真正会用的那个预算
+func resolvedProbeTimeout(t *testing.T, c ClientConfig) time.Duration {
+	t.Helper()
+	_, info, err := resolveDSN(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return probeTimeout(c, info)
+}
+
+func TestProbeTimeout_DSN里写的超时更长时预算跟着放宽(t *testing.T) {
 	// 配置里的超时只是注入 DSN 的默认值。DSN 里写了更长的，驱动就会等那么久，
 	// 预算还按配置算的话，一次慢但合法的建连会在驱动放弃之前被我们判超时
 	for _, c := range []struct {
@@ -149,18 +167,14 @@ func TestPingTimeout_DSN里写的超时更长时预算跟着放宽(t *testing.T)
 		{"MySQL readTimeout", mysqlCfg("u:p@tcp(h:3306)/d?readTimeout=10s"), 10 * time.Second},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			_, info, err := resolveDSN(c.cfg)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := pingTimeout(c.cfg, info); got < c.min {
+			if got := resolvedProbeTimeout(t, c.cfg); got < c.min {
 				t.Errorf("预算要盖住 DSN 里写的 %v，got=%v", c.min, got)
 			}
 		})
 	}
 }
 
-func TestPing_重试后仍失败(t *testing.T) {
+func TestProbe_重试后仍失败(t *testing.T) {
 	// 重试要真的重试，也要在预算内结束——启动期卡死比连不上更难查
 	pool, err := sql.Open("mysql", "u:p@tcp("+deadAddr(t)+")/app?timeout=30ms")
 	if err != nil {
@@ -168,19 +182,23 @@ func TestPing_重试后仍失败(t *testing.T) {
 	}
 	defer pool.Close()
 
-	c := DefaultClientConfig()
-	c.Driver = DriverMySQL
+	c := mysqlCfg("u:p@tcp(h:1)/app")
 	c.DialTimeout = 30 * time.Millisecond
 	c.MySQL.ReadTimeout = 30 * time.Millisecond
+	_, info, err := resolveDSN(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := probePolicy(c, info, mysqlDialect())
 
 	start := time.Now()
-	if err := ping(context.Background(), pool, pingTimeout(c, ConnInfo{}), nil); err == nil {
+	if err := xclient.Probe(context.Background(), policy, probe(pool, nil)); err == nil {
 		t.Fatal("连不上时应当返回错误")
 	}
 	// 只盯上界。退避带抖动之后每次等待是 [0, 当前退避] 之间的随机值，
 	// 可以短到接近零，所以「至少等了多久」不再是重试次数的有效代理
 	// 退避的等待上界是 interval + 2*interval = 3*interval，留到 4 倍够宽
-	ceiling := pingAttempts*pingTimeout(c, ConnInfo{}) + 4*pingInterval + 2*time.Second
+	ceiling := pingAttempts*policy.Timeout + 4*pingInterval + 2*time.Second
 	if elapsed := time.Since(start); elapsed > ceiling {
 		t.Errorf("重试超出了预算，用了 %v", elapsed)
 	}
@@ -689,4 +707,63 @@ func TestInitXGorm_没配时C说的是没配而不是调早了(t *testing.T) {
 		}
 	}()
 	C()
+}
+
+func TestInstall_建连日志写着是哪个实例(t *testing.T) {
+	// 多实例时 addr / db 分不出是哪一个（report 和 default 可能连的是同一个库）
+	withDialect(t, Dialect{Name: "namedb", Open: func(string) gorm.Dialector { return okDialector{} }})
+	c := DefaultClientConfig()
+	c.Driver, c.DSN = "namedb", "namedb://h/d"
+
+	lines := capture(t)
+	if err := install(context.Background(), Config{Clients: map[string]ClientConfig{"report": c}}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { reg.Close() })
+	var connected, ready map[string]any
+	for _, l := range lines() {
+		switch l["msg"] {
+		case "xgorm connected":
+			connected = l
+		case "xgorm ready":
+			ready = l
+		}
+	}
+	if connected["name"] != "report" {
+		t.Errorf("xgorm connected 应写上实例名 report，got=%v", connected)
+	}
+	if fmt.Sprint(ready["instances"]) != "[report]" {
+		t.Errorf("xgorm ready 应列出实例名，got=%v", ready)
+	}
+
+	// 直接调 New 的没有名字，不写一个空的 name
+	lines = capture(t)
+	_, closer, err := New(context.Background(), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closer.Close()
+	for _, l := range lines() {
+		if _, ok := l["name"]; ok && l["msg"] == "xgorm connected" {
+			t.Errorf("直接调 New 时不该有 name 字段，got=%v", l)
+		}
+	}
+}
+
+func TestNew_认证失败认不认得由方言决定(t *testing.T) {
+	// 认证失败的识别挪进了各自的方言：没提供 AuthFailed 的方言，
+	// 同一个 28P01 照常重试、报连不上——核心里不再有按驱动名分支的判断
+	rejected := &pgconn.PgError{Severity: "FATAL", Code: "28P01", Message: "password authentication failed"}
+	calls := 0
+	withDialect(t, Dialect{
+		Name:  "noauthdb",
+		Open:  func(string) gorm.Dialector { return okDialector{} },
+		Ready: func(context.Context, *gorm.DB) error { calls++; return rejected },
+	})
+	c := DefaultClientConfig()
+	c.Driver, c.DSN = "noauthdb", "noauthdb://h/d"
+	_, _, err := New(context.Background(), c)
+	if calls != pingAttempts || !strings.Contains(fmt.Sprint(err), "cannot reach ") {
+		t.Errorf("方言认不出就照常重试，calls=%d err=%v", calls, err)
+	}
 }

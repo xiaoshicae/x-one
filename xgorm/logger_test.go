@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
+	mysqldriver "github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -51,7 +54,7 @@ func TestLogger_SQL走结构化字段(t *testing.T) {
 	// SQL 里带引号和换行，塞进消息文本会把一行日志撑成好几行，也没法按耗时筛
 	lines := capture(t)
 	c := DefaultClientConfig()
-	traceOnce(newGormLogger(c, postgres.Dialector{}), nil, time.Millisecond)
+	traceOnce(newGormLogger(c, pgDialect(), postgres.Dialector{}), nil, time.Millisecond)
 
 	got := lines()
 	if len(got) != 1 {
@@ -69,7 +72,7 @@ func TestLogger_慢查询记warn(t *testing.T) {
 	lines := capture(t)
 	c := DefaultClientConfig()
 	c.SlowThreshold = 10 * time.Millisecond
-	traceOnce(newGormLogger(c, postgres.Dialector{}), nil, time.Second)
+	traceOnce(newGormLogger(c, pgDialect(), postgres.Dialector{}), nil, time.Second)
 
 	got := lines()
 	if len(got) != 1 || got[0]["level"] != "WARN" {
@@ -82,7 +85,7 @@ func TestLogger_慢查询记warn(t *testing.T) {
 
 func TestLogger_出错记error(t *testing.T) {
 	lines := capture(t)
-	traceOnce(newGormLogger(DefaultClientConfig(), postgres.Dialector{}), errors.New("连接断了"), time.Millisecond)
+	traceOnce(newGormLogger(DefaultClientConfig(), pgDialect(), postgres.Dialector{}), errors.New("连接断了"), time.Millisecond)
 
 	got := lines()
 	if len(got) != 1 || got[0]["level"] != "ERROR" {
@@ -90,6 +93,37 @@ func TestLogger_出错记error(t *testing.T) {
 	}
 	if got[0]["error"] != "连接断了" {
 		t.Errorf("该带上错误，got=%v", got[0])
+	}
+}
+
+func TestLogger_服务端报错时只记错误码不记原文(t *testing.T) {
+	// 服务端的错误原文会把参数值带出来：实测 MySQL 8.0 的 1062 是
+	// Duplicate entry 'a@b.com' for key …，PG 16 的 22P02 是
+	// invalid input syntax for type integer: "notanint"。
+	// SQL 本身只记占位符，参数值不能从 error 字段绕进日志
+	for _, c := range []struct {
+		name string
+		d    Dialect
+		err  error
+		code string
+	}{
+		{"MySQL", mysqlDialect(), &mysqldriver.MySQLError{Number: 1062, Message: "Duplicate entry '" + secret + "' for key 'u.email'"}, "1062"},
+		{"PG", pgDialect(), fmt.Errorf("wrapped: %w", &pgconn.PgError{Code: "22P02", Message: `invalid input syntax for type integer: "` + secret + `"`}), "22P02"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			lines := capture(t)
+			traceOnce(newGormLogger(DefaultClientConfig(), c.d, postgres.Dialector{}), c.err, time.Millisecond)
+			got := lines()
+			if len(got) != 1 || got[0]["level"] != "ERROR" {
+				t.Fatalf("出错应记 error，got=%v", got)
+			}
+			if fmt.Sprint(got[0]) != strings.ReplaceAll(fmt.Sprint(got[0]), secret, "") {
+				t.Errorf("服务端错误原文里的参数值进了日志：%v", got[0])
+			}
+			if got[0]["error_code"] != c.code || !strings.Contains(fmt.Sprint(got[0]["error"]), c.code) {
+				t.Errorf("该记下错误码 %s，got=%v", c.code, got[0])
+			}
+		})
 	}
 }
 
@@ -105,7 +139,7 @@ func TestLogger_没查到记录可以不当错误(t *testing.T) {
 		lines := capture(t)
 		cfg := DefaultClientConfig()
 		cfg.IgnoreNotFound = c.ignore
-		traceOnce(newGormLogger(cfg, postgres.Dialector{}), gorm.ErrRecordNotFound, time.Millisecond)
+		traceOnce(newGormLogger(cfg, pgDialect(), postgres.Dialector{}), gorm.ErrRecordNotFound, time.Millisecond)
 
 		got := lines()
 		if len(got) != 1 || got[0]["level"] != c.wantLevel {
@@ -117,7 +151,7 @@ func TestLogger_没查到记录可以不当错误(t *testing.T) {
 func TestLogger_行数未知时不写字段(t *testing.T) {
 	// GORM 用 -1 表示「行数未知」，写成 -1 会被误读成真有 -1 行
 	lines := capture(t)
-	l := newGormLogger(DefaultClientConfig(), postgres.Dialector{})
+	l := newGormLogger(DefaultClientConfig(), pgDialect(), postgres.Dialector{})
 	l.Trace(context.Background(), time.Now(), func() (string, int64) { return "SELECT 1", -1 }, nil)
 
 	got := lines()
@@ -131,7 +165,7 @@ func TestLogger_行数未知时不写字段(t *testing.T) {
 
 func TestLogger_Silent时什么都不记(t *testing.T) {
 	lines := capture(t)
-	l := newGormLogger(DefaultClientConfig(), postgres.Dialector{}).LogMode(logger.Silent)
+	l := newGormLogger(DefaultClientConfig(), pgDialect(), postgres.Dialector{}).LogMode(logger.Silent)
 	traceOnce(l, errors.New("出错了"), time.Second)
 
 	if got := lines(); len(got) != 0 {
@@ -141,7 +175,7 @@ func TestLogger_Silent时什么都不记(t *testing.T) {
 
 func TestLogger_LogMode返回副本(t *testing.T) {
 	// GORM 的约定：LogMode 返回新实例，不能改共享的那个
-	l := newGormLogger(DefaultClientConfig(), postgres.Dialector{})
+	l := newGormLogger(DefaultClientConfig(), pgDialect(), postgres.Dialector{})
 	other := l.LogMode(logger.Silent).(*gormLogger)
 	if l.level == logger.Silent {
 		t.Error("不该改动原实例")
@@ -153,7 +187,7 @@ func TestLogger_LogMode返回副本(t *testing.T) {
 
 func TestLogger_InfoWarnError(t *testing.T) {
 	lines := capture(t)
-	l := newGormLogger(DefaultClientConfig(), postgres.Dialector{})
+	l := newGormLogger(DefaultClientConfig(), pgDialect(), postgres.Dialector{})
 	l.Info(context.Background(), "普通消息")
 	l.Warn(context.Background(), "警告 %d", 1)
 	l.Error(context.Background(), "error")
@@ -196,7 +230,7 @@ func TestLogger_SQL日志里没有参数值且就是发出去的那条(t *testin
 		t.Run(c.name, func(t *testing.T) {
 			lines := capture(t)
 			db, err := gorm.Open(c.dialector,
-				&gorm.Config{DisableAutomaticPing: true, DryRun: true, Logger: newGormLogger(DefaultClientConfig(), c.dialector)},
+				&gorm.Config{DisableAutomaticPing: true, DryRun: true, Logger: newGormLogger(DefaultClientConfig(), pgDialect(), c.dialector)},
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -234,7 +268,7 @@ func TestLogger_SQL日志里没有参数值且就是发出去的那条(t *testin
 func TestLogger_PG占位符还原是Explain的精确逆运算(t *testing.T) {
 	// 原文里本来就有 $1$ 这种写法（字符串字面量里）也要原样还原，
 	// 不能只是「把 $N$ 都换成 $N」碰巧对上了常见的语句
-	l := newGormLogger(DefaultClientConfig(), postgres.Dialector{})
+	l := newGormLogger(DefaultClientConfig(), pgDialect(), postgres.Dialector{})
 	for _, sql := range []string{
 		"SELECT * FROM users WHERE id = $1 LIMIT $2",
 		"INSERT INTO t (a,b,c) VALUES ($1,$2,$10)",
@@ -250,7 +284,7 @@ func TestLogger_PG占位符还原是Explain的精确逆运算(t *testing.T) {
 	}
 	// ? 占位符的方言不动：原文里恰好有 $1$ 也不能被改掉
 	my := mysql.New(mysql.Config{DSN: "u:p@tcp(127.0.0.1:1)/app"})
-	m := newGormLogger(DefaultClientConfig(), my)
+	m := newGormLogger(DefaultClientConfig(), pgDialect(), my)
 	const raw = "SELECT '$1$' FROM t WHERE id = ?"
 	if got, _ := m.statement(func() (string, int64) { return my.Explain(raw), 0 }); got != raw {
 		t.Errorf("MySQL 的语句应原样记，得到 %q", got)
@@ -263,7 +297,7 @@ func benchTrace(b *testing.B, level slog.Level) {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(io.Discard, &slog.HandlerOptions{Level: level})))
 	b.Cleanup(func() { slog.SetDefault(old) })
 
-	l := newGormLogger(DefaultClientConfig(), postgres.Dialector{})
+	l := newGormLogger(DefaultClientConfig(), pgDialect(), postgres.Dialector{})
 	ctx := context.Background()
 	// 照 GORM 的样子取 SQL：PG 方言的 Explain 即使没有参数也要过两遍正则
 	fc := func() (string, int64) {

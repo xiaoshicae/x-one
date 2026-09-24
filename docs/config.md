@@ -324,29 +324,127 @@ XMetric:
 XGorm:
   Driver: postgres         # mysql / postgres 内置，默认 postgres；其余驱动见下
   DSN: "${DB_DSN}"         # 必填
-  DialTimeout: 500ms       # 建连超时：MySQL 注入 DSN 的 timeout，PostgreSQL 注入 connect_timeout
+  DialTimeout: 500ms       # 建连超时：MySQL 注入 DSN 的 timeout，PostgreSQL 注入 connect_timeout；0 = 不注入（驱动不限时）
   MaxOpenConns: 50
   MaxIdleConns: 50         # 配 0 就是一条空闲连接都不留
-  MaxLifetime: 5m
-  MaxIdleTime: 5m
+  MaxLifetime: 5m          # 0 = 不限
+  MaxIdleTime: 5m          # 0 = 不限
   Log: false               # 把 SQL 接到 slog 上，默认关（一条 SQL 一行日志）
                            # 记的是带占位符的 SQL，不含参数值：GORM 默认会把参数代进去，
                            # WHERE password = ? 就成了 password = '<真实的值>'
                            # 占位符就是发给数据库的那样：MySQL 是 ?，PostgreSQL 是 $1
                            # （GORM 的 PG 方言没参数可代时会写成 $1$，这里改回去了）
-  SlowThreshold: 3s        # 超过就记 warn，需 Log 开启
+                           # SQL 执行失败时 error 字段只记服务端错误码，见下「服务端的错误原文不进日志和链路」
+  SlowThreshold: 3s        # 超过就记 warn，需 Log 开启；0 = 不记
   IgnoreNotFound: false    # 「没查到记录」是否不当错误
-  Trace: true
-  Metric: true             # 连接池指标，按实例生效：Metric: false 的实例不出现在 /metrics 里
+  Trace: true              # 属性按 OTel 数据库语义约定 v1.43.0，见下「链路与指标」
+  Metric: true             # 连接池指标 db_pool_*，按实例生效：Metric: false 的实例不出现在 /metrics 里
   MySQL:                   # 仅 Driver: mysql 生效
-    ReadTimeout: 3s
+    ReadTimeout: 3s        # 0 = 不注入（驱动不限时）
     WriteTimeout: 5s
   Postgres:                # 仅 Driver: postgres 生效，下列值随建连发给服务端成为会话级 GUC
     StatementTimeout: 0s   # 默认不限制；服务端的计时，管不到网络那头不回话，见下「PostgreSQL 没有读超时」
     LockTimeout: 0s
     IdleInTxTimeout: 0s
-    Params: {}             # 任意 PG 运行时参数，同名时以它为准
+    Params: {}             # 任意 PG 运行时参数，同名时以它为准；pgx 的连接参数（如 default_query_exec_mode）也写这里
 ```
+
+**配置在读的时候就校验。** 每个实例解完就查一遍（`ClientConfig.Validate`），报错带着文件和行号，
+一个实例都还没连：`invalid config XGorm: Clients.report: application.yml:12: MySQL.ReadTimeout must not be negative, got=-3s`。
+时长一律不能为负——底下每一处都会把负数静默变成「不限」：go-sql-driver v1.10.1 的 `FormatDSN` 只写 > 0 的
+`timeout` / `readTimeout` / `writeTimeout`，负数注进去就从 DSN 里消失了；`database/sql` 把负的存活时间当成 0；
+PG 的 `connect_timeout` 和几个 GUC 在注入时同样被跳过。`0` 是合法的，含义见上面每一项的注释。
+`MaxIdleConns` 也不能为负，`MaxOpenConns` 要 > 0。
+
+**MySQL 的 DSN 没写 `parseTime` 时补成 `parseTime=true`。** 驱动默认 `false`：`DATETIME` / `TIMESTAMP`
+读出来是 `[]byte`，扫不进 `time.Time`。实测（go-sql-driver v1.10.1、MySQL 8.0.46）带 `CreatedAt` 的模型
+写进去没问题，`First` 一次就报 `unsupported Scan, storing driver.Value type []uint8 into type *time.Time`。
+DSN 里写了的（哪怕写的是 `parseTime=false`）以 DSN 为准；判断照抄驱动的解析规则（最后一个 `/`、
+第一个 `?` 之后），密码里的 `?parseTime=false` 不算数。
+
+打开之后时区跟着驱动的 `loc`（默认 `UTC`）：写入时驱动先把 `time.Time` 转成 `loc` 再格式化，读出来按 `loc` 解释，
+同一个时刻来回不变——实测写 `2024-01-02 03:04:05 +08:00`，库里存的是 `2024-01-01 19:04:05`，
+读回来是 `19:04:05 UTC`，`Equal` 为 true。GORM 的 `NowFunc` 默认是本地时间（`time.Now().Local()`），
+经过这一转换同样存成 UTC。库里的墙上时间要给别的系统按本地时间读的，在 DSN 里写 `loc=Local`
+（或 `loc=Asia%2FShanghai`）。注意：原来把 `DATETIME` 扫进 `string` 的，打开之后拿到的是
+`time.Time` 格式化出来的 RFC 3339（`2024-01-01T19:04:05Z`），要原样文本的在 DSN 里写 `parseTime=false`。
+
+**服务端的错误原文不进日志和链路。** 服务端报错时，原文会把参数值带出来，SQL 只记占位符也就白记了。实测：
+
+| 服务端 | 错误 | 原文 |
+|---|---|---|
+| MySQL 8.0.46 | 1062 | `Error 1062 (23000): Duplicate entry 'a@b.com' for key 'm_err.email'` |
+| MySQL 8.0.46 | 1366 | `Incorrect integer value: 'notanint' for column 'n' at row 1` |
+| MySQL 8.0.46 | 1292 | `Incorrect datetime value: 'secret-date' for column 'd' at row 1` |
+| PG 16（pgx v5.10.0） | 22P02 | `ERROR: invalid input syntax for type integer: "notanint" (SQLSTATE 22P02)` |
+| PG 16 | 23505 | `Error()` 里没有值，但 `PgError.Detail` 是 `Key (email)=(a@b.com) already exists.` |
+| PG 16 | 23514 | `Detail` 是 `Failing row contains (3, chk@y, 500, null, null).` |
+
+所以 `Log: true` 时「SQL failed」这一条的 `error` 字段只写 `mysql error 1062 (message omitted, it may contain parameter values)`，
+另有 `error_code` 字段（MySQL 是错误号，PG 是 SQLSTATE）；Span 的状态描述同样只有这一句，属性里是
+`db.response.status_code` 和 `error.type`（都是错误码），不调 `RecordError`（它会把原文写进 `exception.message`）。
+**返回给调用方的错误原样不变**，`errors.As` 照样取得到 `*mysql.MySQLError` / `*pgconn.PgError`。
+只收服务端报的错：网络错误、ctx 取消、`record not found` 这类客户端这一侧的错照原文记，那里面没有参数值，
+而且正是排查要看的。例外是 `database/sql` 的扫描错误，它会引出扫不进去的那个值
+（实测 PG：`converting driver.Value type string ("abc-secret") to a int: invalid syntax`），那是列类型与字段类型对不上，改模型即可。
+
+**链路与指标。** Span 名是 `gorm.<操作>`（create / query / update / delete / row / raw），属性按
+OTel 数据库语义约定 v1.43.0（与仓库里 otelhttp v0.71.0 用的同一版，Tracer 带着这一版的 schema URL）：
+
+| 属性 | 值 | 以前叫 |
+|---|---|---|
+| `db.system.name` | `postgresql` / `mysql` / `clickhouse`（其余驱动按驱动名） | `db.system`（PG 那时是 `postgres`） |
+| `db.namespace` | 库名 | `db.name` |
+| `server.address` / `server.port` | 从 DSN 解出的主机、端口，分开记 | `server.address`（那时是 `host:port`） |
+| `db.query.text` | 带占位符的 SQL，不含参数值 | `db.statement` |
+| `db.operation.name` | 语句的第一个关键字，原样大小写：`SELECT`、`INSERT`……（以注释、括号开头的不记） | `db.operation`（那时是 GORM 的回调名 `create`） |
+| `db.rows_affected` | 影响行数（约定里没有对应的名字，沿用） | 同 |
+| `db.response.status_code` / `error.type` | 服务端报错时的错误码；其余错误 `error.type` 是 `_OTHER` | 无 |
+
+`db.operation.name` 取的是发出去的语句，不是 GORM 的回调名：软删除走 delete 回调，发出去的是 `UPDATE`。
+
+连接池指标（前缀是 `XMetric.Namespace`，标签 `name` 是实例名）：`db_pool_open`、`db_pool_in_use`、`db_pool_idle`、
+`db_pool_max_open`、`db_pool_wait_total`、`db_pool_wait_duration_seconds_total`、`db_pool_closed_max_idle_total`、
+`db_pool_closed_max_lifetime_total`。从前叫 `db_connections_*`，看板和告警要跟着改名。
+
+建连日志 `xgorm connected` 带 `name`（实例名，直接调 `xgorm.New` 的没有这个字段）、`driver`、`addr`、`db`；
+全部实例建好之后一条 `xgorm ready`，`instances` 列出实例名。
+
+**GORM 的默认行为。** 下面几项 xgorm 不改，原样用 GORM v1.31.2 的默认值，量过：
+
+- `SkipDefaultTransaction: false`——每次 `Create` / `Save` / `Update` / `Delete` 都包在一个事务里。
+  实测（本机回环，2000 次 `Create`）：PG 每次 3 个往返（BEGIN、INSERT、COMMIT），打开跳过是 1 个，
+  572µs → 377µs；MySQL 每次 5 次写（BEGIN、PREPARE、EXECUTE、CLOSE、COMMIT，4 个往返），跳过是 3 次，
+  1.55ms → 1.33ms。不替你打开，因为它换来的是正确性：实测 `AfterCreate` 钩子返回错误时，
+  默认的事务把插入回滚了（表里 0 行），跳过之后那一行留了下来（1 行）。
+  确认自己的写入不靠这些的，在热点路径上用 `xgorm.C().Session(&gorm.Session{SkipDefaultTransaction: true})`。
+- `PrepareStmt: false`——GORM 不自己缓存预备语句。PG 那一侧 pgx 已经按语句缓存了（见下），再开一层是重复；
+  经 PgBouncer 时同样会撞上下面那个问题。
+- `NowFunc`：`time.Now().Local()`，`CreatedAt` / `UpdatedAt` 用本地时间。PG 上 GORM 给 `time.Time` 建的列是 `timestamptz`（实测 `timestamp with time zone`），存的是时刻，不受影响；
+  MySQL 见上 `parseTime` 那一段，驱动写入前转成 `loc`（默认 UTC）。
+- `TranslateError: false`——不打开。实测打开之后 MySQL 的 1062 变成 `gorm.ErrDuplicatedKey`，
+  但原来的 `*mysql.MySQLError` 被整个换掉，`errors.As` 取不到了，按错误号判断的代码会静默失效。
+
+MySQL 驱动的 `interpolateParams` 默认 `false`，带参数的查询是 PREPARE、EXECUTE、CLOSE 三次写、两个往返
+（实测一次 `First` 3 次写）；xgorm 不改它。
+
+**PostgreSQL 经 PgBouncer 连库：`default_query_exec_mode`。** pgx 默认 `cache_statement`：每条语句第一次执行时
+建一个具名预备语句（`stmtcache_…`），之后复用。直连 PG 这是最快的，但 PgBouncer 的事务池 / 语句池会把同一个客户端连接
+的下一条语句派到另一个服务端连接上，具名语句就对不上了。实测 PgBouncer 1.22.0 `pool_mode = transaction`、
+`default_pool_size = 2`，20 个协程各跑 50 条带参数的查询（共 1000 条）：
+
+| `default_query_exec_mode` | `max_prepared_statements = 0`（1.21–1.23 的默认） | `= 100` | 直连 PG 每条耗时（本机回环） | 每条写几次 |
+|---|---|---|---|---|
+| `cache_statement`（pgx 默认） | **701 条失败**：`prepared statement "stmtcache_…" already exists (SQLSTATE 42P05)` | 0 | 59–82µs | 1 |
+| `cache_describe` | 0 | 0 | 61–79µs | 1 |
+| `describe_exec` | 6 条失败：`unnamed prepared statement does not exist (SQLSTATE 26000)` | 16 条失败 | 68–105µs | 2 |
+| `exec` | 0 | 0 | 97–104µs | 1 |
+| `simple_protocol` | 0 | 0 | 89–102µs | 1 |
+
+默认值不改：直连 PG 的是大多数，`exec` 每条多一次服务端的解析和规划（本机约多 30µs）。经 PgBouncer 连的，二选一：
+PgBouncer 升到 1.21+ 并把 `max_prepared_statements` 配成非 0（1.24 起默认 200），或者在 DSN 里写
+`default_query_exec_mode=exec`（也可以写进 `Postgres.Params`，实测经 xgorm 注入同样生效）。
+`cache_describe` 也能过，但它缓存的是结果列的类型，表结构改了之后缓存会过期；`describe_exec` 分两个往返，经 PgBouncer 照样会失败。
 
 **MySQL 启动时的建连全部受退出信号和重试管。** GORM 的 MySQL Dialector 在初始化时会查一次
 `SELECT VERSION()`，驱动那行写死了 `context.Background()`（`gorm.io/driver/mysql` v1.6.0），
@@ -447,6 +545,23 @@ DSN 必须是上面四种 scheme 之一的 URL，否则启动失败——包括�
 加上 ClickHouse 驱动变成 146 个（编译包 140 → 183）。多出来的大头是 Docker 和
 testcontainers —— `clickhouse-go` 用它们跑集成测试，而 `go.mod` 分不出
 「只测试用」。Go 的 MVS 按模块图把版本要求强加给使用者，不用它的人不该付这个钱。
+
+密码错时不重试，报 `authentication to <addr> failed`：认的是 native 协议握手时服务端回的
+`*clickhouse.Exception`，错误码 516（AUTHENTICATION_FAILED，新版本服务端密码错、用户不存在都报它）、
+192 / 193 / 194（老版本分开报的 UNKNOWN_USER、WRONG_PASSWORD、REQUIRED_PASSWORD），码取自 ch-go v0.61.5 的类型化常量。
+这里没有能连的 ClickHouse，这一条没有实测，错误的形状取自驱动 v2.30.0 的源码。HTTP 协议下驱动返回的是一段拼好的文本、
+没有错误码，认不出，按连不上处理，SQL 日志和 Span 里也照原文记。
+
+**ClickHouse 的超时与取消**（读 clickhouse-go v2.30.0 源码，native 协议）：
+
+- `read_timeout` 没写时是 **300s**（`setDefaults`）。每条查询开始时设一次读 deadline；调用方的 ctx 有截止时间时改用它。
+  所以后台任务不给截止时间的话，对端不回话要等 5 分钟。
+- 查询和执行认 ctx 的**取消**：读回包放在协程里，ctx 取消时当场返回 `context canceled`，同时给服务端发 Cancel 包、
+  关掉这条连接（不还回池里）。
+- `Ping` 只认截止时间、不认取消：没有截止时间的 ctx 被取消了，`Ping` 照样等满 `read_timeout`。
+  xgorm 的建连探测每次都带截止时间（`2 × dial_timeout`），所以最多卡这么久。
+- 建连用 `net.DialTimeout`，不看 ctx，只受 `dial_timeout`（没写时 30s，xgorm 注入 `DialTimeout`）管；
+  握手阶段同样按 `dial_timeout` 设整条连接的 deadline。
 
 驱动名写错或忘了 import 时启动会失败，错误里列出当前注册了哪些；
 也可以用 `xgorm.Drivers()` 自己查。

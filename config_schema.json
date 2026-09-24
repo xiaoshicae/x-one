@@ -341,11 +341,11 @@
           "properties": {
             "DSN": {
               "type": "string",
-              "description": "连接串，必填。 建议写成 \"${DB_DSN}\"：凭证不该进版本库，漏配时启动就失败。"
+              "description": "连接串，必填。 建议写成 \"${DB_DSN}\"：凭证不该进版本库，漏配时启动就失败。 MySQL 的 DSN 里没写 parseTime 的，补成 parseTime=true：驱动默认 false， DATETIME 扫不进 time.Time（实测 go-sql-driver v1.10.1，带 CreatedAt 的模型 First 一次就报 unsupported Scan）。写了的以 DSN 为准。"
             },
             "DialTimeout": {
               "type": "string",
-              "description": "建连超时。默认 500ms。 MySQL 注入 DSN 的 timeout，PostgreSQL 注入 connect_timeout（向上取整为秒）。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+              "description": "建连超时。默认 500ms。 MySQL 注入 DSN 的 timeout，PostgreSQL 注入 connect_timeout（向上取整为秒）。 配 0 就不注入、用驱动自己的（两个驱动都是不限时）。不能为负，下面的时长都是。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
             },
             "Driver": {
               "type": "string",
@@ -364,7 +364,7 @@
                 "boolean",
                 "string"
               ],
-              "description": "是否把 GORM 的 SQL 日志接到 slog 上。默认关闭。",
+              "description": "是否把 GORM 的 SQL 日志接到 slog 上。默认关闭。 SQL 执行失败时 error 字段只记服务端的错误码（另有 error_code 字段）， 不记原文：实测 MySQL 8.0 的 1062 原文是 Duplicate entry 'a@b.com' for key …， 参数值就在里面。返回给调用方的错误不变。",
               "pattern": "\\$\\{"
             },
             "MaxIdleConns": {
@@ -377,11 +377,11 @@
             },
             "MaxIdleTime": {
               "type": "string",
-              "description": "空闲连接最长存活时间。默认 5m。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+              "description": "空闲连接最长存活时间。默认 5m，配 0 不限。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
             },
             "MaxLifetime": {
               "type": "string",
-              "description": "连接最长存活时间。默认 5m。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+              "description": "连接最长存活时间。默认 5m，配 0 不限。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
             },
             "MaxOpenConns": {
               "type": [
@@ -396,7 +396,7 @@
                 "boolean",
                 "string"
               ],
-              "description": "是否导出连接池指标（连接数、等待次数、等待时长等）。默认开启。 指标在被抓取时才读 sql.DB.Stats()，不额外占协程。 按实例生效：配了 Metric: false 的实例不出现在 /metrics 里。",
+              "description": "是否导出连接池指标 db_pool_*（连接数、等待次数、等待时长等），标签 name 是实例名。默认开启。 指标在被抓取时才读 sql.DB.Stats()，不额外占协程。 按实例生效：配了 Metric: false 的实例不出现在 /metrics 里。",
               "pattern": "\\$\\{"
             },
             "MySQL": {
@@ -405,11 +405,11 @@
               "properties": {
                 "ReadTimeout": {
                   "type": "string",
-                  "description": "读超时，对应 DSN 的 readTimeout。默认 3s。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+                  "description": "读超时，对应 DSN 的 readTimeout。默认 3s，配 0 不注入（驱动不限时）。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
                 },
                 "WriteTimeout": {
                   "type": "string",
-                  "description": "写超时，对应 DSN 的 writeTimeout。默认 5s。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+                  "description": "写超时，对应 DSN 的 writeTimeout。默认 5s，配 0 不注入（驱动不限时）。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
                 }
               },
               "additionalProperties": false
@@ -428,7 +428,7 @@
                 },
                 "Params": {
                   "type": "object",
-                  "description": "其它任意 PG 运行时参数，原样拼进 DSN。",
+                  "description": "其它任意 PG 运行时参数，原样拼进 DSN。 pgx 自己的连接参数也写在这里，比如经 PgBouncer 的事务池连库时要写 default_query_exec_mode: exec——pgx 默认的 cache_statement 用具名预备语句， 实测 PgBouncer 1.22 事务池（max_prepared_statements 为 0，1.24 之前的默认值） 20 个协程并发 1000 条查询，701 条报 prepared statement \"stmtcache_…\" already exists （42P05）。细节和各模式的代价见 docs/config.md。",
                   "additionalProperties": {
                     "type": "string"
                   }
@@ -442,14 +442,14 @@
             },
             "SlowThreshold": {
               "type": "string",
-              "description": "超过这个耗时的 SQL 记一条 warn 日志。默认 3s，需 Log 开启。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+              "description": "超过这个耗时的 SQL 记一条 warn 日志。默认 3s，需 Log 开启，配 0 不记。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
             },
             "Trace": {
               "type": [
                 "boolean",
                 "string"
               ],
-              "description": "是否挂 OpenTelemetry 插件。默认开启。 没装链路时它产出的是 noop Span，代价可以忽略，所以默认就开着。",
+              "description": "是否挂 OpenTelemetry 插件。默认开启。 没装链路时它产出的是 noop Span，代价可以忽略，所以默认就开着。 属性按 OTel 数据库语义约定 v1.43.0 写（db.system.name、db.namespace、 db.query.text、db.operation.name、server.address / server.port）， db.query.text 带占位符、不带参数值；服务端报错时只记错误码（db.response.status_code）。",
               "pattern": "\\$\\{"
             }
           },
@@ -466,11 +466,11 @@
                 "properties": {
                   "DSN": {
                     "type": "string",
-                    "description": "连接串，必填。 建议写成 \"${DB_DSN}\"：凭证不该进版本库，漏配时启动就失败。"
+                    "description": "连接串，必填。 建议写成 \"${DB_DSN}\"：凭证不该进版本库，漏配时启动就失败。 MySQL 的 DSN 里没写 parseTime 的，补成 parseTime=true：驱动默认 false， DATETIME 扫不进 time.Time（实测 go-sql-driver v1.10.1，带 CreatedAt 的模型 First 一次就报 unsupported Scan）。写了的以 DSN 为准。"
                   },
                   "DialTimeout": {
                     "type": "string",
-                    "description": "建连超时。默认 500ms。 MySQL 注入 DSN 的 timeout，PostgreSQL 注入 connect_timeout（向上取整为秒）。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+                    "description": "建连超时。默认 500ms。 MySQL 注入 DSN 的 timeout，PostgreSQL 注入 connect_timeout（向上取整为秒）。 配 0 就不注入、用驱动自己的（两个驱动都是不限时）。不能为负，下面的时长都是。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
                   },
                   "Driver": {
                     "type": "string",
@@ -489,7 +489,7 @@
                       "boolean",
                       "string"
                     ],
-                    "description": "是否把 GORM 的 SQL 日志接到 slog 上。默认关闭。",
+                    "description": "是否把 GORM 的 SQL 日志接到 slog 上。默认关闭。 SQL 执行失败时 error 字段只记服务端的错误码（另有 error_code 字段）， 不记原文：实测 MySQL 8.0 的 1062 原文是 Duplicate entry 'a@b.com' for key …， 参数值就在里面。返回给调用方的错误不变。",
                     "pattern": "\\$\\{"
                   },
                   "MaxIdleConns": {
@@ -502,11 +502,11 @@
                   },
                   "MaxIdleTime": {
                     "type": "string",
-                    "description": "空闲连接最长存活时间。默认 5m。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+                    "description": "空闲连接最长存活时间。默认 5m，配 0 不限。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
                   },
                   "MaxLifetime": {
                     "type": "string",
-                    "description": "连接最长存活时间。默认 5m。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+                    "description": "连接最长存活时间。默认 5m，配 0 不限。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
                   },
                   "MaxOpenConns": {
                     "type": [
@@ -521,7 +521,7 @@
                       "boolean",
                       "string"
                     ],
-                    "description": "是否导出连接池指标（连接数、等待次数、等待时长等）。默认开启。 指标在被抓取时才读 sql.DB.Stats()，不额外占协程。 按实例生效：配了 Metric: false 的实例不出现在 /metrics 里。",
+                    "description": "是否导出连接池指标 db_pool_*（连接数、等待次数、等待时长等），标签 name 是实例名。默认开启。 指标在被抓取时才读 sql.DB.Stats()，不额外占协程。 按实例生效：配了 Metric: false 的实例不出现在 /metrics 里。",
                     "pattern": "\\$\\{"
                   },
                   "MySQL": {
@@ -530,11 +530,11 @@
                     "properties": {
                       "ReadTimeout": {
                         "type": "string",
-                        "description": "读超时，对应 DSN 的 readTimeout。默认 3s。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+                        "description": "读超时，对应 DSN 的 readTimeout。默认 3s，配 0 不注入（驱动不限时）。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
                       },
                       "WriteTimeout": {
                         "type": "string",
-                        "description": "写超时，对应 DSN 的 writeTimeout。默认 5s。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+                        "description": "写超时，对应 DSN 的 writeTimeout。默认 5s，配 0 不注入（驱动不限时）。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
                       }
                     },
                     "additionalProperties": false
@@ -553,7 +553,7 @@
                       },
                       "Params": {
                         "type": "object",
-                        "description": "其它任意 PG 运行时参数，原样拼进 DSN。",
+                        "description": "其它任意 PG 运行时参数，原样拼进 DSN。 pgx 自己的连接参数也写在这里，比如经 PgBouncer 的事务池连库时要写 default_query_exec_mode: exec——pgx 默认的 cache_statement 用具名预备语句， 实测 PgBouncer 1.22 事务池（max_prepared_statements 为 0，1.24 之前的默认值） 20 个协程并发 1000 条查询，701 条报 prepared statement \"stmtcache_…\" already exists （42P05）。细节和各模式的代价见 docs/config.md。",
                         "additionalProperties": {
                           "type": "string"
                         }
@@ -567,14 +567,14 @@
                   },
                   "SlowThreshold": {
                     "type": "string",
-                    "description": "超过这个耗时的 SQL 记一条 warn 日志。默认 3s，需 Log 开启。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+                    "description": "超过这个耗时的 SQL 记一条 warn 日志。默认 3s，需 Log 开启，配 0 不记。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
                   },
                   "Trace": {
                     "type": [
                       "boolean",
                       "string"
                     ],
-                    "description": "是否挂 OpenTelemetry 插件。默认开启。 没装链路时它产出的是 noop Span，代价可以忽略，所以默认就开着。",
+                    "description": "是否挂 OpenTelemetry 插件。默认开启。 没装链路时它产出的是 noop Span，代价可以忽略，所以默认就开着。 属性按 OTel 数据库语义约定 v1.43.0 写（db.system.name、db.namespace、 db.query.text、db.operation.name、server.address / server.port）， db.query.text 带占位符、不带参数值；服务端报错时只记错误码（db.response.status_code）。",
                     "pattern": "\\$\\{"
                   }
                 },

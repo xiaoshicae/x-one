@@ -160,7 +160,7 @@ func TestConfig_布尔开关配false就是false(t *testing.T) {
 func TestValidate(t *testing.T) {
 	ok := DefaultClientConfig()
 	ok.DSN = "host=h"
-	if err := ok.validate(); err != nil {
+	if err := ok.Validate(); err != nil {
 		t.Errorf("合法配置不该报错：%v", err)
 	}
 
@@ -168,11 +168,77 @@ func TestValidate(t *testing.T) {
 		"DSN 为空":           func(c *ClientConfig) { c.DSN = "" },
 		"驱动不认识":            func(c *ClientConfig) { c.Driver = "oracle" },
 		"MaxOpenConns 为 0": func(c *ClientConfig) { c.MaxOpenConns = 0 },
+		"MaxIdleConns 为负":  func(c *ClientConfig) { c.MaxIdleConns = -1 },
+		// 负的时长底下每一处都静默变成「不限」：go-sql-driver 的 FormatDSN 只写 > 0 的超时，
+		// database/sql 把负的存活时间当成 0
+		"DialTimeout 为负":               func(c *ClientConfig) { c.DialTimeout = -time.Second },
+		"MaxLifetime 为负":               func(c *ClientConfig) { c.MaxLifetime = -time.Second },
+		"MaxIdleTime 为负":               func(c *ClientConfig) { c.MaxIdleTime = -time.Second },
+		"SlowThreshold 为负":             func(c *ClientConfig) { c.SlowThreshold = -time.Second },
+		"MySQL.ReadTimeout 为负":         func(c *ClientConfig) { c.MySQL.ReadTimeout = -time.Second },
+		"MySQL.WriteTimeout 为负":        func(c *ClientConfig) { c.MySQL.WriteTimeout = -time.Second },
+		"Postgres.StatementTimeout 为负": func(c *ClientConfig) { c.Postgres.StatementTimeout = -time.Second },
+		"Postgres.LockTimeout 为负":      func(c *ClientConfig) { c.Postgres.LockTimeout = -time.Second },
+		"Postgres.IdleInTxTimeout 为负":  func(c *ClientConfig) { c.Postgres.IdleInTxTimeout = -time.Second },
 	} {
 		c := ok
 		mutate(&c)
-		if err := c.validate(); err == nil {
+		if err := c.Validate(); err == nil {
 			t.Errorf("%s 应当报错", name)
+		}
+	}
+}
+
+func TestValidate_零值的时长是合法的(t *testing.T) {
+	// 0 各有写明的含义：DialTimeout 等不注入、用驱动自己的；存活时间不限；SlowThreshold 不记慢日志
+	c := DefaultClientConfig()
+	c.DSN = "host=h"
+	c.DialTimeout, c.MaxLifetime, c.MaxIdleTime, c.SlowThreshold = 0, 0, 0, 0
+	c.MySQL = MySQLConfig{}
+	if err := c.Validate(); err != nil {
+		t.Errorf("0 不该被拒：%v", err)
+	}
+}
+
+func TestValidate_负的MySQL超时注进DSN就消失了(t *testing.T) {
+	// 这是 Validate 拦负数的理由：go-sql-driver v1.10.1 的 FormatDSN 只写 > 0 的超时，
+	// 负数注进去，DSN 里就没有这个超时了。驱动升级后这里不再成立的话，注释要跟着改
+	c := mysqlCfg("u:p@tcp(h:3306)/d")
+	c.MySQL.ReadTimeout = -time.Second
+	dsn, _, err := resolveMySQL(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(dsn, "readTimeout") {
+		t.Errorf("驱动的行为变了：负的 readTimeout 留在了 DSN 里，%s", dsn)
+	}
+}
+
+func TestConfig_Validate报出是哪个实例(t *testing.T) {
+	c := Config{Clients: map[string]ClientConfig{"ok": DefaultClientConfig(), "bad": DefaultClientConfig()}}
+	for name, cc := range c.Clients {
+		cc.DSN = "host=h"
+		c.Clients[name] = cc
+	}
+	bad := c.Clients["bad"]
+	bad.MaxLifetime = -time.Second
+	c.Clients["bad"] = bad
+	err := c.Validate()
+	if err == nil || !strings.Contains(err.Error(), "Clients.bad") || strings.Contains(err.Error(), "Clients.ok") {
+		t.Errorf("错误要说清是哪个实例，got=%v", err)
+	}
+}
+
+func TestConfig_读配置时就拦下非法值并带着文件和行号(t *testing.T) {
+	// 拦在读配置这一步：一个实例都还没连，报错里有文件和行号，
+	// 而不是等到按名字挨个建连、建到它才失败
+	err := loadErr(t, "XGorm:\n  Clients:\n    a:\n      DSN: x\n    b:\n      DSN: y\n      MySQL:\n        ReadTimeout: -3s\n")
+	if err == nil {
+		t.Fatal("负的 ReadTimeout 读配置时就该失败")
+	}
+	for _, want := range []string{"Clients.b", "MySQL.ReadTimeout", "application.yml:6"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("错误里应有 %q，got=%v", want, err)
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -54,6 +55,41 @@ func TestResolveDSN_MySQL不覆盖已写的超时(t *testing.T) {
 		if !strings.Contains(dsn, want) {
 			t.Errorf("不该覆盖 %s，got=%s", want, dsn)
 		}
+	}
+}
+
+func TestResolveDSN_MySQL没写parseTime时补成true(t *testing.T) {
+	// 驱动默认 parseTime=false：DATETIME 扫不进 time.Time，带 CreatedAt 的模型
+	// First 一次就报 unsupported Scan（实测 go-sql-driver v1.10.1、MySQL 8.0.46）。
+	// DSN 里写了的，哪怕写的是 false，以 DSN 为准
+	for _, c := range []struct {
+		name, dsn string
+		want      bool
+	}{
+		{"没写", "u:p@tcp(h:3306)/app", true},
+		{"没写但有别的参数", "u:p@tcp(h:3306)/app?charset=utf8mb4", true},
+		{"写了 true", "u:p@tcp(h:3306)/app?parseTime=true", true},
+		{"写了 false", "u:p@tcp(h:3306)/app?parseTime=false", false},
+		{"写了 0", "u:p@tcp(h:3306)/app?charset=utf8mb4&parseTime=0", false},
+		// 密码在最后一个 / 之前，里面的 ?parseTime=false 不算数——驱动自己也这么解
+		{"密码里写着 parseTime", "u:x?parseTime=false@tcp(h:3306)/app", true},
+		{"密码里带 / 又写着 parseTime", "u:a/b?parseTime=false@tcp(h:3306)/app", true},
+		// 库名里的 parseTime 同理：它在 ? 之前
+		{"库名里写着 parseTime", "u:p@tcp(h:3306)/parseTime=false", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dsn, _, err := resolveDSN(mysqlCfg(c.dsn))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := mysqldriver.ParseDSN(dsn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.ParseTime != c.want {
+				t.Errorf("parseTime 应是 %v，最终 DSN=%s", c.want, dsn)
+			}
+		})
 	}
 }
 

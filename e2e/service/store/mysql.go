@@ -83,3 +83,15 @@ func SleepMySQL(ctx context.Context, seconds float64) error {
 	var r int64
 	return my(ctx).Raw(`SELECT SLEEP(?)`, seconds).Scan(&r).Error
 }
+
+// BadInsertMySQL 把 value 当 id 插进 BIGINT 列：严格模式下服务端报 1366，
+// 原文是 Incorrect integer value: '<value>' for column 'id' at row 1
+func BadInsertMySQL(ctx context.Context, value string) error {
+	return my(ctx).Exec(`INSERT INTO `+users()+` (id, name) VALUES (?, ?)`, value, "bad-sql").Error
+}
+
+// BadCastPG 在 PG 上把 value 转成 bigint：服务端报 22P02，
+// 原文是 invalid input syntax for type bigint: "<value>"
+func BadCastPG(ctx context.Context, value string) error {
+	return xgorm.CWithCtx(ctx).Exec(`SELECT CAST(CAST(? AS text) AS bigint)`, value).Error
+}

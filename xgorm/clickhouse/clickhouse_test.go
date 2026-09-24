@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	chgo "github.com/ClickHouse/clickhouse-go/v2"
 	"gorm.io/driver/clickhouse"
 	"gorm.io/gorm"
 
@@ -57,10 +59,72 @@ func TestResolve_DSN里写了的不覆盖(t *testing.T) {
 		t.Errorf("DSN 里已有的不该被覆盖，got=%q", got)
 	}
 	// 建连验证的预算按 info 里的超时算，DSN 里写的更长就得报这个更长的
-	if info.DialTimeout != 5*time.Second {
-		t.Errorf("连接信息里的建连超时该是 DSN 里写的 5s，got=%v", info.DialTimeout)
+	if info.ProbeTimeout != 10*time.Second {
+		t.Errorf("探测预算该按 DSN 里写的 5s 算（建连 + 同量级的往返 = 10s），got=%v", info.ProbeTimeout)
 	}
 }
+
+func TestDialect_认得出认证失败(t *testing.T) {
+	// 没有能连的 ClickHouse，错误的形状取自驱动源码：native 协议握手时服务端回
+	// Exception 包，驱动原样返回 *clickhouse.Exception。错误码取自 ch-go 的类型化常量
+	wrap := func(code int32) error {
+		return fmt.Errorf("dial: %w", &chgo.Exception{Code: code, Name: "DB::Exception", Message: "rejected"})
+	}
+	for _, c := range []struct {
+		name string
+		err  error
+		auth bool
+		code string
+	}{
+		{"AUTHENTICATION_FAILED", wrap(516), true, "516"},
+		{"UNKNOWN_USER", wrap(192), true, "192"},
+		{"WRONG_PASSWORD", wrap(193), true, "193"},
+		{"REQUIRED_PASSWORD", wrap(194), true, "194"},
+		{"UNKNOWN_DATABASE 不算", wrap(81), false, "81"},
+		{"HTTP 协议的文本错误认不出", errors.New("clickhouse [execute]:: 401 code: Code: 516"), false, ""},
+	} {
+		if got := dialect.AuthFailed(c.err); got != c.auth {
+			t.Errorf("%s：AuthFailed=%v，want %v", c.name, got, c.auth)
+		}
+		if got := dialect.ErrorCode(c.err); got != c.code {
+			t.Errorf("%s：ErrorCode=%q，want %q", c.name, got, c.code)
+		}
+	}
+}
+
+func TestNew_认证失败时不重试(t *testing.T) {
+	// 打在注册的方言上：没接 AuthFailed 的话，密码错也要试满三轮才报、报成连不上
+	rejected := &chgo.Exception{Code: 516, Message: "default: Authentication failed"}
+	conn := &rejectConnector{err: rejected}
+	d := dialect // 除了 Open，其余都是注册进去的那一份
+	d.Name = "clickhouse-authprobe"
+	d.Open = func(string) gorm.Dialector {
+		return clickhouse.New(clickhouse.Config{Conn: sql.OpenDB(conn), SkipInitializeWithVersion: true})
+	}
+	xgorm.RegisterDialect(d)
+
+	c := cfg("clickhouse://h:9000/db", 50*time.Millisecond)
+	c.Driver = d.Name
+	_, _, err := xgorm.New(context.Background(), c)
+	if !errors.Is(err, rejected) || !strings.Contains(err.Error(), "authentication to h:9000 failed") {
+		t.Errorf("认证失败该报认证失败，got=%v", err)
+	}
+	if n := conn.calls.Load(); n != 1 {
+		t.Errorf("认证失败不该重试，试了 %d 次", n)
+	}
+}
+
+// rejectConnector 每次建连都被服务端拒绝，形状同 native 协议握手时收到的 Exception 包
+type rejectConnector struct {
+	err   error
+	calls atomic.Int32
+}
+
+func (c *rejectConnector) Connect(context.Context) (driver.Conn, error) {
+	c.calls.Add(1)
+	return nil, c.err
+}
+func (c *rejectConnector) Driver() driver.Driver { return nil }
 
 func TestResolve_超时为零就不注入(t *testing.T) {
 	dsn, _, err := resolve(cfg("clickhouse://h:9000/db", 0))

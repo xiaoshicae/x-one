@@ -4,14 +4,11 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
-	"errors"
 	"io"
 	"log/slog"
-	"strings"
 	"time"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
-	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
@@ -20,14 +17,13 @@ import (
 	"github.com/xiaoshicae/x-one/xerror"
 	"github.com/xiaoshicae/x-one/xhook"
 	"github.com/xiaoshicae/x-one/xmetric"
-	"github.com/xiaoshicae/x-one/xutil"
 )
 
 const (
 	// pingAttempts 建连验证的尝试次数
 	pingAttempts = 3
 
-	// fallbackPingTimeout 配置里推算不出预算时，单次 Ping 的兜底超时
+	// fallbackPingTimeout 配置里推算不出预算时，单次探测的兜底超时
 	fallbackPingTimeout = time.Second
 )
 
@@ -40,12 +36,17 @@ var pingInterval = time.Second
 
 // New 按配置建一个 GORM 实例，不触碰任何全局变量。
 //
-// ctx 限定建连验证的生命期：地址不通时这里要走满一轮 Ping 重试，
+// ctx 限定建连验证的生命期：地址不通时这里要走满一轮探测重试，
 // 收到退出信号就该当场放弃，而不是让进程卡在一个注定连不上的库上。
 //
 // 返回的 io.Closer 关闭底层连接池。建连失败时不会留下连接池。
 func New(ctx context.Context, cfg ClientConfig) (*gorm.DB, io.Closer, error) {
-	if err := cfg.validate(); err != nil {
+	return open(ctx, "", cfg)
+}
+
+// open 就是 New，多一个实例名：框架按名字建实例时，建连日志里要写上是哪一个
+func open(ctx context.Context, name string, cfg ClientConfig) (*gorm.DB, io.Closer, error) {
+	if err := cfg.Validate(); err != nil {
 		return nil, nil, xerror.Newf("xgorm", "config", "invalid config: %w", err)
 	}
 
@@ -54,20 +55,24 @@ func New(ctx context.Context, cfg ClientConfig) (*gorm.DB, io.Closer, error) {
 		return nil, nil, xerror.New("xgorm", "config", err)
 	}
 
-	dialect, _ := lookupDialect(cfg.Driver) // validate 已经确认它注册过
+	dialect, _ := lookupDialect(cfg.Driver) // Validate 已经确认它注册过
 	dialector := dialect.Open(dsn)          // Logger 要看它的占位符长什么样，所以先造出来
 
 	// 关掉 GORM 自带的那次 ping：它用的是自己的 context，我们的退出信号
 	// 和重试都管不到它。开着的话，连一个不可达的地址时 New 会先在里面
 	// 干等满 DSN 的 connect_timeout，哪怕 ctx 早就被取消了（实测 3 秒）。
 	// 关掉之后 gorm.Open 只做装配、立刻返回，全部建连都走下面那次
-	// ctx-aware 的 ping —— 取消得了、也重试得了。
+	// ctx-aware 的探测 —— 取消得了、也重试得了。
 	//
 	// 内置的 MySQL 和 ClickHouse 方言在 Initialize 里各有一次查版本，也会建连，
 	// 两者都在 Open 里关掉、挪进了 Dialect.Ready（见 openMySQL）。
+	//
+	// 其余几项 GORM 的默认值原样保留，量过，理由见 docs/config.md「GORM 的默认行为」：
+	// SkipDefaultTransaction=false（每次写多两个往返，换来钩子失败时整体回滚）、
+	// PrepareStmt=false、NowFunc 用本地时间、TranslateError=false。
 	gormCfg := &gorm.Config{DisableAutomaticPing: true}
 	if cfg.Log {
-		gormCfg.Logger = newGormLogger(cfg, dialector)
+		gormCfg.Logger = newGormLogger(cfg, dialect, dialector)
 	} else {
 		// 不给 Logger 的话 GORM 会补上自己的默认实现，而那个默认实现
 		// 是「带 ANSI 颜色地往 os.Stdout 写」：慢 SQL 和执行错误照样打，
@@ -83,7 +88,7 @@ func New(ctx context.Context, cfg ClientConfig) (*gorm.DB, io.Closer, error) {
 		//
 		// 内置方言走不到这里的认证失败：它们的 Open 不碰网络。注册进来的方言要是
 		// 在 Initialize 里建连，密码错就出在这里，照样要说清是认证失败
-		if authFailed(err) {
+		if dialect.authFailed(err) {
 			return nil, nil, xerror.Newf("xgorm", "connect", "authentication to %s failed: %w", info.Addr, err)
 		}
 		return nil, nil, xerror.Newf("xgorm", "connect", "open %s failed: %w", info.Addr, err)
@@ -108,80 +113,54 @@ func New(ctx context.Context, cfg ClientConfig) (*gorm.DB, io.Closer, error) {
 	pool.SetConnMaxLifetime(cfg.MaxLifetime)
 	pool.SetConnMaxIdleTime(cfg.MaxIdleTime)
 
-	if err := ping(ctx, pool, pingTimeout(cfg, info), readyOf(dialect, db)); err != nil {
-		if authFailed(err) {
+	policy := probePolicy(cfg, info, dialect)
+	if err := xclient.Probe(ctx, policy, probe(pool, readyOf(dialect, db))); err != nil {
+		if dialect.authFailed(err) {
 			return nil, nil, xerror.Newf("xgorm", "connect", "authentication to %s failed: %w", info.Addr, err)
 		}
 		return nil, nil, xerror.Newf("xgorm", "connect", "cannot reach %s: %w", info.Addr, err)
 	}
 
 	if cfg.Trace {
-		if err := installTracing(db, info); err != nil {
+		if err := installTracing(db, info, dialect); err != nil {
 			return nil, nil, xerror.Newf("xgorm", "new", "install tracing callbacks: %w", err)
 		}
 	}
 
-	logConn(info, cfg)
+	logConn(name, info, cfg)
 
 	ok = true
 	return db, &poolCloser{pool: pool, info: info}, nil
 }
 
-// ping 建连验证，失败按退避重试；ctx 取消时立即放弃。
+// probe 一次建连验证：Ping，通过之后接着执行方言的 Ready（见 Dialect.Ready），
+// 后者失败同样算这一次没通过、同样重试。
 //
-// ready 非空时在每次 Ping 成功之后接着执行，失败同样算这一次没通过、同样重试，
-// 见 Dialect.Ready。
-//
-// 认证失败不重试：服务端已经明确拒绝了这组凭证，再试两次只是把同一个错误
-// 多等两轮退避（默认最多 3s）才报出来，还会在服务端多留两条认证失败的记录。
-// Retry 没有「别再试了」的出口，所以取消这一轮的 ctx 让它停下，报的仍是认证那个错误。
-func ping(ctx context.Context, pool *sql.DB, timeout time.Duration, ready func(context.Context) error) error {
-	ctx, stop := context.WithCancel(ctx)
-	defer stop()
-	var denied error
-	err := xutil.Retry(ctx, pingAttempts, timeout, pingInterval, func(ctx context.Context) error {
+// 直接在当前协程里等，不丢给别的协程：sql.DB 的 Close 会等在途的查询，
+// 丢下的那个协程并不会因为连接池关了就返回。驱动都认 ctx——
+// pgx 和 go-sql-driver 取消时当场断开这条连接，ClickHouse 的 Ping 认截止时间
+// ——所以一次尝试最多卡到它自己的截止时间。
+func probe(pool *sql.DB, ready func(context.Context) error) func(context.Context) error {
+	return func(ctx context.Context) error {
 		err := pool.PingContext(ctx)
 		if err == nil && ready != nil {
 			err = ready(ctx)
 		}
-		if authFailed(err) {
-			denied = err
-			stop()
-		}
 		return err
-	})
-	if denied != nil {
-		return denied
 	}
-	return err
 }
 
-// authFailed 服务端是否拒绝了这组凭证。
-//
-// PostgreSQL：SQLSTATE 第 28 类（invalid authorization specification）。
-// 实测 pgx v5.10.0 连 PG 16，密码错、用户不存在都报 28P01（后者在 scram 认证下
-// 也是 "password authentication failed"），错误链上是 *pgconn.PgError。
-// 库不存在是 3D000，不在这一类里，仍按连不上处理。
-//
-// MySQL：错误号 1045 和 1044，错误链上是 *mysql.MySQLError。实测 go-sql-driver v1.10.1
-// 连 MySQL 8.0.46：密码错、用户不存在都是 1045（Access denied for user …）；
-// 账号对、但没有这个库的权限是 1044（Access denied … to database …）——
-// 库不存在时，没有全局权限的账号拿到的也是 1044 而不是 1049，服务端不告诉它库在不在。
-// 不看 SQLSTATE：1045 的是 28000，1044 的却是 42000（语法错误、权限错误共用的那一类）。
-func authFailed(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return strings.HasPrefix(pgErr.Code, "28")
+// probePolicy 建连验证怎么试。认证失败不重试：服务端已经明确拒绝了这组凭证，
+// 再试两次只是把同一个错误多等两轮退避（默认最多 3s）才报出来，
+// 还会在服务端多留两条认证失败的记录。认不认得出由方言决定（Dialect.AuthFailed）
+func probePolicy(cfg ClientConfig, info ConnInfo, d Dialect) xclient.ProbePolicy {
+	return xclient.ProbePolicy{
+		Attempts:   pingAttempts,
+		Timeout:    probeTimeout(cfg, info),
+		Interval:   pingInterval,
+		AuthFailed: d.authFailed,
 	}
-	var myErr *mysqldriver.MySQLError
-	return errors.As(err, &myErr) && (myErr.Number == mysqlAccessDenied || myErr.Number == mysqlDBAccessDenied)
 }
-
-// MySQL 的两个认证错误号（ER_ACCESS_DENIED_ERROR、ER_DBACCESS_DENIED_ERROR）
-const (
-	mysqlAccessDenied   = 1045
-	mysqlDBAccessDenied = 1044
-)
 
 // readyOf 把方言的 Ready 绑到这个实例上，方言没提供就是 nil
 func readyOf(d Dialect, db *gorm.DB) func(context.Context) error {
@@ -191,39 +170,14 @@ func readyOf(d Dialect, db *gorm.DB) func(context.Context) error {
 	return func(ctx context.Context) error { return d.Ready(ctx, db) }
 }
 
-// pingTimeout 单次探测的超时
+// probeTimeout 单次探测的超时。
 //
-// 不能只用建连超时：探测的耗时是建连加一个往返，
+// 由方言推算（ConnInfo.ProbeTimeout）：它知道驱动拿哪个超时管建连、哪个管往返，
+// 也知道 DSN 里最终生效的是多少。方言推算不出来时按建连加一个同量级的往返
+// 给 2 × DialTimeout——不能只给建连超时：探测的耗时是建连加一个往返，
 // 拿建连预算当整体预算，连接刚建成就会被判超时。
-//
-// 超时以驱动从最终 DSN 里读出来的为准（info，见 ConnInfo.DialTimeout），
-// 读不出来才用配置：配置里的只是注入 DSN 的默认值，使用者在 DSN 里写了
-// connect_timeout=10 的话驱动就会等 10s，这里按配置的 500ms 算预算，
-// 就会在驱动自己放弃之前把一次慢一点但合法的建连判超时、重试。
-func pingTimeout(cfg ClientConfig, info ConnInfo) time.Duration {
-	dial := cmp.Or(info.DialTimeout, cfg.DialTimeout)
-	var d time.Duration
-	switch cfg.Driver {
-	case DriverMySQL:
-		// timeout 管建连，readTimeout 管 Ping 那个往返
-		d = dial + cmp.Or(info.ReadTimeout, cfg.MySQL.ReadTimeout)
-	case DriverPostgres:
-		// 注入的 connect_timeout 是向上取整的整秒（默认 500ms 注进去是 1s），
-		// 而且 pgx 拿它管的是每个主机的整个建连：TCP 之后的 TLS 握手、startup、
-		// 认证都在里面（pgconn v5.10.0 "restricts the whole connection process"；
-		// 实测 TCP 秒连、startup 不回话的服务端，connect_timeout=1 等满 1.0s）。
-		// 预算只给 DialTimeout 的话，一次慢一点但合法的握手会在 pgx 自己放弃
-		// 之前就被这里判超时。再加一份 DialTimeout 给 Ping 本身那个往返
-		d = cmp.Or(info.DialTimeout, ceilSeconds(cfg.DialTimeout)) + cfg.DialTimeout
-	default:
-		// 其余驱动（如 ClickHouse 的 dial_timeout）同样拿建连超时管握手，
-		// 往返没有单独的配置可依，按同一量级再给一份
-		d = 2 * dial
-	}
-	if d <= 0 {
-		return fallbackPingTimeout
-	}
-	return d
+func probeTimeout(cfg ClientConfig, info ConnInfo) time.Duration {
+	return cmp.Or(info.ProbeTimeout, 2*cfg.DialTimeout, fallbackPingTimeout)
 }
 
 type poolCloser struct {
@@ -306,7 +260,7 @@ func initXGorm(ctx context.Context) error {
 
 // install 按配置把实例挨个建出来
 func install(ctx context.Context, c Config) error {
-	if err := xclient.Build(ctx, reg, c.Clients, build); err != nil {
+	if err := xclient.Build(ctx, reg, withNames(c.Clients), build); err != nil {
 		return err
 	}
 	installPoolMetrics() // 一个实例都没开 Metric 时它什么都不导出，不必特判
@@ -322,12 +276,27 @@ func closeXGorm(context.Context) error { return reg.Close() }
 
 // build 建一个实例。包一层 New 而不是直接把 New 交出去，
 // 是为了把这个实例的 Metric 开关一起带进注册表
-func build(ctx context.Context, c ClientConfig) (instance, io.Closer, error) {
-	db, closer, err := New(ctx, c)
+func build(ctx context.Context, c named) (instance, io.Closer, error) {
+	db, closer, err := open(ctx, c.name, c.ClientConfig)
 	if err != nil {
 		return instance{}, nil, err
 	}
 	return instance{db: db, metric: c.Metric}, closer, nil
+}
+
+// named 带着实例名的配置：xclient.Build 只把配置交给 build，建连日志要写是哪个实例
+type named struct {
+	name string
+	ClientConfig
+}
+
+// withNames 给每个实例的配置带上它的名字
+func withNames(clients map[string]ClientConfig) map[string]named {
+	out := make(map[string]named, len(clients))
+	for name, c := range clients {
+		out[name] = named{name: name, ClientConfig: c}
+	}
+	return out
 }
 
 // installPoolMetrics 把连接池 collector 挂到当前的 Registry 上。

@@ -23,15 +23,19 @@ type gormLogger struct {
 
 	// numbered 方言的 Explain 会把 $N 改写成 $N$，记下来之前要改回去，见 statement
 	numbered bool
+
+	// dialect 认服务端错误码用，见 Dialect.ErrorCode
+	dialect Dialect
 }
 
 // newGormLogger d 是这个实例的 Dialector，只用来判断它的占位符长什么样
-func newGormLogger(c ClientConfig, d gorm.Dialector) *gormLogger {
+func newGormLogger(c ClientConfig, dialect Dialect, d gorm.Dialector) *gormLogger {
 	return &gormLogger{
 		slowThreshold:  c.SlowThreshold,
 		ignoreNotFound: c.IgnoreNotFound,
 		level:          logger.Info,
 		numbered:       d.Explain("$1") == "$1$",
+		dialect:        dialect,
 	}
 }
 
@@ -70,7 +74,7 @@ func (l *gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (stri
 	switch {
 	case err != nil && l.level >= logger.Error && !l.skipErr(err):
 		sql, rows := l.statement(fc)
-		slog.ErrorContext(ctx, "SQL failed", attrs(sql, rows, elapsed, "error", err)...)
+		slog.ErrorContext(ctx, "SQL failed", attrs(sql, rows, elapsed, l.errorAttrs(err)...)...)
 
 	case l.slowThreshold > 0 && elapsed > l.slowThreshold && l.level >= logger.Warn:
 		sql, rows := l.statement(fc)
@@ -115,6 +119,19 @@ func (l *gormLogger) statement(fc func() (string, int64)) (string, int64) {
 		sql = explainedNumbered.ReplaceAllString(sql, "$$$1")
 	}
 	return sql, rows
+}
+
+// errorAttrs 错误的字段：服务端报的错只记错误码，不记原文。
+//
+// 与只记占位符 SQL、不记参数是同一条原则：服务端的错误原文会把参数值带出来
+// （实测 MySQL 8.0 的 1062 是 Duplicate entry 'a@b.com' for key …），
+// 不收掉的话 Log: true 时参数值换一条路照样进了日志。见 Dialect.ErrorCode
+func (l *gormLogger) errorAttrs(err error) []any {
+	text, code := l.dialect.redactedError(err)
+	if code == "" {
+		return []any{"error", text}
+	}
+	return []any{"error", text, "error_code", code}
 }
 
 // skipErr「没查到记录」通常是正常的业务分支，不是故障

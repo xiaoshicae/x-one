@@ -3,9 +3,12 @@ package xgorm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
+	mysqldriver "github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -62,7 +65,7 @@ func TestInstallTracing_六种操作都挂上(t *testing.T) {
 	// 官方插件会把 ClickHouse 驱动编进来，所以回调是自己注册的；
 	// 那就得自己保证一种都没漏——漏了的那种操作从此在链路里是隐形的
 	db := openLazy(t)
-	if err := installTracing(db, ConnInfo{Driver: "mysql"}); err != nil {
+	if err := installTracing(db, ConnInfo{Driver: "mysql"}, mysqlDialect()); err != nil {
 		t.Fatalf("注册失败：%v", err)
 	}
 
@@ -85,10 +88,10 @@ func TestSpan_带上连接信息与SQL(t *testing.T) {
 	info := ConnInfo{Driver: "mysql", Addr: "h:3306", DB: "app"}
 
 	db := stmtDB(context.Background())
-	startSpan("query", info)(db)
+	startSpan(info)("query")(db)
 	db.Statement.SQL.WriteString("SELECT * FROM users WHERE id = ?")
 	db.RowsAffected = 3
-	endSpan(db)
+	endSpan(pgDialect())(db)
 
 	got := spans()
 	if len(got) != 1 {
@@ -102,11 +105,19 @@ func TestSpan_带上连接信息与SQL(t *testing.T) {
 	for _, kv := range s.Attributes() {
 		attrs[string(kv.Key)] = kv.Value.Emit()
 	}
-	if attrs["db.system"] != "mysql" || attrs["server.address"] != "h:3306" || attrs["db.name"] != "app" {
-		t.Errorf("连接信息不对，got=%v", attrs)
+	// OTel 数据库语义约定 v1.43.0 的名字；旧名字一个都不该再出现
+	for k, want := range map[string]string{
+		"db.system.name": "mysql", "db.namespace": "app", "server.address": "h", "server.port": "3306",
+		"db.query.text": "SELECT * FROM users WHERE id = ?", "db.operation.name": "SELECT",
+	} {
+		if attrs[k] != want {
+			t.Errorf("%s 应是 %q，got=%v", k, want, attrs)
+		}
 	}
-	if attrs["db.statement"] != "SELECT * FROM users WHERE id = ?" {
-		t.Errorf("SQL 不对，got=%v", attrs)
+	for _, old := range []string{"db.system", "db.name", "db.statement", "db.operation"} {
+		if _, ok := attrs[old]; ok {
+			t.Errorf("旧属性 %s 不该再出现，got=%v", old, attrs)
+		}
 	}
 	if attrs["db.rows_affected"] != "3" {
 		t.Errorf("行数不对，got=%v", attrs)
@@ -117,10 +128,10 @@ func TestSpan_不记参数值(t *testing.T) {
 	// 参数里可能有手机号、身份证、令牌，记进链路就跟着采样一路送出去了
 	spans := recording(t)
 	db := stmtDB(context.Background())
-	startSpan("query", ConnInfo{})(db)
+	startSpan(ConnInfo{})("query")(db)
 	db.Statement.SQL.WriteString("SELECT * FROM users WHERE token = ?")
 	db.Statement.Vars = []any{"hunter2"}
-	endSpan(db)
+	endSpan(pgDialect())(db)
 
 	for _, kv := range spans()[0].Attributes() {
 		if strings.Contains(kv.Value.Emit(), "hunter2") {
@@ -132,9 +143,9 @@ func TestSpan_不记参数值(t *testing.T) {
 func TestSpan_出错时标红(t *testing.T) {
 	spans := recording(t)
 	db := stmtDB(context.Background())
-	startSpan("query", ConnInfo{})(db)
+	startSpan(ConnInfo{})("query")(db)
 	db.Error = errors.New("连接断了")
-	endSpan(db)
+	endSpan(pgDialect())(db)
 
 	s := spans()[0]
 	if s.Status().Code != codes.Error {
@@ -145,13 +156,98 @@ func TestSpan_出错时标红(t *testing.T) {
 	}
 }
 
+func TestSpan_服务端报错时只记错误码不记原文(t *testing.T) {
+	// 实测 MySQL 8.0 的 1062 原文是 Duplicate entry 'a@b.com' for key …，
+	// PG 16 的 22P02 原文是 invalid input syntax for type integer: "notanint"：
+	// 参数值换一条路进了链路。db.query.text 特意只记占位符，这里不能再漏出去
+	for _, c := range []struct {
+		name string
+		d    Dialect
+		err  error
+		code string
+	}{
+		{"MySQL", mysqlDialect(), fmt.Errorf("wrapped: %w", &mysqldriver.MySQLError{Number: 1062, Message: "Duplicate entry '" + secret + "' for key 'u.email'"}), "1062"},
+		{"PG", pgDialect(), &pgconn.PgError{Code: "22P02", Message: `invalid input syntax for type integer: "` + secret + `"`, Detail: "Key (email)=(" + secret + ")"}, "22P02"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			spans := recording(t)
+			db := stmtDB(context.Background())
+			startSpan(ConnInfo{})("create")(db)
+			db.Error = c.err
+			endSpan(c.d)(db)
+
+			s := spans()[0]
+			if s.Status().Code != codes.Error || !strings.Contains(s.Status().Description, c.code) {
+				t.Errorf("出错应标成 Error 并写上错误码 %s，got=%v", c.code, s.Status())
+			}
+			blob := s.Status().Description
+			for _, kv := range s.Attributes() {
+				blob += " " + string(kv.Key) + "=" + kv.Value.Emit()
+			}
+			for _, e := range s.Events() {
+				for _, kv := range e.Attributes {
+					blob += " " + string(kv.Key) + "=" + kv.Value.Emit()
+				}
+			}
+			if strings.Contains(blob, secret) {
+				t.Errorf("服务端错误原文里的参数值进了 Span：%s", blob)
+			}
+			attrs := map[string]string{}
+			for _, kv := range s.Attributes() {
+				attrs[string(kv.Key)] = kv.Value.Emit()
+			}
+			if attrs["db.response.status_code"] != c.code || attrs["error.type"] != c.code {
+				t.Errorf("db.response.status_code / error.type 应是 %s，got=%v", c.code, attrs)
+			}
+		})
+	}
+}
+
+func TestOperationName_取语句的第一个关键字(t *testing.T) {
+	for sql, want := range map[string]string{
+		"SELECT * FROM t":           "SELECT",
+		"  insert into t values(1)": "insert",
+		"UPDATE\n t SET a=1":        "UPDATE",
+		"DELETE":                    "DELETE",
+		"/* hint */ SELECT 1":       "",
+		"(SELECT 1)":                "",
+		"SELECT(1)":                 "",
+		"":                          "",
+	} {
+		if got := operationName(sql); got != want {
+			t.Errorf("operationName(%q)=%q，want %q", sql, got, want)
+		}
+	}
+}
+
+func TestConnAttrs_地址拆成主机和端口(t *testing.T) {
+	for _, c := range []struct {
+		info ConnInfo
+		want map[string]string
+	}{
+		{ConnInfo{Driver: "postgres", Addr: "[::1]:5432", DB: "d"},
+			map[string]string{"db.system.name": "postgresql", "server.address": "::1", "server.port": "5432", "db.namespace": "d"}},
+		{ConnInfo{Driver: "clickhouse", Addr: "h"},
+			map[string]string{"db.system.name": "clickhouse", "server.address": "h"}},
+		{ConnInfo{Driver: "stub"}, map[string]string{"db.system.name": "stub"}},
+	} {
+		got := map[string]string{}
+		for _, kv := range connAttrs(c.info) {
+			got[string(kv.Key)] = kv.Value.Emit()
+		}
+		if fmt.Sprint(got) != fmt.Sprint(c.want) {
+			t.Errorf("connAttrs(%+v)=%v，want %v", c.info, got, c.want)
+		}
+	}
+}
+
 func TestSpan_没查到记录不算错(t *testing.T) {
 	// 「没查到」是正常的业务分支，标成错误会让链路里满屏红色
 	spans := recording(t)
 	db := stmtDB(context.Background())
-	startSpan("query", ConnInfo{})(db)
+	startSpan(ConnInfo{})("query")(db)
 	db.Error = gorm.ErrRecordNotFound
-	endSpan(db)
+	endSpan(pgDialect())(db)
 
 	if s := spans()[0]; s.Status().Code == codes.Error {
 		t.Errorf("没查到记录不该标成错误，got=%v", s.Status())
@@ -159,8 +255,8 @@ func TestSpan_没查到记录不算错(t *testing.T) {
 }
 
 func TestSpan_Statement为空时不炸(t *testing.T) {
-	startSpan("query", ConnInfo{})(&gorm.DB{})
-	endSpan(&gorm.DB{})
+	startSpan(ConnInfo{})("query")(&gorm.DB{})
+	endSpan(pgDialect())(&gorm.DB{})
 }
 
 func TestLogConn_不打印凭证(t *testing.T) {
@@ -172,7 +268,7 @@ func TestLogConn_不打印凭证(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	logConn(info, c)
+	logConn("", info, c)
 
 	got := lines()
 	if len(got) != 1 {
@@ -199,7 +295,8 @@ func benchSpan(b *testing.B, tp trace.TracerProvider) {
 	otel.SetTracerProvider(tp)
 	b.Cleanup(func() { otel.SetTracerProvider(old) })
 
-	before := startSpan("query", ConnInfo{Driver: "mysql", Addr: "h:3306", DB: "app"})
+	before := startSpan(ConnInfo{Driver: "mysql", Addr: "h:3306", DB: "app"})("query")
+	after := endSpan(mysqlDialect())
 	db := stmtDB(context.Background())
 	db.Statement.SQL.WriteString("SELECT * FROM users WHERE id = ?")
 	b.ReportAllocs()
@@ -207,7 +304,7 @@ func benchSpan(b *testing.B, tp trace.TracerProvider) {
 	for i := 0; i < b.N; i++ {
 		db.Statement.Context = context.Background()
 		before(db)
-		endSpan(db)
+		after(db)
 	}
 }
 

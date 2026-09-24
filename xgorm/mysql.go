@@ -2,6 +2,7 @@ package xgorm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	mysqldriver "github.com/go-sql-driver/mysql"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/callbacks"
@@ -29,6 +31,36 @@ import (
 // 关掉之后 gorm.Open 只做 sql.Open 和装配，不碰网络。
 func openMySQL(dsn string) gorm.Dialector {
 	return mysql.New(mysql.Config{DSN: dsn, SkipInitializeWithVersion: true})
+}
+
+// mysqlAuthFailed 错误号 1045 和 1044，错误链上是 *mysql.MySQLError。
+//
+// 实测 go-sql-driver v1.10.1 连 MySQL 8.0.46：密码错、用户不存在都是 1045（Access denied for user …）；
+// 账号对、但没有这个库的权限是 1044（Access denied … to database …）——
+// 库不存在时，没有全局权限的账号拿到的也是 1044 而不是 1049，服务端不告诉它库在不在。
+// 不看 SQLSTATE：1045 的是 28000，1044 的却是 42000（语法错误、权限错误共用的那一类）。
+func mysqlAuthFailed(err error) bool {
+	var myErr *mysqldriver.MySQLError
+	return errors.As(err, &myErr) && (myErr.Number == mysqlAccessDenied || myErr.Number == mysqlDBAccessDenied)
+}
+
+// MySQL 的两个认证错误号（ER_ACCESS_DENIED_ERROR、ER_DBACCESS_DENIED_ERROR）
+const (
+	mysqlAccessDenied   = 1045
+	mysqlDBAccessDenied = 1044
+)
+
+// mysqlErrorCode 服务端报的错误号。
+//
+// 实测 MySQL 8.0.46：错误原文把参数值原样带出来——1062 是
+// Duplicate entry 'a@b.com' for key 'm_err.email'，1366 是
+// Incorrect integer value: 'notanint' for column 'n' at row 1，1292 同理。
+func mysqlErrorCode(err error) string {
+	var myErr *mysqldriver.MySQLError
+	if errors.As(err, &myErr) {
+		return strconv.Itoa(int(myErr.Number))
+	}
+	return ""
 }
 
 // probeMySQLVersion 查服务端版本，按驱动自己的规则设好版本相关的开关。

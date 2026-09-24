@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -13,7 +14,7 @@ import (
 // Span 的名字、种类、属性和父子关系：
 //
 //	服务端  xgin      名字是「方法 路由模板」，属性 http.route / url.path / 状态码；5xx 标错误、4xx 不标
-//	SQL     xgorm     gorm.<操作>，db.statement 是带占位符的语句，不含参数值
+//	SQL     xgorm     gorm.<操作>，db.query.text 是带占位符的语句，不含参数值
 //	Redis   xredis    名字是命令名；docs/config.md：「Span 里只有命令名，不含参数」
 //	出站    xhttp     名字只用方法；url.full 去掉查询串（docs/config.md XHttp 那张表）
 //
@@ -74,12 +75,15 @@ func TestFunctional_Span的名字属性和父子关系(t *testing.T) {
 			t.Fatalf("链路上应有一个 gorm.create，实际 %s", spanNames(spans))
 		}
 		childOf(t, ins[0], srv)
-		stmt := ins[0].Str("db.statement")
+		stmt := ins[0].Str("db.query.text")
 		if !strings.HasPrefix(stmt, `INSERT INTO "`+p.Table+`"`) || !strings.Contains(stmt, "$1") {
-			t.Errorf("db.statement 应是带占位符的 INSERT，实际 %q", stmt)
+			t.Errorf("db.query.text 应是带占位符的 INSERT，实际 %q", stmt)
 		}
+		// docs/config.md XGorm「链路与指标」：OTel 数据库语义约定 v1.43.0 的名字
+		host, port, _ := net.SplitHostPort(harness.PGAddr())
 		for k, want := range map[string]string{
-			"db.system": "postgres", "db.name": "xone_e2e", "db.operation": "create", "server.address": harness.PGAddr(), "db.rows_affected": "1",
+			"db.system.name": "postgresql", "db.namespace": "xone_e2e", "db.operation.name": "INSERT",
+			"server.address": host, "server.port": port, "db.rows_affected": "1",
 		} {
 			if got := ins[0].Str(k); got != want {
 				t.Errorf("gorm.create 的 %s 应是 %q，实际 %q", k, want, got)
@@ -114,9 +118,9 @@ func TestFunctional_Span的名字属性和父子关系(t *testing.T) {
 				childOf(t, s, srv)
 			}
 		}
-		q := spansNamed(spans, "gorm.query")[0].Str("db.statement")
+		q := spansNamed(spans, "gorm.query")[0].Str("db.query.text")
 		if !strings.Contains(q, "WHERE id = $1") || strings.Contains(q, fmt.Sprintf("= %d", created.ID)) {
-			t.Errorf("gorm.query 的 db.statement 应是 WHERE id = $1，不带参数值 %d，实际 %q", created.ID, q)
+			t.Errorf("gorm.query 的 db.query.text 应是 WHERE id = $1，不带参数值 %d，实际 %q", created.ID, q)
 		}
 		// set 的值是整个用户的 JSON：名字和邮箱都在里面
 		for _, s := range spans {

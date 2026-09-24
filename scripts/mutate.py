@@ -893,8 +893,8 @@ mutate("重试耗时算整次逻辑请求", "xhttp/metric.go", "./xhttp", "TestM
        swap('elapsed(resp.Request, resp.Time())','resp.Time()'))
 # 连接信息交给 pgx 解。变异换回一个按空白切的解法：密码里的 host=… 就被读成地址
 mutate("DSN 里的密码不进日志", "xgorm/dsn.go", "./xgorm", "TestResolveDSN_PG密码片段",
-       swap('\t\tAddr:        net.JoinHostPort(pc.Host, strconv.Itoa(int(pc.Port))),\n',
-     '\t\tAddr:        net.JoinHostPort(naiveKV(dsn)["host"], strconv.Itoa(int(pc.Port))),\n'),
+       swap('\t\tAddr:         net.JoinHostPort(pc.Host, strconv.Itoa(int(pc.Port))),\n',
+     '\t\tAddr:         net.JoinHostPort(naiveKV(dsn)["host"], strconv.Itoa(int(pc.Port))),\n'),
        swap('// seconds 向上取整为整秒',
      'func naiveKV(dsn string) map[string]string {\n\tall := map[string]string{}\n\tfor _, tok := range strings.Fields(dsn) {\n\t\tif k, v, ok := strings.Cut(tok, "="); ok {\n\t\t\tall[k] = v\n\t\t}\n\t}\n\treturn all\n}\n\n// seconds 向上取整为整秒'))
 # pgx 同一个 key 取最后一次：默认值追加在后面的话，使用者显式写的值
@@ -911,27 +911,28 @@ mutate("首次建连受 ctx 管", "xgorm/xgorm.go", "./xgorm", "TestNew",
 # 驱动的初始化查询挪到 Ready 里，就是为了受 ctx 管、跟着重试。调用点不接的话，
 # 那次查询就没人做了
 mutate("方言的 Ready 在建连探测里执行", "xgorm/xgorm.go", "./xgorm", "TestNew",
-       swap('ping(ctx, pool, pingTimeout(cfg, info), readyOf(dialect, db))', 'ping(ctx, pool, pingTimeout(cfg, info), nil)'))
+       swap('xclient.Probe(ctx, policy, probe(pool, readyOf(dialect, db)))', 'xclient.Probe(ctx, policy, probe(pool, nil))'))
 # connect_timeout 管的是整个建连（TCP、TLS、认证），预算比它短就会
 # 在 pgx 自己放弃之前把一次合法的慢握手判成超时
-mutate("PG 的探测预算盖住 connect_timeout", "xgorm/xgorm.go", "./xgorm", "TestPingTimeout",
-       swap('d = cmp.Or(info.DialTimeout, ceilSeconds(cfg.DialTimeout)) + cfg.DialTimeout', 'd = cfg.DialTimeout'))
+mutate("PG 的探测预算盖住 connect_timeout", "xgorm/dsn.go", "./xgorm", "TestProbeTimeout",
+       swap('\treturn cmp.Or(connect, ceilSeconds(dial)) + dial\n', '\treturn dial + 0*cmp.Or(connect, ceilSeconds(dial))\n'))
 # 配置里的超时只是默认值。DSN 里写了更长的，驱动就等那么久，预算还按配置算的话
 # 会在驱动放弃之前把一次慢但合法的建连判超时。打在读出超时的地方和用它的地方
-mutate("探测预算按 DSN 里写的超时放宽", "xgorm/xgorm.go", "./xgorm", "TestPingTimeout_DSN",
-       swap('\tdial := cmp.Or(info.DialTimeout, cfg.DialTimeout)\n', '\tdial := cfg.DialTimeout\n'))
-mutate("PG 的连接信息带上 DSN 里的 connect_timeout", "xgorm/dsn.go", "./xgorm", "TestPingTimeout_DSN",
-       swap('\t\tDialTimeout: pc.ConnectTimeout,\n', ''))
-mutate("MySQL 的连接信息带上 DSN 里的超时", "xgorm/dsn.go", "./xgorm", "TestPingTimeout_DSN",
-       swap('\t\tDialTimeout: cfg.Timeout, ReadTimeout: cfg.ReadTimeout,\n', ''))
-mutate("ClickHouse 的连接信息带上 DSN 里的 dial_timeout", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestResolve_DSN里写了的",
-       swap('\t\tDialTimeout: opts.DialTimeout,\n', '\t\tDialTimeout: c.DialTimeout + 0*opts.DialTimeout,\n'))
+# 打在读出预算的调用点上（方言填的 ProbeTimeout）和各方言算预算的那一行
+mutate("探测预算按 DSN 里写的超时放宽", "xgorm/xgorm.go", "./xgorm", "TestProbeTimeout",
+       swap('\treturn cmp.Or(info.ProbeTimeout, 2*cfg.DialTimeout, fallbackPingTimeout)\n', '\treturn cmp.Or(2*cfg.DialTimeout, fallbackPingTimeout)\n'))
+mutate("PG 的探测预算用 DSN 里的 connect_timeout", "xgorm/dsn.go", "./xgorm", "TestProbeTimeout_DSN",
+       swap('ProbeTimeout: postgresProbeTimeout(pc.ConnectTimeout, c.DialTimeout),', 'ProbeTimeout: postgresProbeTimeout(0, c.DialTimeout),'))
+mutate("MySQL 的探测预算用 DSN 里的超时", "xgorm/dsn.go", "./xgorm", "TestProbeTimeout_DSN",
+       swap('\t\tProbeTimeout: cfg.Timeout + cfg.ReadTimeout,\n', '\t\tProbeTimeout: c.DialTimeout + c.MySQL.ReadTimeout,\n'))
+mutate("ClickHouse 的探测预算用 DSN 里的 dial_timeout", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestResolve_DSN里写了的",
+       swap('\t\tProbeTimeout: 2 * opts.DialTimeout,\n', '\t\tProbeTimeout: 2*c.DialTimeout + 0*opts.DialTimeout,\n'))
 # 驱动在 Initialize 里用 context.Background() 查版本：ctx 取消了也要等满
 # dial_timeout，失败了一次重试都没有
 mutate("ClickHouse 首次建连受 ctx 管也会重试", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestNew",
        swap('SkipInitializeWithVersion: true', 'SkipInitializeWithVersion: false'))
 mutate("ClickHouse 仍然查版本", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestRegister",
-       swap('\tReady:   probeVersion,\n', ''))
+       swap('\tReady:      probeVersion,\n', ''))
 # 原样透传的话，驱动建连时的解析错误会连同整串 DSN、包括明文密码一起进日志
 mutate("ClickHouse 不是 URL 的 DSN 被拒绝", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestResolve",
        swap('\t\treturn "", xgorm.ConnInfo{}, errNotURL\n', '\t\treturn c.DSN, xgorm.ConnInfo{Driver: string(Driver)}, nil\n'))
@@ -969,10 +970,13 @@ mutate("PG 的 SQL 日志就是发出去的那条", "xgorm/logger.go", "./xgorm"
 mutate("认得出方言会改写 $N 占位符", "xgorm/logger.go", "./xgorm", "TestLogger",
        swap('numbered:       d.Explain("$1") == "$1$",', 'numbered:       false,'))
 # 密码错了重试也是错，还多等两轮退避；报成 cannot reach 会让人先去查网络
-mutate("认证失败不重试", "xgorm/xgorm.go", "./xgorm", "TestNew_认证失败",
-       swap('\t\t\tdenied = err\n\t\t\tstop()\n', '\t\t\tdenied = err\n'))
+# 同一个机制（xclient.Probe）两处都要打：Probe 里认出来就不再试，xgorm 把方言的判断交给它
+mutate("认证失败不重试", "internal/xclient/probe.go", ".", "TestProbe_认证失败",
+       swap('\t\t\treturn xutil.Permanent(err)\n', '\t\t\treturn err\n'))
+mutate("xgorm 认证失败不重试", "xgorm/xgorm.go", "./xgorm", "TestNew_认证失败|TestNew_MySQL认证失败",
+       swap('\t\tAuthFailed: d.authFailed,\n', ''))
 mutate("认证失败报的是认证失败", "xgorm/xgorm.go", "./xgorm", "TestNew_认证失败",
-       swap('\t\tif authFailed(err) {\n\t\t\treturn nil, nil, xerror.Newf("xgorm", "connect", "authentication to %s failed: %w", info.Addr, err)\n'
+       swap('\t\tif dialect.authFailed(err) {\n\t\t\treturn nil, nil, xerror.Newf("xgorm", "connect", "authentication to %s failed: %w", info.Addr, err)\n'
             '\t\t}\n\t\treturn nil, nil, xerror.Newf("xgorm", "connect", "cannot reach',
             '\t\tif false {\n\t\t\treturn nil, nil, xerror.Newf("xgorm", "connect", "authentication to %s failed: %w", info.Addr, err)\n'
             '\t\t}\n\t\treturn nil, nil, xerror.Newf("xgorm", "connect", "cannot reach'))
@@ -980,11 +984,11 @@ mutate("认证失败报的是认证失败", "xgorm/xgorm.go", "./xgorm", "TestNe
 # 只在 ping 那条路上认的话，密码错报的是 open … failed。打在 gorm.Open 的调用点上
 # （内置的 MySQL 原先就是这样，查版本挪进 Ready 之后走的是 ping 那条路）
 mutate("MySQL 认证失败在 gorm.Open 那条路上也报认证失败", "xgorm/xgorm.go", "./xgorm", "TestNew_MySQL认证失败",
-       swap('\t\tif authFailed(err) {\n\t\t\treturn nil, nil, xerror.Newf("xgorm", "connect", "authentication to %s failed: %w", info.Addr, err)\n'
+       swap('\t\tif dialect.authFailed(err) {\n\t\t\treturn nil, nil, xerror.Newf("xgorm", "connect", "authentication to %s failed: %w", info.Addr, err)\n'
             '\t\t}\n\t\treturn nil, nil, xerror.Newf("xgorm", "connect", "open',
             '\t\tif false {\n\t\t\treturn nil, nil, xerror.Newf("xgorm", "connect", "authentication to %s failed: %w", info.Addr, err)\n'
             '\t\t}\n\t\treturn nil, nil, xerror.Newf("xgorm", "connect", "open'))
-mutate("认得出 MySQL 的 1045 / 1044", "xgorm/xgorm.go", "./xgorm", "TestNew_MySQL认证失败",
+mutate("认得出 MySQL 的 1045 / 1044", "xgorm/mysql.go", "./xgorm", "TestNew_MySQL认证失败|TestDialect_内置方言",
        swap('return errors.As(err, &myErr) && (myErr.Number == mysqlAccessDenied || myErr.Number == mysqlDBAccessDenied)',
             'return errors.As(err, &myErr) && false'))
 # MySQL 的 Dialector 在 Initialize 里用 context.Background() 查版本：那是第一次建连，
@@ -992,7 +996,7 @@ mutate("认得出 MySQL 的 1045 / 1044", "xgorm/xgorm.go", "./xgorm", "TestNew_
 mutate("MySQL 首次建连受 ctx 管也会重试", "xgorm/mysql.go", "./xgorm", "TestNew_MySQL对端不回话|TestMySQL方言",
        swap('SkipInitializeWithVersion: true})', 'SkipInitializeWithVersion: false})'))
 mutate("MySQL 仍然查版本", "xgorm/dialect.go", "./xgorm", "TestMySQL方言|TestProbeMySQLVersion",
-       swap(', Ready: probeMySQLVersion}', '}'))
+       swap(', Ready: probeMySQLVersion,\n', ',\n'))
 mutate("MySQL 查版本受 ctx 管", "xgorm/mysql.go", "./xgorm", "TestProbeMySQLVersion",
        swap('db.ConnPool.QueryRowContext(ctx, "SELECT VERSION()")', 'db.ConnPool.QueryRowContext(context.Background(), "SELECT VERSION()")'))
 # 版本号不设进开关的话，老版本 / MariaDB 上迁移生成它不认的 DDL
@@ -1003,9 +1007,66 @@ mutate("MariaDB 10.5+ 的增删改带 RETURNING", "xgorm/mysql.go", "./xgorm", "
 # 打在调用点上：探测不用这一轮的 ctx，卡在握手读上时退出信号要等满 ReadTimeout
 mutate("MySQL 建连探测收到退出信号当场放弃", "xgorm/xgorm.go", "./xgorm", "TestNew_MySQL启动期间取消",
        swap('err := pool.PingContext(ctx)', 'err := pool.PingContext(context.Background())'))
+# 认证失败的识别住在方言里：内置方言不接上的话，核心里再没有别处认得出来
+mutate("内置 PG 方言认得出认证失败", "xgorm/dialect.go", "./xgorm", "TestDialect_内置方言",
+       swap('\t\tAuthFailed: postgresAuthFailed, ErrorCode: postgresErrorCode,\n', '\t\tErrorCode: postgresErrorCode,\n'))
+mutate("内置 MySQL 方言认得出认证失败", "xgorm/dialect.go", "./xgorm", "TestDialect_内置方言",
+       swap('\t\tAuthFailed: mysqlAuthFailed, ErrorCode: mysqlErrorCode,\n', '\t\tErrorCode: mysqlErrorCode,\n'))
+mutate("认得出 PG 的 28 类", "xgorm/dsn.go", "./xgorm", "TestDialect_内置方言|TestNew_认证失败",
+       swap('return strings.HasPrefix(postgresErrorCode(err), "28")', 'return postgresErrorCode(err) == "28P01"'))
+mutate("ClickHouse 认证失败不重试", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestNew_认证失败|TestDialect_",
+       swap('\tAuthFailed: authFailed,\n', ''))
+mutate("ClickHouse 认得出老版本的认证错误码", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestDialect_",
+       swap('\tchproto.ErrWrongPassword,        // 193\n', ''))
+# 服务端错误原文里带着参数值（MySQL 1062 的 Duplicate entry 'a@b.com'）：
+# 日志和 Span 两个出口都要打在调用点上，外加方言接上错误码的那一处
+mutate("SQL 日志不记服务端错误原文", "xgorm/logger.go", "./xgorm", "TestLogger_服务端报错",
+       swap('attrs(sql, rows, elapsed, l.errorAttrs(err)...)', 'attrs(sql, rows, elapsed, "error", err)'))
+mutate("Span 不记服务端错误原文", "xgorm/trace.go", "./xgorm", "TestSpan_服务端报错",
+       swap('\t\t\trecordError(span, d, db.Error)\n', '\t\t\tspan.RecordError(db.Error)\n\t\t\tspan.SetStatus(codes.Error, db.Error.Error())\n'))
+mutate("Span 服务端报错时不调 RecordError", "xgorm/trace.go", "./xgorm", "TestSpan_服务端报错",
+       swap('\t\tspan.SetAttributes(semconv.DBResponseStatusCode(code), semconv.ErrorTypeKey.String(code))\n',
+            '\t\tspan.SetAttributes(semconv.DBResponseStatusCode(code), semconv.ErrorTypeKey.String(code))\n\t\tspan.RecordError(err)\n'))
+mutate("MySQL 方言认得出服务端错误码", "xgorm/dialect.go", "./xgorm", "TestLogger_服务端报错|TestSpan_服务端报错",
+       swap('AuthFailed: mysqlAuthFailed, ErrorCode: mysqlErrorCode,', 'AuthFailed: mysqlAuthFailed,'))
+mutate("PG 方言认得出服务端错误码", "xgorm/dialect.go", "./xgorm", "TestLogger_服务端报错|TestSpan_服务端报错",
+       swap('AuthFailed: postgresAuthFailed, ErrorCode: postgresErrorCode,', 'AuthFailed: postgresAuthFailed,'))
+mutate("ClickHouse 方言认得出服务端错误码", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestDialect_",
+       swap('\tErrorCode:  errorCode,\n', ''))
+# 驱动默认 parseTime=false：DATETIME 扫不进 time.Time
+mutate("MySQL 没写 parseTime 时补成 true", "xgorm/dsn.go", "./xgorm", "TestResolveDSN_MySQL没写parseTime",
+       swap('\tif !mysqlParamSet(c.DSN, "parseTime") {\n', '\tif false && !mysqlParamSet(c.DSN, "parseTime") {\n'))
+mutate("DSN 里写了 parseTime 以 DSN 为准", "xgorm/dsn.go", "./xgorm", "TestResolveDSN_MySQL没写parseTime",
+       swap('\tif !mysqlParamSet(c.DSN, "parseTime") {\n', '\tif true {\n'))
+mutate("密码里的 parseTime 骗不过它", "xgorm/dsn.go", "./xgorm", "TestResolveDSN_MySQL没写parseTime",
+       swap("\ti := strings.LastIndexByte(dsn, '/')\n", "\ti := strings.IndexByte(dsn, '/')\n"))
+# 配置在读的时候就校验：负的时长底下每一处都静默变成「不限」
+mutate("负的时长被拒", "xgorm/config.go", "./xgorm", "TestValidate",
+       swap('\t\tif d.val < 0 {\n', '\t\tif false && d.val < 0 {\n'))
+mutate("New 也校验配置", "xgorm/xgorm.go", "./xgorm", "TestNew_配置有误",
+       swap('\tif err := cfg.Validate(); err != nil {\n', '\tif err := error(nil); err != nil {\n'))
+mutate("多实例的 Validate 点名实例", "xgorm/config.go", "./xgorm", "TestConfig_Validate报出",
+       swap('errs = append(errs, fmt.Errorf("Clients.%s: %w", name, err))', 'errs = append(errs, err)'))
+mutate("实例的 Validate 错误带着文件和行号", "internal/config/clients.go", ".", "TestUnmarshalClients_每个实例都调一次Validate",
+       swap('\t\t\treturn c, fmt.Errorf("%s: %w", newChecker().at(n), err)\n', '\t\t\treturn c, err\n'))
+# 建连日志要写是哪个实例：打在 build 往 open 传名字的调用点上
+mutate("建连日志写着实例名", "xgorm/xgorm.go", "./xgorm", "TestInstall_建连日志",
+       swap('open(ctx, c.name, c.ClientConfig)', 'open(ctx, "", c.ClientConfig)'))
+# OTel 数据库语义约定的名字：旧名字换回来，看板和采集规则就对不上
+mutate("Span 用语义约定的 db.query.text", "xgorm/trace.go", "./xgorm", "TestSpan_带上连接信息",
+       swap('span.SetAttributes(semconv.DBQueryText(sql),', 'span.SetAttributes(attribute.String("db.statement", sql),'))
+mutate("Span 的 db.system.name 是 postgresql", "xgorm/trace.go", "./xgorm", "TestConnAttrs",
+       swap('\t\treturn "postgresql"\n', '\t\treturn driver\n'))
+mutate("Span 的地址拆成主机和端口", "xgorm/trace.go", "./xgorm", "TestSpan_带上连接信息|TestConnAttrs",
+       swap('\tout = append(out, semconv.ServerAddress(host))\n', '\tout = append(out, semconv.ServerAddress(info.Addr+host[:0]))\n'))
+mutate("db.operation.name 取语句的第一个关键字", "xgorm/trace.go", "./xgorm", "TestSpan_带上连接信息",
+       swap('\tif op := operationName(sql); op != "" {\n', '\tif op := ""; op != "" {\n'))
+mutate("连接池指标叫 db_pool_*", "xgorm/metric.go", "./xgorm", "TestPoolCollector|TestInstall",
+       swap('{"db_pool_open", ', '{"db_connections_open", '))
+
 # 不接的话 go-sql-driver 往 stderr 写 [mysql] … 纯文本，不是 JSON
 mutate("go-sql-driver 自己的日志进 slog", "xgorm/xgorm.go", "./xgorm", "TestNew_MySQL驱动自己的日志",
-       swap('\t_ = mysqldriver.SetLogger(mysqlDriverLogger{})', '\t_ = mysqlDriverLogger{}'))
+       swap('\t_ = mysqldriver.SetLogger(mysqlDriverLogger{})', '\t_ = mysqldriver.SetLogger(nil) // 只在参数为 nil 时报错，于是什么都没设'))
 mutate("Redis 命令参数不进 Span", "xredis/xredis.go", "./xredis", "TestTrace",
        swap('redisotel.InstrumentTracing(client, redisotel.WithDBStatement(false))', 'redisotel.InstrumentTracing(client)'))
 # collector 是进程级的一个、抓取时遍历全部实例，不看实例自己的开关，
