@@ -5,16 +5,27 @@
 #   scripts/release.sh v0.1.0 --apply   # 真的改 go.mod、提交、打 tag，再提交一次把 replace 还原（仍不推送）
 #   scripts/release.sh v0.1.0 --verify  # 推送之后：用一个全新的外部工程验证装得上、跑得起来
 #
+# 发布前要一轮绿的 e2e（真实的 PG / MySQL / Redis）：默认在第 2 步跑 scripts/e2e.sh；
+# 这个提交刚在别处跑绿过（比如 CI 的 e2e 工作流）的话加 --e2e-passed 跳过，由你担保。
+#
 # 推送是单独一步，由人来做：Go 的 module proxy 会永久缓存 tag，
 # 推错了删不掉，只能再发一个版本盖过去。
 set -e
 cd "$(dirname "$0")/.."
 
+usage() { echo "用法：scripts/release.sh v0.1.0 [--apply | --verify] [--e2e-passed]"; exit 1; }
 VERSION="$1"
-MODE="$2"
-usage() { echo "用法：scripts/release.sh v0.1.0 [--apply | --verify]"; exit 1; }
 [ -n "$VERSION" ] || usage
-case "$MODE" in ""|--apply|--verify) ;; *) usage;; esac
+shift
+MODE=
+E2E_PASSED=
+for a; do
+  case "$a" in
+    --apply|--verify) [ -z "$MODE" ] || usage; MODE=$a;;
+    --e2e-passed) E2E_PASSED=1;;
+    *) usage;;
+  esac
+done
 case "$VERSION" in
   # 只收 v0 / v1：模块路径里没有 /v2 后缀，go mod edit 会拒收 v2 及以上的版本号，
   # 而那一步发生在第 3 步中途——go.mod 已经改了一半，脚本才退出
@@ -155,9 +166,16 @@ run() {
 echo "== 1. 确认工作区干净 =="
 [ -z "$(git status --porcelain)" ] || { echo "✗ 工作区有未提交的改动，先提交或暂存"; exit 1; }
 
-echo "== 2. 跑一遍检查和测试 =="
-scripts/check.sh >/dev/null
-scripts/test.sh -count=1 >/dev/null
+# 输出不吞掉：红了的话要看的正是那几行
+echo "== 2. 跑一遍检查、测试和 e2e =="
+scripts/check.sh
+scripts/test.sh -count=1
+# 单元测试里没有数据库；连真实服务的那一层只有 e2e 看得到，发出去之前必须绿过一次
+if [ -n "$E2E_PASSED" ]; then
+  echo "  ⚠ 跳过 e2e：--e2e-passed，你担保这个提交的 e2e 刚跑绿过"
+else
+  scripts/e2e.sh
+fi
 echo "  ✓ 通过"
 
 echo "== 3. 把各子模块开发用的 replace 换成真实版本号 =="
@@ -167,15 +185,34 @@ echo "== 3. 把各子模块开发用的 replace 换成真实版本号 =="
 #
 # 用 go mod edit 而不是 sed：require 块的缩进、子模块路径后缀这些细节
 # 手写正则很容易弄错，而弄错的后果是发出去一个装不上的版本。
+#
+# inrepo Require|Replace go.mod：列出 require（路径@版本）/ replace（路径）里仓库内的模块。
+# 两张表要分开取：从前从整份 -json 里 grep 路径，只出现在 replace 里的
+# （xgin 替换了 xtrace 却不 require 它）也被补了一条 require，发出去的 go.mod 平白多一个依赖
+inrepo() {
+  GOWORK=off go mod edit -json "$2" | python3 -c '
+import json, sys
+mod, key = sys.argv[1], sys.argv[2]
+for e in json.load(sys.stdin).get(key) or []:
+    p = e["Path"] if key == "Require" else e["Old"]["Path"]
+    if p == mod or p.startswith(mod + "/"):
+        print(p + "@" + e["Version"] if key == "Require" else p)' "$MOD" "$1"
+}
 for m in $MODS; do
   echo "  $m/go.mod"
-  # 这个模块 require 了哪些仓库内的模块，就把哪些的版本号钉上。
-  # 要跳过它自己：go mod edit -json 里也有 module 自身的路径，
-  # 不跳的话会给它加一条「自己 require 自己」
-  for dep in $(GOWORK=off go mod edit -json "$m/go.mod" | grep -oE "\"$MOD(/[a-z]+)*\"" | tr -d '"' | sort -u); do
-    [ "$dep" = "$MOD/$m" ] && continue
-    run env GOWORK=off go mod edit -dropreplace="$dep" -require="$dep@$VERSION" "$m/go.mod"
+  # require 了的钉成 $VERSION：-require 直接改写版本号，原来是 v0.0.0 还是
+  # go 工具自己补的伪版本（xgin 里 xmetric 的 v0.0.0-2026…）都一样
+  for dep in $(inrepo Require "$m/go.mod"); do
+    run env GOWORK=off go mod edit -require="${dep%@*}@$VERSION" "$m/go.mod"
   done
+  for dep in $(inrepo Replace "$m/go.mod"); do
+    run env GOWORK=off go mod edit -dropreplace="$dep" "$m/go.mod"
+  done
+  if [ "$MODE" = "--apply" ]; then
+    # 改完再读一遍：仓库内的 require 只剩 $VERSION，replace 一条不剩
+    left=$(inrepo Replace "$m/go.mod"; inrepo Require "$m/go.mod" | grep -v "@$VERSION\$" || true)
+    [ -z "$left" ] || { echo "✗ $m/go.mod 里还有没钉好的仓库内依赖：$left"; exit 1; }
+  fi
 done
 
 # 去掉 replace 之后还能不能编译，这里验不了：tag 还没推，依赖拉不到。
