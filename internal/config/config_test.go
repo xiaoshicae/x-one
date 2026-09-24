@@ -805,8 +805,8 @@ func TestDecodeStrict_真拼错时不乱给tag提示(t *testing.T) {
 }
 
 func TestLoad_字段写错时报出配置文件和那一行(t *testing.T) {
-	// 严格解码是把节点序列化成文本再解的，yaml 报的行号是那段文本里的行号：
-	// 第 6 行的拼错从前报成 line 2，也不说是哪个文件，profile 文件里的更是无从找起
+	// 严格解码从前是把节点序列化成文本再解的，yaml 报的行号是那段文本里的行号：
+	// 第 6 行的拼错报成 line 2，也不说是哪个文件，profile 文件里的更是无从找起
 	type conf struct {
 		Addr    string                `yaml:"Addr"`
 		Retries int                   `yaml:"Retries"`
@@ -868,7 +868,7 @@ func TestLoad_字段写错时报出配置文件和那一行(t *testing.T) {
 }
 
 func TestDecodeStrict_不是从配置文件来的节点报它自己的行号(t *testing.T) {
-	// 没有文件可说时，行号也得是调用方手里那个节点的行号，而不是重新序列化出来的那段文本的
+	// 没有文件可说时，行号也得是调用方手里那个节点的行号
 	var n yaml.Node
 	if err := yaml.Unmarshal([]byte("a: 1\nDemo:\n  Addr: x\n\n  Adrr: y\n"), &n); err != nil {
 		t.Fatal(err)
@@ -877,5 +877,67 @@ func TestDecodeStrict_不是从配置文件来的节点报它自己的行号(t *
 	err := DecodeStrict(n.Content[0].Content[3], &c)
 	if err == nil || !strings.Contains(err.Error(), "line 5: field Adrr not found") {
 		t.Errorf("该报原节点的 line 5，got=%v", err)
+	}
+}
+
+func TestLoad_集合元素里的问题和外面的一起报(t *testing.T) {
+	// 自己写 UnmarshalYAML 的元素在检查那一遍里就试解，而不是等到最后才解：
+	// 否则外面有一处写错，元素里的就要等改完、重启一次才看得见
+	type conf struct {
+		Addr  string                `yaml:"Addr"`
+		Items map[string]secretElem `yaml:"Items"`
+	}
+	var got conf
+	err := LoadInto(write(t, "Demo:\n  Adrr: a\n  Items:\n    a:\n      M: 1\n"), "Demo", &got)
+	for _, want := range []string{":2: field Adrr not found", ":5: field M not found"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("两处都该报出来，缺 %q，got=%v", want, err)
+		}
+	}
+}
+
+func TestDecodeStrict_字段规则与yaml一致(t *testing.T) {
+	// 未知字段是自己按类型查的，认字段的规则必须和 yaml.v3 一模一样：
+	// 多认一个是拼错放行，少认一个是合法的配置起不来
+	type base struct {
+		Host string `yaml:"Host"`
+	}
+	type conf struct {
+		base  `yaml:",inline"`
+		Ptr   *base            `yaml:"Ptr"`
+		List  []base           `yaml:"List"`
+		Skip  string           `yaml:"-"`
+		Any   any              `yaml:"Any"`
+		Extra map[string]int   `yaml:",inline"`
+		Named map[string]*base `yaml:"Named"`
+	}
+	ok := "Host: h\nPtr: {Host: p}\nList: [{Host: l}]\nAny: {whatever: 1}\nNamed: {a: {Host: n}}\nother: 7\n"
+	bad := map[string]string{
+		"内嵌结构体摊平后的拼错":       "Host: h\nHots: x\n",
+		"指针里的拼错":            "Ptr: {Hots: p}\n",
+		"切片元素里的拼错":          "List: [{Hots: l}]\n",
+		"map 值里的拼错":         "Named: {a: {Hots: n}}\n",
+		"写了 - 的字段":          "Skip: x\n",
+		"inline map 的值类型不对": "other: abc\n",
+	}
+	decode := func(src string) (conf, error) {
+		var n yaml.Node
+		if err := yaml.Unmarshal([]byte(src), &n); err != nil {
+			t.Fatal(err)
+		}
+		var c conf
+		return c, DecodeStrict(n.Content[0], &c)
+	}
+	c, err := decode(ok)
+	if err != nil {
+		t.Fatalf("合法的配置不该报错：%v", err)
+	}
+	if c.Host != "h" || c.Ptr.Host != "p" || c.List[0].Host != "l" || c.Named["a"].Host != "n" || c.Extra["other"] != 7 {
+		t.Errorf("got=%+v", c)
+	}
+	for name, src := range bad {
+		if _, err := decode(src); err == nil {
+			t.Errorf("%s：应当报错", name)
+		}
 	}
 }

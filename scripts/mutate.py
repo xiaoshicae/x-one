@@ -232,27 +232,43 @@ mutate("退避期间被取消时如实报告取消", "xutil/convert.go", ".", "T
        swap('return fmt.Errorf("%w, last attempt failed: %w", err, last)', 'return fmt.Errorf("%v, last attempt failed: %w", err, last)'))
 # yaml.v3 对没写 tag 的字段只认全小写：照着字段名写，报的是「field Endpoint not found」，
 # 字段明明就叫这个。提示丢了的话，使用者只能对着一个自相矛盾的报错发愣
-mutate("字段没写 tag 时报错说怎么改", "internal/config/config.go", ".", "TestDecodeStrict",
-       swap('\treturn withTagHint(redact(relocate(te, node, b)), target)', '\treturn redact(relocate(te, node, b))'))
+mutate("字段没写 tag 时报错说怎么改", "internal/config/strict.go", ".", "TestDecodeStrict",
+       swap('\tif s.untagged[key] {', '\tif false {'))
 # yaml 的类型错误带着值的前几个字符，${VAR} 又是凭证的推荐写法：密码填错了字段，
 # 它的一截就进了启动日志。调用点和「记下展开了哪些值」各打一条
-mutate("占位符展开出来的值不进报错", "internal/config/config.go", ".", "TestUnmarshal_占位符展开出来的值不进报错",
-       swap('\treturn withTagHint(redact(relocate(te, node, b)), target)', '\treturn withTagHint(relocate(te, node, b), target)'))
+mutate("占位符展开出来的值不进报错", "internal/config/strict.go", ".", "TestUnmarshal_占位符展开出来的值不进报错",
+       swap('e = c.at(n) + ": " + c.redact(n, msg)', 'e = c.at(n) + ": " + msg'))
 mutate("加载时记下占位符展开出来的值", "internal/config/config.go", ".", "TestUnmarshal_占位符展开出来的值不进报错",
        swap('\texpand(root, &missing, values)', '\texpand(root, &missing, nil)'))
 # 变量的值恰好是 null / ~ 时，重新判定把它当成「没写」，字段悄悄留在默认值上
 mutate("展开出来的 null 写法仍是字符串", "internal/config/config.go", ".", "TestLoad_占位符的值是null写法",
        swap('\t\tif n.ShortTag() == "!!null" {\n\t\t\tn.Tag = "!!str"\n\t\t}\n', ''))
-# 严格解码是把节点序列化成文本再解的：不换回来，报的是那段文本的行号，也没有文件名。
-# 调用点、「记下节点来自哪个文件」、合并出来的副本跟着第一个 key 走，各打一条
-mutate("字段写错时报的是配置文件里的行号", "internal/config/config.go", ".", "TestLoad_字段写错|TestDecodeStrict_不是从配置文件来的节点",
-       swap('redact(relocate(te, node, b))', 'redact(te)'))
+# 严格解码从前是把节点序列化成文本再解的：报的是那段文本的行号，也没有文件名。
+# 现在每条报错都记在节点名下——拼错记在 key 上、类型错误记在值上，
+# 「记下节点来自哪个文件」、合并出来的副本跟着第一个 key 走，各打一条
+mutate("字段拼错时报的是那个 key 的行号", "internal/config/strict.go", ".", "TestLoad_字段写错",
+       swap('c.errs = append(c.errs, c.at(k)+": "+s.notFound(k.Value, t))', 'c.errs = append(c.errs, c.at(n)+": "+s.notFound(k.Value, t))'))
+mutate("类型错误也报出配置文件和那一行", "internal/config/strict.go", ".", "TestLoad_字段写错",
+       swap('if msg, ok := strings.CutPrefix(e, fmt.Sprintf("line %d: ", n.Line)); ok {', 'if msg, ok := e, false; ok {'))
 mutate("字段写错时报出是哪个文件", "internal/config/config.go", ".", "TestLoad_字段写错",
        swap('remember(f.node, f.path, from)', 'remember(f.node, "", from)'))
-mutate("合并出来的块跟着第一个 key 认文件", "internal/config/config.go", ".", "TestLoad_字段写错",
+mutate("合并出来的块跟着第一个 key 认文件", "internal/config/strict.go", ".", "TestLoad_字段写错",
        swap('for ; n != nil; n = first(n) {', 'for ; n != nil; n = nil {'))
-mutate("字段拼错要启动失败", "internal/config/config.go", ".", "TestLoad",
-       swap('dec.KnownFields(true)','dec.KnownFields(false)'))
+mutate("字段拼错要启动失败", "internal/config/strict.go", ".", "TestLoad",
+       swap('\t\tif ft == nil {\n\t\t\tc.errs = append(c.errs, c.at(k)+": "+s.notFound(k.Value, t))\n',
+            '\t\tif ft == nil {\n'))
+# 未知字段是自己按类型查的，认字段的规则一处和 yaml.v3 不一样，要么拼错放行、要么合法的配置起不来
+mutate("<< 并进来的字段照样认", "internal/config/strict.go", ".", "TestLoad_锚点",
+       swap('if k.Kind == yaml.ScalarNode && k.Value == "<<" && k.ShortTag() == "!!merge" {', 'if false {'))
+mutate(",inline 的结构体摊平来认", "internal/config/strict.go", ".", "TestDecodeStrict_字段规则",
+       swap('\t\t\t\ts.add(ft) //', '\t\t\t\t_ = ft //'))
+mutate(",inline 的 map 收下认不出的 key", "internal/config/strict.go", ".", "TestDecodeStrict_字段规则",
+       swap('\t\t\t\ts.inline = ft.Elem()', '\t\t\t\t_ = ft'))
+# 自己会解的元素要在检查那一遍里就试解：等到最后才解的话，外面有一处写错，
+# 元素里的问题要改完、重启一次才看得见
+mutate("集合元素里的问题和外面的一起报", "internal/config/strict.go", ".", "TestLoad_集合元素",
+       swap('reflect.PointerTo(t).Implements(obsoleteType):\n\t\treturn c.try(n, t)',
+            'reflect.PointerTo(t).Implements(obsoleteType):\n\t\treturn nil'))
 mutate("占位符按替换后的内容判定类型", "internal/config/config.go", ".", "TestLoad",
        swap('\t\tif n.Value != before {\n\t\t\tretag(n)\n', '\t\tif n.Value != before {\n'))
 # 合并按名字对齐 key，重复在那一步就被吞掉了，所以只能在每个文件解析时查。
@@ -284,16 +300,23 @@ mutate("被引进来的文件里写了 Profiles 就报错", "internal/config/con
 # config_schema.json 从前在编辑器里一个字段拼错都标不出来，单实例 / 多实例两种写法
 # 却全被标红——下面四条各守一处它和运行时对不上的地方
 # map 的 value 从零值开始解：不逐个铺默认值，多实例里没写的字段全成了零值
-mutate("多实例写法里没写的字段保持默认", "xconfig/xconfig.go", ".", "TestDecodeClients",
-       swap('\t\tc := defaults()\n', '\t\tvar c C\n'))
+mutate("多实例写法里没写的字段保持默认", "internal/config/clients.go", ".", "TestUnmarshalClients",
+       swap('\tc := defaults()\n', '\tvar c C\n'))
 # node.Decode 不带严格检查，「字段拼错就启动失败」在多实例里悄悄失效
-mutate("多实例写法里拼错也报错", "xconfig/xconfig.go", ".", "TestDecodeClients",
-       swap('if err := DecodeStrict(node, &c); err != nil {', 'if err := node.Decode(&c); err != nil {'))
-# 实例里的类型错误要原样交回 yaml（仍是 *yaml.TypeError），外层才能把行号换回配置文件里的那一行；
-# 包成 xerror 的话 yaml 把它当成致命错误直接返回，行号停在中间那段文本上
-mutate("多实例写法里拼错时报的是配置文件里的行号", "xconfig/xconfig.go", ".", "TestDecodeClients_实例里拼错时报出",
-       swap('\t\t\t\tbad = append(bad, within(te, clientsKey+"."+name)...)\n',
-     '\t\t\t\treturn nil, xerror.Newf("xconfig", "config", "%s.%s: %w", clientsKey, name, te)\n'))
+mutate("多实例写法里拼错也报错", "internal/config/clients.go", ".", "TestUnmarshalClients",
+       swap('if err := DecodeStrict(n, &c); err != nil {', 'if err := n.Decode(&c); err != nil {'))
+# 实例的报错点名是哪个实例，并且用 %w 保住 yaml 的类型错误
+mutate("多实例写法里拼错时点名实例、保住类型错误", "internal/config/clients.go", ".", "TestUnmarshalClients_实例里拼错时报出",
+       swap('fmt.Errorf("%s.%s: %w", clientsKey, name, err)', 'fmt.Errorf("%s.%s: %v", clientsKey, name, err)'))
+mutate("多实例的每个实例都调一次 Validate", "internal/config/clients.go", ".", "TestUnmarshalClients_每个实例",
+       swap('any(&c).(interface{ Validate() error })', 'any(c).(interface{ Validate() error })'))
+# 调用点：三个集成读配置时要把自己的默认值交进去
+mutate("xgorm 多实例铺的是自己的默认值", "xgorm/config.go", "./xgorm", "TestConfig_单实例写法",
+       swap('xconfig.UnmarshalClients(ConfigKey, DefaultClientConfig)', 'xconfig.UnmarshalClients(ConfigKey, func() ClientConfig { return ClientConfig{} })'))
+mutate("xredis 多实例铺的是自己的默认值", "xredis/config.go", "./xredis", "TestConfig_单实例写法",
+       swap('xconfig.UnmarshalClients(ConfigKey, DefaultClientConfig)', 'xconfig.UnmarshalClients(ConfigKey, func() ClientConfig { return ClientConfig{} })'))
+mutate("xcache 多实例铺的是自己的默认值", "xcache/config.go", "./xcache", "TestConfig_单实例写法",
+       swap('xconfig.UnmarshalClients(ConfigKey, DefaultClientConfig)', 'xconfig.UnmarshalClients(ConfigKey, func() ClientConfig { return ClientConfig{} })'))
 mutate("schema 里拼错的字段标红", "internal/schemagen/schema.go", "./internal/schemagen", "TestSchema|TestCheckDocs",
        swap('Properties: map[string]*node{}, AdditionalProperties: false}', 'Properties: map[string]*node{}}'))
 mutate("schema 分得清单实例和多实例", "internal/schemagen/schema.go", "./internal/schemagen", "TestSchema|TestCheckDocs",

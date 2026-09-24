@@ -33,7 +33,7 @@ func configNode(p *pkg) (*node, error) {
 	//
 	// 两支必须互斥，oneOf 才有意义——两种写法都同时满足两支的话，
 	// 每一份配置都「恰好满足一支」失败，全被标红。区分的办法照搬运行时
-	// （xconfig.DecodeClients）：有 Clients 就是多实例，而且此时不许有别的 key。
+	// （xconfig.UnmarshalClients）：有 Clients 就是多实例，而且此时不许有别的 key。
 	// 单实例那一支的 additionalProperties: false 本身就拒绝了 Clients
 	if elem := onlyClients(st); elem != "" {
 		single, err := structNode(p, p.structs[elem], "")

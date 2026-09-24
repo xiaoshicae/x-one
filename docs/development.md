@@ -198,7 +198,7 @@ func C() *Client { /* ... */ }
   测试结束时跑配对的停止钩子。`example/` 不许 import `internal/`（`check.sh` 会查）——使用者 import 不到。
 
 可运行的完整样例：[`example/component/xkv/`](../example/component/xkv/)。
-多实例写法（`xconfig.DecodeClients`、按名字的 `C(name...)` / `Has` / `Names`）和
+多实例写法（`xconfig.UnmarshalClients`、按名字的 `C(name...)` / `Has` / `Names`）和
 更多细节见 [`config.md`「写一个自己的集成」](config.md#写一个自己的集成)。
 
 ## e2e：真实 Web 服务测试
