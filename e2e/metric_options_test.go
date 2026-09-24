@@ -62,7 +62,7 @@ func TestCoverage_Namespace和ConstLabels出现在真实的metrics上(t *testing
 	}
 }
 
-// docs/config.md XMetric「下面这些启动时就失败，而不是留到运行期」那张表
+// docs/behavior.md「XMetric」那张表
 func TestCoverage_Namespace或ConstLabels写错时启动失败(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()

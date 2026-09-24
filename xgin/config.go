@@ -5,7 +5,9 @@
 //		xone.MustRun(gx)
 //	}
 //
-// 内置日志、链路、指标、panic 恢复四个中间件，顺序由框架管；
+// 内置访问日志、链路、指标、panic 恢复四个中间件，顺序由框架管（访问日志开着时
+// 最外层另有一个 LogScope，给 xlog.AddKV 开请求级的字段作用域；链路关着时换成
+// 只透传、不开 Span 的 Propagate）；
 // 开关、监听地址、超时、TLS 都在配置文件的 XGin 块里，业务代码里没有初始化。
 package xgin
 
@@ -130,7 +132,7 @@ type Config struct {
 	// LogRequestBody 是否把请求体记进访问日志。默认不记。
 	//
 	// 记 body 要缓存请求体的前 256KB 并对每个字段做脱敏，代价和风险都不小。
-	// 打开前先确认敏感词配全了（middleware.AddSensitiveFields，规则见 docs/config.md）。
+	// 打开前先确认敏感词配全了（middleware.AddSensitiveFields，规则见 docs/observability.md「访问日志」）。
 	LogRequestBody bool `yaml:"LogRequestBody"`
 
 	// LogResponseBody 是否把响应体记进访问日志。默认不记。
@@ -141,6 +143,9 @@ type Config struct {
 	// 只管 Span。关掉之后照样接上游传来的 traceparent、baggage 和透传 Header
 	// （可信规则同 TrustedProxies），日志里的 trace_id 是上游的那条，
 	// 经 xhttp 发出的请求也照样带给下游；响应里不再回带 X-Trace-Id。
+	//
+	// Span 和 X-Trace-Id 响应头要 import xtrace 才有：没装 xtrace 时全局
+	// TracerProvider 是 OTel 的 noop，Span 无效，也就没有可回带的 trace id。
 	Trace bool `yaml:"Trace"`
 
 	// Metric 是否启用指标中间件。默认启用。

@@ -16,7 +16,7 @@ import (
 //	服务端  xgin      名字是「方法 路由模板」，属性 http.route / url.path / 状态码；5xx 标错误、4xx 不标
 //	SQL     xgorm     gorm.<操作>，db.query.text 是带占位符的语句，不含参数值
 //	Redis   xredis    名字是命令名；docs/config.md：「Span 里只有命令名，不含参数」
-//	出站    xhttp     名字只用方法；url.full 去掉查询串（docs/config.md XHttp 那张表）
+//	出站    xhttp     名字只用方法；url.full 去掉查询串（docs/behavior.md XHttp 那张表）
 //
 // 客户端 Span 的父都是这次请求的服务端 Span，同一条链路
 func TestFunctional_Span的名字属性和父子关系(t *testing.T) {
@@ -79,7 +79,7 @@ func TestFunctional_Span的名字属性和父子关系(t *testing.T) {
 		if !strings.HasPrefix(stmt, `INSERT INTO "`+p.Table+`"`) || !strings.Contains(stmt, "$1") {
 			t.Errorf("db.query.text 应是带占位符的 INSERT，实际 %q", stmt)
 		}
-		// docs/config.md XGorm「链路与指标」：OTel 数据库语义约定 v1.43.0 的名字
+		// docs/observability.md「链路」：OTel 数据库语义约定 v1.43.0 的名字
 		host, port, _ := net.SplitHostPort(harness.PGAddr())
 		for k, want := range map[string]string{
 			"db.system.name": "postgresql", "db.namespace": "xone_e2e", "db.operation.name": "INSERT",

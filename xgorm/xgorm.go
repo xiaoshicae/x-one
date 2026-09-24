@@ -28,7 +28,7 @@ const (
 )
 
 // pingInterval 第一次退避的上界，之后逐次翻倍（xutil.Retry），3 次尝试之间的两次
-// 退避上界是 1s、2s。这个数写在 docs/config.md「建连重试」里，启动预算靠它推算。
+// 退避上界是 1s、2s。这个数写在 docs/behavior.md「启动期建连探测」里，启动预算靠它推算。
 //
 // 是变量而不是常量，只为让测试能调短——连不上的用例要跑满整轮重试，
 // 按一秒算一次就是几十秒。
@@ -76,7 +76,7 @@ func open(ctx context.Context, name string, cfg ClientConfig) (*gorm.DB, io.Clos
 	// 内置的 MySQL 和 ClickHouse 方言在 Initialize 里各有一次查版本，也会建连，
 	// 两者都在 Open 里关掉、挪进了 Dialect.Ready（见 openMySQL）。
 	//
-	// 其余几项 GORM 的默认值原样保留，量过，理由见 docs/config.md「GORM 的默认行为」：
+	// 其余几项 GORM 的默认值原样保留，量过，理由见 docs/behavior.md「XGorm：通用」：
 	// SkipDefaultTransaction=false（每次写多两个往返，换来钩子失败时整体回滚）、
 	// PrepareStmt=false、NowFunc 用本地时间、TranslateError=false。
 	gormCfg := &gorm.Config{DisableAutomaticPing: true}
@@ -241,7 +241,7 @@ var reg = xclient.NewRegistry[instance]("xgorm", ConfigKey)
 
 func init() {
 	xhook.BeforeStart(initXGorm, xhook.At(xhook.StageClient))
-	xhook.BeforeStop(closeXGorm, xhook.At(xhook.StageClient))
+	xhook.BeforeStop(closeXGorm) // 档位跟着上面那个启动钩子
 
 	// go-sql-driver 的日志是进程级的一个，只能在这里接，理由同 xredis：New 不碰全局，
 	// 启动钩子里接又会盖掉使用者在 main 里自己调的 mysql.SetLogger。

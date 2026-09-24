@@ -26,11 +26,11 @@ type Config struct {
 	// Format 输出格式：json / text
 	Format string `yaml:"Format"`
 
-	// Timezone 日志时间戳按哪个时区渲染，IANA 时区名，如 Asia/Shanghai。
+	// Timezone 日志时间戳按哪个时区渲染，IANA 时区名，如 Europe/Berlin。
 	// 留空表示跟随进程的本地时区（容器里通常就是 UTC）。
 	//
 	// 配了却加载不到会直接启动失败，不会悄悄退回本地时区——
-	// 那意味着你以为在看东八区的时间，实际是 UTC，差八小时而毫无提示。
+	// 那意味着你以为在看柏林时间，实际是 UTC，差一两个小时而毫无提示。
 	// scratch / distroless 这类镜像里没有 /usr/share/zoneinfo，
 	// 需要在自己的 main 包里加一行把时区库编进二进制（约 400KB）：
 	//

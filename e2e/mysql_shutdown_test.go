@@ -121,7 +121,7 @@ func TestMySQL_SIGTERM时在途的MySQL查询做完才关连接池(t *testing.T)
 // docs/config.md 的 XGorm 一节原先没写 MySQL 的取消（只写了 PG「Web 请求里用请求自带的 ctx 也行：
 // 客户端断开时它被取消，查询跟着返回」）。量下来：go-sql-driver 在 ctx 结束时关掉那条连接，
 // 阻塞在读上的查询当场返回（context canceled），不等 ReadTimeout。量出来的数写进了
-// docs/config.md「MySQL 的取消与截止时间」，这里照它断言。
+// docs/behavior.md「XGorm：MySQL」，这里照它断言。
 //
 // ReadTimeout 配成 10s：默认 3s 的话，断连之后留的那一截里读超时可能自己先到，测不出取消管不管用
 func TestMySQL_卡住的MySQL查询_请求ctx被取消时当场返回_不等ReadTimeout(t *testing.T) {

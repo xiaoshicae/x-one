@@ -365,7 +365,7 @@ func TestLoad_时长字段(t *testing.T) {
 }
 
 func TestLoad_没人认领的顶层key要报错(t *testing.T) {
-	// 多半是拼错了，或者忘了 import 对应的 contrib 包。
+	// 多半是拼错了，或者忘了 import 对应的集成包。
 	// 静默忽略的话，使用者会盯着一份"明明配了"的文件查半天
 	type demo struct {
 		Addr string `yaml:"Addr"`

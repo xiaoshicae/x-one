@@ -26,7 +26,7 @@ mutate("MessageTimeout 不大于 0 启动失败", "example/consumer/conf/conf.go
        swap('if c.MessageTimeout <= 0 {', 'if false {'))
 # 漏登记停止钩子：退出时最后一批改动刷不下去，直接调 closeXKV 的测试照样全绿
 mutate("xkv 登记了停止钩子", "example/component/xkv/xkv.go", "./example", "TestRegister_",
-       swap('\txhook.BeforeStop(closeXKV, xhook.At(xhook.StageClient))\n', ''))
+       swap('\txhook.BeforeStop(closeXKV) // 档位跟着上面那个启动钩子\n', ''))
 # FlushInterval 为 0 时 time.NewTicker 在后台协程里 panic，进程直接死掉
 mutate("刷盘间隔不大于 0 启动失败", "example/component/xkv/xkv.go", "./example", "TestInitXKV|TestNew_",
        swap('if c.FlushInterval <= 0 {', 'if false {'))

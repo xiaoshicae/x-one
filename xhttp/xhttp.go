@@ -341,7 +341,7 @@ func RawClient() *http.Client { return C().GetClient() }
 
 func init() {
 	xhook.BeforeStart(initXHttp, xhook.At(xhook.StageClient))
-	xhook.BeforeStop(closeXHttp, xhook.At(xhook.StageClient))
+	xhook.BeforeStop(closeXHttp) // 档位跟着上面那个启动钩子
 }
 
 // liveCloser 由 initXHttp 填好，closeXHttp 用它收尾

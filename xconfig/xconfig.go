@@ -39,9 +39,10 @@ import (
 //
 // 认不出的字段是错误。into 若实现了 Validate() error，解完会调一次。
 //
-// **什么时候调都行**：在 main 里、在 xone.Run 之前、在钩子里都一样。
+// **在 Start 之前任何时候调都行**：在 main 里、在 xone.Run 之前、在启动钩子里都一样。
 // 第一次调用时框架才去找配置文件、加载它，读到的永远是最终值——不会因为
-// 读得早就静默拿到一份默认值。
+// 读得早就静默拿到一份默认值。只在 Start 里才第一次读的块不算有人认领：
+// 启动钩子跑完时框架把没人读过的顶层 key 报成启动失败。
 func Unmarshal(key string, into any) error { return config.Unmarshal(key, into) }
 
 // Has 报告配置文件里有没有写这一块，用于「配了才初始化」。

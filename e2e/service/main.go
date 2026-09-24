@@ -73,7 +73,7 @@ func main() {
 		xtrace.AddSpanProcessor(sdktrace.NewBatchSpanProcessor(countingExporter{}))
 	}
 
-	// docs/config.md「请求/响应体日志」：名字里没有敏感词、内容却是凭证的头，
+	// docs/observability.md「访问日志」：名字里没有敏感词、内容却是凭证的头，
 	// 用 AddSensitiveHeaders 加进名单。X-Tenant-Id 不含任何敏感词，
 	// 它被遮只能是名单那一条在起作用——默认名单里的头名字都带着敏感词，单看它们分不出是哪一条遮的
 	middleware.AddSensitiveHeaders("X-Tenant-Id")

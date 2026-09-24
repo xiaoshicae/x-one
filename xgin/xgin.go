@@ -80,7 +80,7 @@ func (g *XGin) WithConfig(c Config) *XGin {
 	return g
 }
 
-// CurrentConfig 返回配置文件里 XGin 那一块（拷贝），什么时候调都行。
+// CurrentConfig 返回配置文件里 XGin 那一块（拷贝），在 Start 之前任何时候调都行。
 //
 // 配合 WithConfig 用，见那里的例子。配置文件第一次读的时候才加载，
 // 所以在 main 里、xone.Run 之前拿到的也是最终值。
@@ -295,7 +295,7 @@ func (g *XGin) cfg() (Config, error) {
 
 // fileConfig 配置文件里的 XGin 块，没写的字段是默认值。
 //
-// 什么时候调都行：配置文件第一次读的时候才加载，读到的永远是最终值。
+// 在 Start 之前任何时候调都行：配置文件第一次读的时候才加载，读到的永远是最终值。
 // xconfig.Unmarshal 解完会调 Validate；解不出来或者不合法时返回默认值和那个错误
 func fileConfig() (Config, error) {
 	c := DefaultConfig()

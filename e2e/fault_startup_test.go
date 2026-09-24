@@ -11,9 +11,9 @@ import (
 
 // 启动期建连验证的预算。
 //
-// docs/config.md「通用规则 · 建连重试」：连不上时按 3 次重试，两次之间的等待逐次翻倍并带抖动；
+// docs/behavior.md「启动期建连探测」：连不上时按 3 次重试，两次之间的等待逐次翻倍并带抖动；
 // xutil.Retry 的注释：「整轮有一个总预算（attempts × timeout + 各次退避的上界之和）」。
-// 起始间隔 1s（docs/config.md「建连重试」，即 xgorm.go / xredis.go 里的 pingInterval），
+// 起始间隔 1s（docs/behavior.md「启动期建连探测」，即 xgorm.go / xredis.go 里的 pingInterval），
 // 所以两次退避的上界是 1s、2s。单次尝试的超时：
 //
 //	XGorm（PostgreSQL）「注入的 connect_timeout（DialTimeout 向上取整到整秒）+ DialTimeout，默认 1.5s」
@@ -66,7 +66,7 @@ func faultMustContain(t *testing.T, where, text string, parts ...string) {
 //	主机宕机    SYN 没有回音：同上，等满 connect_timeout
 //
 // 都要在预算（faultPGStartBudget，7.5s）内失败；错误由 MustRun 打在 stderr 上，
-// 要说清连不上的是哪个地址（docs/config.md「日志只写驱动、地址、库名」），不能有密码和 DSN
+// 要说清连不上的是哪个地址（docs/observability.md「框架自己的日志」），不能有密码和 DSN
 func TestFault_启动时PG不可达_在文档的预算内失败_错误里有地址没有密码(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
@@ -108,7 +108,7 @@ func TestFault_启动时PG不可达_在文档的预算内失败_错误里有地�
 	}
 }
 
-// 启动时 PG 密码错误：docs/config.md「建连重试」——认证失败不重试，错误说清是认证失败、不说连不上；
+// 启动时 PG 密码错误：docs/behavior.md「启动期建连探测」——认证失败不重试，错误说清是认证失败、不说连不上；
 // 对的密码、错的密码都不能出现在输出里
 func TestFault_启动时PG密码错误_错误说清是认证失败_没有密码(t *testing.T) {
 	harness.Require(t)

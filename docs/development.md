@@ -1,31 +1,40 @@
 # 参与开发
 
-给改这个仓库的人看的：目录怎么分、每个脚本干什么、怎么写一个新集成、e2e 怎么跑。
-项目约定（语言、错误、默认值要量过、变异测试）写在 [`.claude/CLAUDE.md`](../.claude/CLAUDE.md)，
-设计上的来龙去脉在 [`architecture.md`](architecture.md)。
+给改这个仓库的人看的：目录怎么分、每个脚本干什么、e2e 怎么跑，以及这个仓库的规矩和它们背后的理由。
+`.claude/CLAUDE.md` 是给代理看的精简版，**规矩的全文和表格以这里为准**。设计上的来龙去脉在 [`architecture.md`](architecture.md)。
 
 - [仓库结构](#仓库结构)
 - [go.work 与 GOWORK=off](#gowork-与-goworkoff)
 - [脚本](#脚本)
-- [写一个自己的集成](#写一个自己的集成)
 - [e2e：真实 Web 服务测试](#e2e真实-web-服务测试)
+- [规矩](#规矩)
+  - [语言](#语言)
+  - [优雅优先于快](#优雅优先于快)
+  - [错误一律用 xerror](#错误一律用-xerror)
+  - [第三方库的默认值一律要量过](#第三方库的默认值一律要量过)
+  - [变异测试](#变异测试)
+  - [配置与文档](#配置与文档)
+  - [更新日志](#更新日志)
 
 ## 仓库结构
 
 ```
 xone/
 ├── xone.go              根包：Run / MustRun / Option
-├── xhook/               两个生命周期钩子，零依赖。集成包唯一需要认识的东西
-├── internal/
-│   ├── config/          配置加载：定位、profile / import、合并、占位符
-│   ├── hook/            钩子登记与按档位执行
-│   ├── xclient/         xgorm / xredis / xcache 共用的具名实例管理
-│   ├── testkit/         仓库自己的单元测试共用的小工具（量协程数、抓 /metrics……），只依赖标准库
-│   └── schemagen/       生成 config_schema.json、核对 docs/config.md（独立的工具 module）
+├── xhook/               两个生命周期钩子，零依赖。集成要认识的两个包之一
+├── xconfig/             配置解码：Unmarshal、Has、UnmarshalClients、DecodeStrict。另一个
+├── xonetest/            给使用者的测试辅助：换一份配置、跑一遍钩子
+├── xtls/                客户端 TLS 块，xgorm / xredis / xhttp 共用，零依赖
 ├── xerror/  xutil/      零第三方依赖
 ├── xapp/                应用身份（名字、版本），只认领配置不初始化
-├── xconfig/             配置解码辅助：严格解码、单/多实例分派
 ├── xlog/                日志，基于 log/slog，零第三方依赖
+├── xflow/               流程编排 + 自动回滚，零第三方依赖
+├── internal/
+│   ├── config/          配置加载：定位、profile / import、合并、占位符、严格解码
+│   ├── hook/            钩子登记、配对与按档位执行
+│   ├── xclient/         xgorm / xredis / xcache 共用的具名实例管理和启动期探测
+│   ├── testkit/         仓库自己的单元测试共用的小工具，只依赖标准库
+│   └── schemagen/       生成 config_schema.json、核对 docs/config.md（独立的工具 module）
 ├── xtrace/              链路，基于 OpenTelemetry（独立 module）
 ├── xmetric/             指标，基于 Prometheus（独立 module）
 ├── xgorm/               数据库，基于 GORM（独立 module）
@@ -33,31 +42,26 @@ xone/
 ├── xredis/              Redis，基于 go-redis（独立 module）
 ├── xcache/              本地缓存，基于 ristretto（独立 module）
 ├── xhttp/               出站 HTTP，基于 resty（独立 module）
-├── xgin/                Web 服务，基于 Gin，内置四个中间件（独立 module）
-├── xginswagger/         Swagger UI（独立 module，UI 资源不进普通服务）
-├── xflow/               流程编排 + 自动回滚，零第三方依赖
-├── xonetest/            给使用者的测试辅助：换一份配置、跑一遍钩子
-├── docs/
-│   ├── config.md        全部配置项参考
-│   ├── architecture.md  设计原则与启停流程
-│   ├── development.md   本文件
-│   └── CHANGELOG.md     使用者看得见的变化
-├── example/             可直接跑的示例，同时是进程内的跨模块集成测试
+├── xgin/                Web 服务，基于 Gin（独立 module）
+│   └── middleware/      访问日志、链路、指标、panic 恢复，外加 LogScope / Propagate
+├── xginswagger/         Swagger UI（独立 module）
+├── docs/                使用者文档（README 里有导航）+ 本文件 + CHANGELOG.md
+├── example/             一个 module：可直接跑的示例，同时是进程内的跨模块集成测试
 │   ├── consumer/        消息队列消费者：非 Web 服务的形状
 │   └── component/       自己写一个集成：两个钩子 + 一个 C() 的完整样例
-├── e2e/                 真实 Web 服务测试：真的进程、真的 PG / MySQL / Redis / ClickHouse、真的信号（独立 module，不发布）
+├── e2e/                 真实 Web 服务测试（独立 module，不发布）
 │   ├── service/         被测服务：用齐各集成，配置全部来自 YAML
 │   ├── baseline/        裸 gin 的对照服务，压测时比出框架的开销
 │   ├── harness/         起进程、读日志 / Span / 指标 / /proc、TCP 故障代理、下游桩、压测器
-│   └── compose.yml      e2e 要的 PG / MySQL / Redis / ClickHouse，本机没装时用
+│   └── compose.yml      e2e 要的 PG / MySQL / Redis / ClickHouse
 ├── config_schema.json   配置的 JSON Schema，由结构体生成，给 IDE 用
-├── .github/workflows/   ci.yml：check.sh + test.sh，外加用 Go 1.22 单独编译一遍核心；e2e.yml：e2e + 全量变异
+├── .github/workflows/   ci.yml：check.sh + test.sh，外加用 Go 1.22 单独编译核心；e2e.yml：e2e + 全量变异
 └── scripts/
     ├── check.sh         把设计约束编译成检查
     ├── test.sh          跑全仓库测试（go test ./... 不跨模块边界）
-    ├── mutate.py        变异测试：把每条承诺改坏，看有没有测试会失败
+    ├── mutate.py        变异测试
     ├── mutations/       变异表，一个 module 一个文件（core.py 是根模块）
-    ├── e2e.sh           拉起 PG / MySQL / Redis / ClickHouse，跑 e2e/ 的真实 Web 服务测试
+    ├── e2e.sh           拉起 PG / MySQL / Redis / ClickHouse，跑 e2e/
     └── release.sh       打 tag 发布，推送之后 --verify 验证装得上
 ```
 
@@ -65,77 +69,55 @@ xone/
 
 ## go.work 与 GOWORK=off
 
-仓库里提交了 `go.work`，把全部模块（核心、各集成、`example`、`e2e`、`internal/schemagen`）
-放进一个工作区，模块之间另外靠各自 `go.mod` 里的 `replace` 互指。所以：
+仓库里提交了 `go.work`，把全部模块（核心、各集成、`example`、`e2e`、`internal/schemagen`）放进一个工作区，
+模块之间另外靠各自 `go.mod` 里的 `replace` 互指（都还没打 tag）。所以 IDE 打开根目录就认得全部模块，
+在根目录 `go run ./example --config=example/application.yml` 也能跑。
 
-- IDE 打开根目录就认得全部模块；
-- 在根目录 `go run ./example --config=example/application.yml` 也能跑。
-
-但 `scripts/check.sh` 和 `scripts/test.sh` 一律用 `GOWORK=off` 逐模块跑——工作区会遮住
-某个模块自己 `go.mod` 的问题（漏了 require、版本不对），那必须由 CI 抓出来。
-同理，`go list -m all` 在工作区里会把所有模块的依赖并在一起，检查核心依赖足迹时必须 `GOWORK=off`。
+但 `scripts/check.sh` 和 `scripts/test.sh` 一律用 `GOWORK=off` 逐模块跑——工作区会遮住某个模块自己 `go.mod` 的问题
+（漏了 require、版本不对），那必须由 CI 抓出来。同理，`go list -m all` 在工作区里会把所有模块的依赖并在一起，
+量模块图（[architecture.md](architecture.md#二每个集成是独立的-go-module) 那张表）时必须 `GOWORK=off`，并且在仓库外的 consumer module 里量。
 
 ## 脚本
 
 | 命令 | 干什么 | 在 CI 里 |
 |---|---|---|
-| `scripts/check.sh` | 架构约束 + 依赖边界 + 文档 + gofmt / vet | 是 |
-| `scripts/test.sh [go test 参数]` | 逐模块 `GOWORK=off go test -race ./...`，一个模块红了也跑完其余的，最后一起报 | 是（`-count=1`） |
-| `scripts/mutate.py [-j N] [--only X] [-k X]` | 变异测试，并行跑，不动工作区 | 每晚（`--dry-run` 在 check.sh 里） |
-| `scripts/e2e.sh [--load] [-run X]` | 真实 Web 服务测试，要 PG / MySQL / Redis（ClickHouse 可选） | 改了 go.mod / go.sum 的 PR、每晚（不含压测） |
-| `scripts/release.sh vX.Y.Z [--apply \| --verify]` | 打 tag / 验证发布 | 否 |
+| `scripts/check.sh` | 架构约束 + 依赖边界 + 文档 + gofmt / vet | 每次（ci.yml） |
+| `scripts/test.sh [go test 参数]` | 逐模块 `GOWORK=off go test -race ./...`，一个模块红了也跑完其余的，最后一起报 | 每次（`-count=1`） |
+| `scripts/mutate.py [-j N] [--only X] [-k X] [--dry-run]` | 变异测试，并行跑，不动工作区 | 全量每晚（e2e.yml）；`--dry-run` 在 check.sh 里 |
+| `scripts/e2e.sh [--load] [-run X]` | 真实 Web 服务测试，要 PG / MySQL / Redis（ClickHouse 可选） | 改了 `go.mod` / `go.sum` 的 PR、每晚、手动触发（e2e.yml，不含压测） |
+| `scripts/release.sh vX.Y.Z [--apply \| --verify] [--e2e-passed]` | 打 tag / 验证发布 | 否 |
 
 ### check.sh
 
-把设计约束编译成检查，在 CI 里跑：
-
-- 核心模块图不超过 3 个模块，核心不依赖任何集成模块；
-- `xhook` / `xerror` / `xutil` 零第三方依赖；
+- 核心模块图不超过 3 个第三方模块，核心不依赖任何集成模块；`xhook` / `xerror` / `xutil` / `xtls` 零第三方依赖；
 - `init()` 只出现在集成包里；
-- 公开 API 数量上限：根包 15、`xhook` 6、`xconfig` 6；
-- 集成包必须导出 `New`，且不许 import 根包；
-- **每个配置字段都写进了 `docs/config.md` 自己那一节**，每一节的 YAML 示例都过得了 schema；
+- 公开 API 数量上限：根包 15、`xhook` 6、`xconfig` 6、`xonetest` 3、`xtls` 3；
+- 集成包必须导出 `New`，且不许 import 根包；`example/` 不许 import `internal/`（使用者 import 不到）；
+- **每个配置字段都写进了 `docs/config.md` 自己那一节**（`## XLog` 这样以顶层 key 开头的二级标题），每一节的 YAML 示例都过得了 schema；
 - `config_schema.json` 与结构体一致；
 - 错误和日志等运行期字符串是英文；错误走 `xerror`、用 `%w` 包底层错误；
-- `*.go` / `*.md` / `*.yml` 里不再出现已经删掉的公开名字；
+- `*.go` / `*.md` / `*.yml` 里不再出现已经删掉的公开名字（删一个公开名字时把它加进脚本里 `gone` 那张表）；
 - `scripts/mutate.py --dry-run` 的每条变异模式都还对得上代码；
 - gofmt、每个模块的 `go vet`。
 
 ### config_schema.json
 
-由 `go run ./internal/schemagen` 从各模块的 Config 结构体生成，字段说明直接取结构体上的
-注释——注释、文档、schema 是同一个来源。改了 Config 字段之后：
-
-```bash
-go run ./internal/schemagen      # 重新生成
-```
-
-再把字段写进 `docs/config.md` 对应的那一节。忘了任何一步 `check.sh` 都会红。
+由 `go run ./internal/schemagen` 从各模块的 Config 结构体生成，字段说明直接取结构体上的注释——注释、文档、schema 是同一个来源。
+改了 Config 字段（包括字段上的注释）之后重新生成，再把字段写进 `docs/config.md` 对应的那一节。忘了任何一步 `check.sh` 都会红。
 
 ### mutate.py
-
-全量每晚在 CI 里跑一次（`e2e.yml` 的 `mutate`），改完安全或生命周期相关的代码之后也手动跑一次。
-它把每条承诺对应的代码改坏，看有没有测试会失败——活下来的变异 = 一条没有牙齿的承诺：
-代码写着、文档写着，改坏了却没人知道。
 
 ```bash
 scripts/mutate.py                  # 全量：改坏、编译、跑测试，默认开 CPU 数那么多路
 scripts/mutate.py -j 2             # 只开两路
-scripts/mutate.py --only xgorm     # 只跑一个表 / module / 路径前缀（xgorm 连带 xgorm/clickhouse；xlog/ 只跑改 xlog 的）
+scripts/mutate.py --only xgorm     # 只跑一个表 / module / 路径前缀（xgorm 连带 xgorm/clickhouse）
 scripts/mutate.py -k 超时          # 只跑名字里带这段的
 scripts/mutate.py --dry-run        # 只查每条变异的模式还对不对得上代码，不到一秒（过滤照样生效）
 ```
 
-改坏的副本放在临时目录，经 `go test -overlay` 换进编译，工作区一个字节都不动：
-不要求干净的工作区，跑的时候照样可以改代码，Ctrl-C 了也没有要写回的文件。
-结果按表里的顺序打印，不按完成的先后，两轮的输出可以直接 diff。
-
-变异表在 `scripts/mutations/` 下，一个 Go module 一个文件：`core.py` 是根模块（含 `./xhook` 这类
-根模块里的目录），其余按 module 目录名，如 `xgin.py`、`xgorm.py`、`clickhouse.py`、`schemagen.py`。
-一行放在哪个文件，看它在哪个目录下跑测试（第三个参数），放错了 `mutate.py` 直接报错。
-每条变异是一行 `mutate(名字, 文件, 目录, 测试过滤, 改法...)`，改法只用 `swap()` / `cut()`，
-它们自带「模式恰好匹配 N 处」的断言。重构挪动了代码，对应的变异要跟着挪；
-变异要打在调用点上，不只是被调用的函数里。规矩的全文见 `.claude/CLAUDE.md`。
+改坏的副本放在临时目录，经 `go test -overlay` 换进编译，工作区一个字节都不动：**不要求干净的工作区**，
+跑的时候照样可以改代码，Ctrl-C 了也没有要写回的文件。结果按表里的顺序打印，两轮的输出可以直接 diff。
+规矩见下面的[变异测试](#变异测试)。
 
 ### release.sh
 
@@ -148,96 +130,31 @@ git push origin main --tags          # 推送由人来做：module proxy 永久�
 scripts/release.sh v0.1.0 --verify   # 推送之后：在一个全新的外部工程里 go get，验证装得上、跑得起来
 ```
 
-发布前要一轮绿的 e2e：第 2 步会跑 `scripts/e2e.sh`（要 PG / MySQL / Redis）。这个提交刚在别处跑绿过
-（比如手动触发了一次 CI 的 e2e 工作流）的话，加 `--e2e-passed` 跳过，由你担保。
-检查、测试、e2e 的输出都照常打印，红了直接看得到是哪一行。
-
-各子模块 `go.mod` 里仓库内的 require 一律钉成要发的版本，不管原来写的是 `v0.0.0`
-还是 go 工具补的伪版本（`xgin` 里 `xmetric` 的 `v0.0.0-2026…`）；仓库内的 replace 全部去掉，
-只出现在 replace 里、没被 require 的不会被补成 require。
-
-只收 v0 / v1（模块路径没有 `/vN` 后缀）。`example`、`e2e`、`internal/schemagen` 不发布。
+发布前要一轮绿的 e2e：默认会跑 `scripts/e2e.sh`。这个提交刚在别处跑绿过（比如手动触发了一次 CI 的 e2e 工作流）的话，
+加 `--e2e-passed` 跳过，由你担保。各子模块 `go.mod` 里仓库内的 require 一律钉成要发的版本（不管原来写的是 `v0.0.0`
+还是伪版本），仓库内的 replace 全部去掉。只收 v0 / v1。`example`、`e2e`、`internal/schemagen` 不发布。
 
 ### 基准测试
 
-改热点代码前后各跑一次，改动要有数字支撑（见 `.claude/CLAUDE.md`「优雅优先于快」）：
+改热点代码前后各跑一次，改动要有数字支撑（见[优雅优先于快](#优雅优先于快)）：
 
 ```bash
 go test -run=NONE -bench=. -benchtime=100000x ./xlog/ ./xflow/ ./xgin/middleware/
 ```
-
-## 写一个自己的集成
-
-一个集成就是一个包：纯构造器 `New`，加上两个钩子把它接进框架，再给使用者一个 `C()`。
-
-```go
-package xmine
-
-const ConfigKey = "XMine"
-
-type Config struct {
-	Addr string `yaml:"Addr"` // 一定要写 yaml tag
-}
-
-func DefaultConfig() Config { return Config{Addr: "127.0.0.1:1234"} }
-
-// New 纯构造：不碰全局、不读文件、不依赖框架。会阻塞的才收 ctx
-func New(ctx context.Context, c Config) (*Client, io.Closer, error) { /* ... */ }
-
-func init() {
-	xhook.BeforeStart(initXMine, xhook.At(xhook.StageClient))
-	xhook.BeforeStop(closeXMine) // 档位跟着上面那个启动钩子
-}
-
-func initXMine(ctx context.Context) error {
-	c := DefaultConfig()
-	if err := xconfig.Unmarshal(ConfigKey, &c); err != nil {
-		return err
-	}
-	client, closer, err := New(ctx, c)
-	if err != nil {
-		return err
-	}
-	setDefault(client, closer) // 存到哪、怎么取，是你自己的事
-	return nil
-}
-
-func closeXMine(context.Context) error { return currentCloser().Close() }
-
-// C 给使用者的入口：返回原生类型
-func C() *Client { /* ... */ }
-```
-
-要点：
-
-- 只 import `xhook` / `xconfig`，**不许 import 根包**（`check.sh` 会查）。
-- 客户端类的写 `StageClient`；业务资源不写档位（默认 `StageBusiness`）。
-- 停止钩子只在它前面那个启动钩子成功之后才执行，里面不必处理「还没建起来」。
-- 错误用 `xerror.New` / `xerror.Newf` 包一次，底层错误用 `%w`；错误和日志消息用英文。
-- 带三方依赖的集成做成独立的 Go module，别让它的依赖进核心。
-- 测钩子用 `xonetest`：`UseConfigYAML(t, yml)` 换一份配置，`StartHooks(t)` 按档位跑启动钩子、
-  测试结束时跑配对的停止钩子。`example/` 不许 import `internal/`（`check.sh` 会查）——使用者 import 不到。
-
-可运行的完整样例：[`example/component/xkv/`](../example/component/xkv/)。
-多实例写法（`xconfig.UnmarshalClients`、按名字的 `C(name...)` / `Has` / `Names`）和
-更多细节见 [`config.md`「写一个自己的集成」](config.md#写一个自己的集成)。
 
 ## e2e：真实 Web 服务测试
 
 `e2e/` 把 `e2e/service` 编成二进制、当成一个真的进程起起来，连真的 PostgreSQL、MySQL、Redis 和 ClickHouse，
 发请求、发信号，再读它的日志、Span、`/metrics` 和 `/proc`。
 
-- 服务的 XGorm 是多实例：`default` 连 PostgreSQL，`mysql` 连 MySQL（`/mysql/...` 那组接口用 `xgorm.C("mysql")`）；
-  第三个 `ch` 连 ClickHouse（`/ch/...`，经 `xgorm/clickhouse`），写在 profile `e2e/service/application-ch.yml` 里，
-  只有 `TestClickHouse_*` 起的进程激活它（`harness.Options.ClickHouse`）；
-- 故障经 harness 里的 TCP 代理注入（断开、拒绝新连接、加延迟、模拟主机宕机），不去停真的 PG / MySQL / Redis；
+- 服务的 XGorm 是多实例：`default` 连 PostgreSQL，`mysql` 连 MySQL；`ch` 连 ClickHouse，写在 profile
+  `e2e/service/application-ch.yml` 里，只有 `TestClickHouse_*` 起的进程激活它（`harness.Options.ClickHouse`）；
+- 故障经 harness 里的 TCP 代理注入（断开、拒绝新连接、加延迟、模拟主机宕机），不去停真的服务；
 - 用例之间各用各的端口、表名和 key 前缀；
-- PG / MySQL / Redis 没在跑时脚本会先按本机的装法拉起来（`pg_ctlcluster` / `service mysql` / `redis-server`），
-  连接参数可以用 `XONE_E2E_PG_ADDR`、`XONE_E2E_MYSQL_ADDR`、`XONE_E2E_REDIS_ADDR` 等环境变量覆盖；
-  服务归别处管（CI 的服务容器、docker compose、另一台机器）时设 `XONE_E2E_EXTERNAL=1`，或者地址本来就不在本机，
-  脚本就只等它就绪（最多 60 秒），不去启动。就绪只看 TCP 连不连得上，不要求装 `psql` / `mysqladmin` / `redis-cli`；
-- ClickHouse 跑在 Docker 容器 `xone-ch` 里（`XONE_E2E_CH_CONTAINER`；native 127.0.0.1:9000、HTTP 127.0.0.1:8123，`XONE_E2E_CH_*` 覆盖），
-  停着就 `docker start`；没有 Docker、没有容器或起不来时脚本打一行提示并设 `XONE_E2E_CH=0`，`TestClickHouse_*` 各自跳过，其余照跑；
+- PG / MySQL / Redis 没在跑时脚本先按本机的装法拉起来（`pg_ctlcluster` / `service mysql` / `redis-server`），
+  连接参数用 `XONE_E2E_PG_ADDR`、`XONE_E2E_MYSQL_ADDR`、`XONE_E2E_REDIS_ADDR` 等覆盖；服务归别处管（CI 的服务容器、
+  docker compose、另一台机器）时设 `XONE_E2E_EXTERNAL=1`，脚本只等它就绪（最多 60 秒，只看 TCP）；
+- ClickHouse 跑在 Docker 容器 `xone-ch` 里（`XONE_E2E_CH_*` 覆盖），起不来时脚本设 `XONE_E2E_CH=0`，`TestClickHouse_*` 各自跳过；
 - 后面的参数原样交给 `go test`。
 
 本机没装这些服务的话，用 `e2e/compose.yml` 一次起齐，账号密码和脚本的默认值一致：
@@ -249,38 +166,168 @@ docker compose -f e2e/compose.yml down           # 数据在 tmpfs 里，down �
 ```
 
 ```bash
-scripts/e2e.sh                   # 全部（压测除外）
-scripts/e2e.sh -run Smoke        # 只跑冒烟
-scripts/e2e.sh --load -run Load  # 压测：裸 gin 对照三种中间件配置、并发 1～256，外加几分钟的浸泡
-scripts/e2e.sh --load -run MySQL # MySQL 那一组，连同裸 gin + MySQL 对照 xone + MySQL 的压测
-scripts/e2e.sh --load -run ClickHouse # ClickHouse 那一组，连同裸 gin + ClickHouse 对照 xone + ClickHouse 的压测
+scripts/e2e.sh                        # 全部（压测除外）
+scripts/e2e.sh -run Smoke             # 只跑冒烟
+scripts/e2e.sh --load -run Load       # 压测：裸 gin 对照三种中间件配置、并发 1～256，外加几分钟的浸泡
+scripts/e2e.sh --load -run MySQL      # MySQL 那一组，连同对照压测
+scripts/e2e.sh --load -run ClickHouse # ClickHouse 那一组，连同对照压测
 ```
 
-压测默认不跑（一轮十来分钟，要独占机器），`--load` 才跑。结果只在测试日志里打成表格：
-QPS、p50 / p90 / p99 / max、错误数、服务进程每请求的 CPU 微秒和峰值 RSS，以及相对裸 gin 多出来的部分。
-压测器、被测服务和 PG 在同一台机器上抢 CPU，这些数字只能拿来互相比较。
+压测默认不跑（一轮十来分钟，要独占机器）。结果只在测试日志里打成表格；压测器、被测服务和数据库在同一台机器上抢 CPU，
+这些数字只能拿来互相比较。
 
-除压测（`--load`）外，三个二进制（`service`、`baseline`、`covapp`）一次 `go build -race` 编完。
-每个被测进程退出时 harness 查它的输出（`harness/output.go` 的 `checkOutput`），查出问题就让那个用例失败：
+**CI**：`.github/workflows/e2e.yml` 在改了任何 `go.mod` / `go.sum` 的 PR、每晚、手动触发时跑（不含压测），四个服务是服务容器；
+PG / MySQL / Redis 的 TLS 用例要以 root 在本机另起实例，runner 上跳过。任务摘要里写着 `KNOWN BUG` 跳过了几条。
+`test.sh` 遍历到 `e2e` 模块时，每个测试都因为 `XONE_E2E` 不为 1 而跳过，没有数据库的机器上照样全绿。
 
-- **stderr 里有 `WARNING: DATA RACE`**：真进程、真并发、真信号下的数据竞争，单元测试碰不到；
-- **stdout / stderr 里有一行不是 JSON**：使用者的日志平台按行解析 JSON，哪个三方库绕开 slog 写了一行纯文本，
-  在他们那边就是一条解析失败的垃圾。放过的只有框架自己预期会写的：xlog 装好之前 slog 默认格式的文本行、
-  以 1 退出时 `MustRun` 写的最后一行错误、Go 运行时的 panic 输出、被信号杀掉时没写完的最后一截。
-  输出本来就不是 JSON 的用例（`XLog.Format: text`、`XTrace.Console`）在 `Options.NonJSON` 里写上理由。
+**harness 的规矩：**
 
-**加开关走 `Options.Overlay`，不加新的 `E2E_*` 环境变量。** Overlay 是叠在 `service/application.yml` 上的一份 profile，
-能改任何配置项（列表、map、某个具名实例的某个字段），用例里写的就是使用者会写的 YAML。
-`application.yml` 开头那张表里现有的 `E2E_*` 是历史留下的，只减不增：每加一个，
-被测服务的配置就多一处 `${VAR:默认}`、harness 就多一处要清理的环境变量，还读不出它最终改的是哪一项。
-被测服务要多一个接口给 `TestCoverage_*` 用时挂在 `/probe` 下（`service/probe.go`）。
+- 三个二进制（`service`、`baseline`、`covapp`）一次 `go build -race` 编完（压测除外）。每个被测进程退出时 harness 查它的输出
+  （`harness/output.go` 的 `checkOutput`），查出问题就让那个用例失败：stderr 里有 `WARNING: DATA RACE`；或者 stdout / stderr
+  里有一行不是 JSON——使用者的日志平台按行解析 JSON，哪个三方库绕开 slog 写了一行纯文本，在他们那边就是一条解析失败的垃圾。
+  放过的只有框架自己预期会写的（xlog 装好之前的默认格式行、`MustRun` 的最后一行错误、运行时的 panic 输出、被信号杀掉时没写完的一截）；
+  输出本来就不是 JSON 的用例在 `Options.NonJSON` 里写上理由。
+- **加开关走 `Options.Overlay`，不加新的 `E2E_*` 环境变量。** Overlay 是叠在 `service/application.yml` 上的一份 profile，
+  用例里写的就是使用者会写的 YAML。现有的 `E2E_*` 只减不增。被测服务要多一个接口给 `TestCoverage_*` 用时挂在 `/probe` 下。
+- **时长断言**：下界照实卡，上界给慢机器留余量——带 `-race` 的服务慢几倍，用例又都 `t.Parallel`。上界写成「量出来的数 × 3」
+  或「文档推出来的数 + 一个具名的余量常量」（`faultSlack`、`faultUnaffected`），常量的注释里写清量出来是多少、反例是多少。
+- **用例照文档写的行为断言**，揭示了框架的 bug 时不改断言去迁就它，而是标成 `KNOWN BUG` 跳过，证据写在用例的注释里。
 
-用例的时长断言：下界照实卡（没等够就是 bug），上界要给慢机器留余量——带 `-race` 的服务慢几倍，
-用例又都 `t.Parallel`。上界写成「量出来的数 × 3」或「文档推出来的数 + 一个具名的余量常量」
-（`faultSlack`、`faultUnaffected`），常量的注释里写清量出来是多少、反例是多少，二者之间要隔得开。
+## 规矩
 
-`test.sh` 遍历到 `e2e` 模块时，每个测试都因为 `XONE_E2E` 不为 1 而跳过，
-没有数据库的机器上照样全绿。CI 里它是单独的工作流 `.github/workflows/e2e.yml`：改了任何 `go.mod` / `go.sum`
-的 PR、每晚、手动触发时跑（不含压测），四个服务是服务容器；PG / MySQL / Redis 的 TLS 用例要以 root
-在本机另起实例，runner 上跳过。任务摘要里写着 `KNOWN BUG` 跳过了几条。用例照文档写的行为断言，揭示了框架的 bug 时不改断言去迁就它，
-而是标成 `KNOWN BUG` 跳过，证据写在用例的注释里。
+### 语言
+
+| 位置 | 语言 |
+|---|---|
+| 对话、代码注释、README 与 docs | 简体中文 |
+| **error / panic 的消息** | **英文** |
+| **日志的 message 与字段名** | **英文** |
+| commit message | 英文 |
+| 测试函数名、基准函数名 | 中文（描述场景，便于定位） |
+
+这是一个给别人用的库。**它产出的错误和日志会落进使用者的系统里**——进他们的告警、他们的日志检索、他们的 issue。
+中文字段名还会变成 JSON 的 key，让日志平台的索引和看板直接对不上。注释是写给读这份代码的人的，那是另一回事。
+
+```go
+// 连接池满了就等着，不新建连接 —— 注释用中文
+return xerror.Newf("xgorm", "connect", "cannot reach %s: %w", addr, err) // 错误用英文
+slog.Info("xgorm ready", "instances", reg.Names())                       // 日志用英文
+```
+
+文档和注释里的示例用中性的值（时区写 `Europe/Berlin`，profile 写 `prod,eu`），不写尚未发布的「之前的版本 / 行为变化」。
+
+### 优雅优先于快
+
+**不做过度优化。** 代码要保持优雅、整洁、好读——这比省下几十纳秒重要得多。只有同时满足以下两条才动手优化：
+
+1. **量过**。有基准测试给出改前改后的数字，不接受「看着像是慢」。
+2. **改完的代码不比改前复杂**。最好是更简单——把一次多余的分配去掉、把白干的活挪到条件后面，这类改动往往同时让代码更清楚。
+
+为了性能引入缓存层、对象池、手写序列化、`unsafe`，一律先说明为什么没有别的办法。
+
+### 错误一律用 xerror
+
+模块对外返回的每一个错误都是 `*xerror.Error`，带上模块名和操作名：
+
+```go
+return xerror.Newf("xgorm", "connect", "cannot reach %s: %w", info.Addr, err)
+return xerror.New("xgorm", "init", err)
+```
+
+调用方因此永远可以问「这是谁报的」：`xerror.Is(err, "xconfig")`（整棵树里有没有）、`xerror.Module(err)`（最外层是谁）。四条规矩：
+
+1. **底层错误一律用 `%w`，不用 `%v`。** `%v` 把错误变成一段文本，`errors.Is` / `errors.As` 到此为止。
+2. **一个模块边界一个 xerror，不是一层一个。** 内部的中间错误（比如 `Config.Validate()` 返回的那些）保持普通 error，
+   由边界那一层包一次。每层都包的话文本会套成 `xone xgin config failed, err=[xone xgin validate failed, err=[...]]`。
+   xerror 自己也兜着这一条：`New` 遇到同模块的 Error 原样返回；`Newf` 的参数里有 Error 时渲染会折叠——同模块的只留
+   「op: 原因」，别的模块的去掉重复的 `xone ` 前缀。兜底不是许可，边界上照样只包一次。
+3. **消息里不再重复模块名。** 外框已经有了，再写一遍就是 `xone xgorm init failed, err=[xgorm: ...]`。
+4. **op 从这组词里选**，不要每处现编：
+
+   | op | 用在 |
+   |---|---|
+   | `config` | 配置不合法、解码失败 |
+   | `init` | 组件初始化（框架调的那次） |
+   | `new` | 构造实例 |
+   | `connect` | 建连、探测 |
+   | `close` | 关闭、释放 |
+   | `register` | 注册指标、注册方言 |
+   | `start` / `stop` | 服务启停 |
+   | `execute` | 跑一次业务流程（xflow） |
+
+### 第三方库的默认值一律要量过
+
+这个仓库被外部 review 挑出来的问题里，**大半是同一个毛病**：接了一个库，用了它的默认行为，没量过它到底是什么行为，
+然后按自己以为的那个写进文档。已经踩过的（每一条都是真的量出来才发现的）：
+
+| 库 | 以为的 | 实际的 |
+|---|---|---|
+| gin | `TrustedProxies` 默认安全 | 默认 `0.0.0.0/0`，谁发 `X-Forwarded-For` 谁就是 `client_ip` |
+| gin | `MaxMultipartMemory` 是请求体上限 | 是落盘阈值，堆开销约为它的三倍；32MB 默认 = 每请求 96MB |
+| gorm | 不给 Logger 就是不打日志 | 补上它自己的默认：带 ANSI 颜色写 `os.Stdout` |
+| gorm | `gorm.Open` 只装配 | 会自己 ping 一次，用的是它自己的 context |
+| gorm | 日志里的 SQL 带的是占位符 | Logger 不实现 `ParamsFilter` 就代进真实参数值 |
+| gorm | 实现了 `ParamsFilter` 就不会记参数 | `Scan` 期间换成 `logger.Recorder`，它只认进程级的 `RecorderParamsFilter`，默认原样交出参数 |
+| gorm MySQL 驱动 | 建连受调用方的 ctx 管 | `Initialize` 用 `context.Background()` 查 `SELECT VERSION()`：不重试，启动期间的 SIGTERM 要等满 `ReadTimeout` |
+| gorm ClickHouse 驱动 | 建连受调用方的 ctx 管 | `Initialize` 用 `context.Background()` 查版本：ctx 取消了也等满 dial_timeout，也不重试 |
+| go-sql-driver | 日志走调用方配的 logger | 默认往 stderr 写 `[mysql] …` 纯文本，不是 JSON |
+| MySQL / PG | 服务端的错误文本不含数据 | 1062 / 1366 / 1292 的原文、PG 的 `Detail` 带着参数值（`Duplicate entry 'a@b.com'`） |
+| pgx | `sslmode=prefer` 至少加密且可信 | 走 TLS 但**不校验服务端证书**，服务端不肯 TLS 就悄悄退回明文 |
+| go-redis | 命令听调用方的 deadline | 默认不听，只认 `ReadTimeout`；实测 200ms 的预算等满 5s |
+| go-redis | 一次建连拨一次号 | `DialerRetries` 默认 5 次、间隔 100ms：主机宕机时一条命令 11.7s |
+| go-redis | 新连接只发 `HELLO` | 还发 `CLIENT SETINFO` 和 `CLIENT MAINT_NOTIFICATIONS`；Redis 7.0 上每条连接留一个报错的 Span |
+| go-redis | 日志走调用方配的 logger | 默认往 stderr 写 `redis: …` 纯文本 |
+| redisotel | Span 里只有命令名 | 默认 `db.statement` 带整条命令，`SET k v` 的值原样导出 |
+| clickhouse-go | `read_timeout` 是「多久没收到字节」 | 管一整段读、中途不续期：健康的长查询照样失败；读超时的查询被 `database/sql` 重发共 3 次 |
+| clickhouse-go v2.30 | 读超时的连接会被丢掉 | 还回池里，下一条借到它的查询返回了上一条的结果（v2.47 修掉） |
+| ristretto | `MaxCost` 就是容量 | 每条另加 56 字节内部开销，配 2000 实际存 35 条 |
+| ristretto | `Close()` 能和在途读写并发 | 先关内部 channel、后置标记，实测并发读写里 750 个协程 panic |
+| resty | `Timeout` 管一次请求 | 管一次尝试；配 300ms + 3 次重试实测跑 1.24s |
+| resty | 不给 logger 就不打日志 | 往 stderr 写 WARN / ERROR，URL 带着查询串 |
+| resty | `resty.New()` 和 `NewWithClient` 一样 | 前者自带 cookie jar，不相干的调用之间串 cookie |
+| otelhttp | `CloseIdleConnections` 能传下去 | 它没实现，整条调用变成空操作 |
+| otelhttp | 出站 Span 里没有凭证 | `url.full` 带着查询串，只去掉了 user:password |
+| net/http | `Shutdown` 超时会断开连接 | 只返回错误，在途连接照跑 |
+| net/http | 跨 host 重定向不带凭证 | 只去掉 `Authorization`、`Cookie` 这几个，自定义的 `X-Api-Key` 照样带给新 host |
+| x/net h2c | `h2c.NewHandler` 的连接归 `Shutdown` 管 | 连接被劫持走，`Shutdown` 约 60µs 就返回 nil，在途请求照跑 |
+| client_golang | 不合规的 Namespace 会报错 | 不报错，导出时转义：`my-app` 变成 `my_app_` |
+| OTel SDK | `AlwaysSample` 尊重上游的采样决定 | 无视上游的 `sampled=00`，还把 `-01` 往下游传 |
+
+所以接一个新库、或者升级一个库的时候：
+
+1. **写进文档的每一句行为描述，先用一段代码量出来**，别照抄它的 README。
+2. **我们没显式设的字段就是我们接受了它的默认值**——列一遍这些字段，逐个问「它的默认值是什么，我知道吗」。
+3. 量出来的数字（连同依赖版本）写进注释和 [`behavior.md`](behavior.md)。后来的人不必再量一次，升级依赖之后数字对不上也能立刻看出来。
+
+### 变异测试
+
+`scripts/mutate.py` 是上面那件事的兜底：把每条承诺对应的代码改坏，看有没有测试会失败。
+**活下来的变异 = 一条没有牙齿的承诺。** 改完安全或生命周期相关的代码跑一次（`--only <module>` 只跑相关的）。
+
+- 变异表在 `scripts/mutations/` 下，一个 Go module 一个文件：`core.py` 是根模块（含 `./xhook` 这类根模块里的目录），
+  其余按 module 目录名，如 `xgin.py`、`xgorm.py`、`clickhouse.py`、`schemagen.py`。一行放在哪个文件，看它在哪个目录下跑测试
+  （第三个参数），放错了 `mutate.py` 直接报错。
+- 每条变异是一行 `mutate(名字, 文件, 目录, 测试过滤, 改法...)`，前面的注释写「这条承诺防的是哪次真出过的事」。
+  **改法只写 `swap()` / `cut()`**，它们自带「模式恰好匹配 N 处」的断言。裸写 `s.replace()` 有两种烂法：模式不再匹配就静默空转，
+  匹配到多处就一次改坏两个地方——后者测试照样会红，但红的已经不是你要验的那条承诺了。
+- **重构挪动了代码之后，对应的变异要跟着挪。** 变异模式失效（改不动任何东西）和「改坏了没人发现」一样严重：那条承诺这一轮
+  根本没被检查。脚本会把这种情况单独报出来并且整轮失败——它自己就这样烂过两次，`applyConfig` 挪走 `SetTrustedProxies`、
+  xerror 改了 `safeNew` 的签名，对应的变异都从此没再跑过。`--dry-run` 不到一秒，`check.sh` 每次都跑。
+- **变异要打在调用点上，不只是被调用的函数里。** 「指标的 method 标签收敛」原先只有一个直接调 `normalizeMethod` 的单元测试：
+  函数本身是对的，但没人验证中间件真的在用它。把调用点绕开（`normalizeMethod(m)` → `m`）测试照过，而那正是这个 bug 的形状。
+- 只有「我们自己有代码在守」的承诺才放进来。由依赖库保证的性质没有哪一行可以改坏，那种靠测试守着就行。
+
+### 配置与文档
+
+- 默认值预填在结构体里，未知字段是错误，`${VAR}` 未设置是错误，校验写在 `Validate()` 里（读配置时就跑）。
+- 新增或改动 Config 字段：重新生成 schema，写进 `docs/config.md` 自己那一节（`check.sh` 双向检查）。
+  `config.md` 只放参考（YAML 块 + 几条要点）；长的解释和实测数字放 `behavior.md`，日志 / 指标 / Span 的名字放 `observability.md`，
+  新的报错文案放 `troubleshooting.md`。
+- README 的第一个 ```go 代码块由 `example/readme_test.go` 编译一遍，改公开 API 时跟着改。
+
+### 更新日志
+
+**打第一个版本 tag 之前不记录。** 之后，使用者看得见的变化（新功能、行为变化、不兼容变更、修复、性能）**在同一个提交里**
+写进 `docs/CHANGELOG.md` 的「未发布」一节，按「不兼容变更 / 新增 / 修复 / 性能」归类，一条一句话，写使用者要知道什么、
+要改什么，不写实现细节。仓库内部的重构和工具改动不写。不兼容变更必须写清旧写法怎么迁移。
+发版时把「未发布」改成 `[vX.Y.Z] - 日期`，再在上面开一个新的空「未发布」。

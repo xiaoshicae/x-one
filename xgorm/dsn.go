@@ -271,9 +271,9 @@ func isPostgresURL(dsn string) bool {
 // 重复的 key 取的是第一个。
 //
 // 补的参数接在原 query 后面，使用者写的那部分一个字节都不动。从前是解开再
-// q.Encode() 整个重写，TimeZone=Asia/Shanghai 就成了 Asia%2FShanghai：
+// q.Encode() 整个重写，TimeZone=Europe/Berlin 就成了 Europe%2FBerlin：
 // pgx 会解码，但 gorm 的 postgres 驱动用 gormTimeZone 那个正则直接读原串、
-// 不解码，于是每条连接都拿 Asia%2FShanghai 去设时区，服务端不认，全部失败
+// 不解码，于是每条连接都拿 Europe%2FBerlin 去设时区，服务端不认，全部失败
 func injectPostgresURL(dsn string, injects map[string]string) (string, error) {
 	if len(injects) == 0 {
 		return dsn, nil
@@ -308,7 +308,7 @@ func injectPostgresURL(dsn string, injects map[string]string) (string, error) {
 // queryEscape 按 query 的规则转义，但 / 原样保留。
 //
 // / 在 query 里本就合法（RFC 3986），pgx 解不解码都一样；转成 %2F 的话，
-// Params 里的 TimeZone: Asia/Shanghai 会撞上和上面同一个问题——gorm 读原串
+// Params 里的 TimeZone: Europe/Berlin 会撞上和上面同一个问题——gorm 读原串
 func queryEscape(s string) string {
 	return strings.ReplaceAll(url.QueryEscape(s), "%2F", "/")
 }

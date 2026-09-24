@@ -44,7 +44,7 @@ func covBase(t *testing.T, extra map[string]string) string {
 // docs/config.md「Profiles —— 按环境分文件」：
 //
 //	优先级：--profile > XONE_PROFILE > 文件里的 Profiles.Active
-//	--profile=prod,cn 多个用逗号分隔，靠后的压过靠前的
+//	--profile=prod,eu 多个用逗号分隔，靠后的压过靠前的
 //	点名的 profile 文件不存在时直接启动失败
 //
 // 「合并规则」：map 递归合并、列表整体替换、标量覆盖。

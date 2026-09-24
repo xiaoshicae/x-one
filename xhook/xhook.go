@@ -1,33 +1,35 @@
-// Package xhook 是集成包唯一需要认识的东西：两个生命周期钩子。
+// Package xhook 是集成接入框架的两个动词：BeforeStart 和 BeforeStop。
+// 写一个集成只需要认识本包和 xconfig（读配置）。
 //
 //	func init() {
-//		xhook.BeforeStart(initXRedis, xhook.At(xhook.StageClient))
-//		xhook.BeforeStop(closeXRedis) // 档位跟着上面那个启动钩子
+//		xhook.BeforeStart(initXMine, xhook.At(xhook.StageClient))
+//		xhook.BeforeStop(closeXMine) // 档位跟着上面那个启动钩子
 //	}
 //
-//	func initXRedis(ctx context.Context) error {
+//	func initXMine(ctx context.Context) error {
 //		c := DefaultConfig()
 //		if err := xconfig.Unmarshal(ConfigKey, &c); err != nil {
 //			return err
 //		}
-//		client, err := New(ctx, c)
+//		client, closer, err := New(ctx, c)
 //		if err != nil {
 //			return err
 //		}
-//		setDefault(client) // 存到哪、怎么取，是你自己的事
+//		setDefault(client, closer) // 存到哪、怎么取，是你自己的事
 //		return nil
 //	}
 //
-//	func closeXRedis(context.Context) error { return C().Close() }
+//	func closeXMine(context.Context) error { return currentCloser().Close() }
 //
 // 里面写普通的 Go 代码就行：读配置、建实例、存起来。框架只负责在对的时候
 // 调它们，以及按相反的顺序调停止钩子。
 //
 // 档位（At）说的是「必须早于或晚于谁」。你自己的业务代码不写——默认的
 // StageBusiness 排在全部客户端之后、服务之前，钩子里直接用 xgorm.C() 就行。
-// 写的是数据库、缓存这类被业务依赖的客户端时，才像上面这样写 StageClient。
+// 写的是数据库、缓存这类被业务依赖的客户端时，才像上面这样写 StageClient；
+// 停止钩子不写档位，跟着和它配对的那个启动钩子。
 //
-// 本包零第三方依赖，也不 import 框架本体：集成只认识这里，
+// 本包零第三方依赖，也不 import 框架本体：集成只认识这里和 xconfig，
 // 所以你把一个集成单独发成 module 完全成立。
 package xhook
 

@@ -32,7 +32,7 @@ echo "✓ 核心模块图 $n 个（上限 3）"
 echo "✓ 核心不依赖任何集成模块"
 
 # ---- 3. xhook 与基础包必须零第三方依赖 ----
-# xhook 是集成包唯一认识的东西，一旦它有依赖，所有集成都被迫背上。
+# xhook 是每个集成都要认识的包（另一个是 xconfig），一旦它有依赖，所有集成都被迫背上。
 # xtls 同理：它是 xgorm / xredis / xhttp 配置结构体里的一个字段类型
 for pkg in ./xhook ./xerror ./xutil ./xtls; do
   d=$(GOWORK=off go list -deps "$pkg" | grep -E '^[^/]*\.' | grep -vc xiaoshicae || true)
@@ -188,7 +188,7 @@ echo "✓ 错误都走 xerror（%w 保住错误链）"
 # 使用者照着 README 和 example/ 抄。几轮重构之后，那里还留着 Component.Init、
 # registry.Register 这些早就不存在的名字，注释里还在教一个已经撤掉的写法——
 # 比没有文档更糟，因为它看上去是对的。删掉一个公开名字时，把它加进这张表
-gone='xredis\.TLSConfig|Component\.Init|registry\.(Declare|Provide|Register)|ProvideEach|\.OnInit\(|xgin\.With(Config|Log|Trace|Metric|MetricPath|SkipPaths|RequestBodyLog|ResponseBodyLog|ZHTranslations)\('
+gone='xredis\.TLSConfig|Component\.Init|registry\.(Declare|Provide|Register)|ProvideEach|xconfig\.(HasKey|DecodeClients)\b|\.OnInit\(|xgin\.With(Config|Log|Trace|Metric|MetricPath|SkipPaths|RequestBodyLog|ResponseBodyLog|ZHTranslations)\('
 hits=$(files '*.go' '*.md' '*.yml' | xargs grep -nE "$gone" || true)
 [ -z "$hits" ] || fail "还在提已经删掉的名字（改文档，或者确认它真的还在）：
 $hits"

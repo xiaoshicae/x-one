@@ -53,7 +53,7 @@ func faultCallDownstream(t *testing.T, p *harness.Process, token, method string)
 
 // faultRestyLogs xhttp 接到 slog 上的 resty 日志，按级别数一下。
 // resty 只在 RetryCount > 0 时记：每次失败的尝试一行 WARN（…, Attempt N），用完再一行 ERROR
-// （resty v2.17.2 request.go 的 Execute；docs/config.md XHttp 那张表的第一行）
+// （resty v2.17.2 request.go 的 Execute；docs/behavior.md XHttp 那张表的第一行）
 func faultRestyLogs(p *harness.Process) (warn, errs int, lines []harness.Log) {
 	for _, l := range p.FindLogs(func(l harness.Log) bool { return l.Msg() == "xhttp resty log" }) {
 		switch l.Level() {
@@ -160,7 +160,7 @@ func TestFault_下游慢过xhttp的Timeout_每次尝试在Timeout失败_只有�
 		t.Logf("数字：Timeout=%v、RetryCount=%d：下游收到 %d 次，间隔 %v，最后一次 %s 后被掐断，总共 %s（文档的最坏情况 %v）",
 			faultHTTPTimeout, retries, len(reqs), gaps, faultMS(last), faultMS(c.took), faultHTTPWorstCase(retries))
 
-		// docs/config.md XHttp 那张表：resty 的日志「接到 slog（消息 xhttp resty log，内容在 detail 字段），
+		// docs/behavior.md XHttp 那张表：resty 的日志「接到 slog（消息 xhttp resty log，内容在 detail 字段），
 		// 级别照搬，URL 去掉查询串」；「开了重试后每次失败打一行 WARN……用完再打一行 ERROR」
 		warn, errs, lines := faultWaitRestyLogs(t, p, token)
 		if warn != retries+1 || errs != 1 {

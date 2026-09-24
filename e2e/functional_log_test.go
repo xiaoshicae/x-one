@@ -133,7 +133,7 @@ func TestFunctional_访问日志字段齐全并和业务日志与Span共用trace
 	})
 }
 
-// 打开 LogRequestBody / LogResponseBody 之后，docs/config.md「请求/响应体日志」那一节承诺的每一条脱敏：
+// 打开 LogRequestBody / LogResponseBody 之后，docs/observability.md「访问日志」那一节承诺的每一条脱敏：
 // 按敏感词「含」匹配、任意嵌套、Unicode 折叠、表单、纯文本整段遮、请求头名单与词表、
 // 值是 URL 的头去掉查询串、multipart / octet-stream 不读
 func TestFunctional_打开请求体日志后敏感信息全部被遮掉(t *testing.T) {
@@ -469,7 +469,7 @@ func TestFunctional_PG密码不出现在任何日志和错误里(t *testing.T) {
 		if !strings.Contains(p.Stderr(), "connection refused") {
 			t.Errorf("错误里应说清是连不上（connection refused），实际：\n%s", p.Stderr())
 		}
-		// docs/config.md「建连重试」：连不上时按 3 次重试
+		// docs/behavior.md「启动期建连探测」：连不上时按 3 次重试
 		t.Logf("数字：PG 拒绝连接时启动 %v 后失败退出（%v）", exit.Uptime, exit)
 	})
 

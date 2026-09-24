@@ -196,7 +196,7 @@ func load(path string) (map[string]*yaml.Node, error) {
 // into 里已经是默认值，文件里没写的字段保持不变——所以不需要指针字段来区分
 // 「没配」和「配成零值」。整块没配时 into 原样不动，返回 nil。
 //
-// 什么时候调都行：还没加载的话先加载，读到的永远是配置文件里的最终值，
+// 在 Start 之前任何时候调都行：还没加载的话先加载，读到的永远是配置文件里的最终值，
 // 不会因为读得早就静默拿到一份默认值。
 func Unmarshal(key string, into any) error {
 	mu.Lock()

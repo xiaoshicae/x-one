@@ -28,7 +28,7 @@ const (
 )
 
 // pingInterval 第一次退避的上界，之后逐次翻倍（xutil.Retry），3 次尝试之间的两次
-// 退避上界是 1s、2s。这个数写在 docs/config.md「建连重试」里，启动预算靠它推算。
+// 退避上界是 1s、2s。这个数写在 docs/behavior.md「启动期建连探测」里，启动预算靠它推算。
 //
 // 是变量而不是常量，只为让测试能调短——连不上的用例要跑满整轮重试，
 // 按一秒算一次就是几十秒。
@@ -250,7 +250,7 @@ var reg = xclient.NewRegistry[instance]("xredis", ConfigKey)
 
 func init() {
 	xhook.BeforeStart(initXRedis, xhook.At(xhook.StageClient))
-	xhook.BeforeStop(closeXRedis, xhook.At(xhook.StageClient))
+	xhook.BeforeStop(closeXRedis) // 档位跟着上面那个启动钩子
 
 	// go-redis 的日志是进程级的一个，只能在这里接：New 不碰全局，启动钩子里接又会
 	// 盖掉使用者在 main 里自己调的 redis.SetLogger。在 init 里接，main 里再调的那次照样生效。

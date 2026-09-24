@@ -163,7 +163,7 @@ func TestClickHouse_SQL日志只记问号占位符不记参数值_和Span的db_q
 	//
 	// 这不是 ClickHouse 独有的：xgorm 的每个实例上，Raw(...).Scan(...) 和 Table(...).Select(...).Scan(...)
 	// 都这样（服务里 MySQL 的 SELECT SLEEP(?) 记下来就是 SELECT SLEEP(1.5)）。xgorm 的 init 把
-	// logger.RecorderParamsFilter 换成了不交出参数的那个（docs/config.md「Scan 的 SQL 日志同样不带参数值」）。
+	// logger.RecorderParamsFilter 换成了不交出参数的那个（docs/behavior.md「XGorm：通用」）。
 	// Span 不受影响：db.query.text 取自 Statement.SQL，照样是占位符
 	t.Run("Scan", func(t *testing.T) {
 		r := p.Get(t, "/ch/stats?name="+name)
@@ -185,7 +185,7 @@ func TestClickHouse_SQL日志只记问号占位符不记参数值_和Span的db_q
 	})
 }
 
-// Span 的属性（xgorm/trace.go，OTel 数据库语义约定 v1.43.0；docs/config.md「链路与指标」）：
+// Span 的属性（xgorm/trace.go，OTel 数据库语义约定 v1.43.0；docs/observability.md「链路」）：
 // db.system.name=clickhouse、db.namespace 是库名、server.address / server.port 从 DSN 解出来分开记、
 // db.query.text 带占位符、db.operation.name 是语句的第一个关键字。父是服务端 Span。
 // 同一个请求里三个实例各报各的连接信息
@@ -254,7 +254,7 @@ func TestClickHouse_SQL的Span带上这个实例自己的连接信息(t *testing
 	})
 }
 
-// docs/config.md「服务端的错误原文不进日志和链路」：ClickHouse 的服务端错误原文里同样有参数值——
+// docs/behavior.md「XGorm：通用」：ClickHouse 的服务端错误原文里同样有参数值——
 // 实测 24.8 把 value 转 Int64 失败是 code: 6, message: Cannot parse string '<值>' as Int64 …。
 // native 协议下驱动返回 *clickhouse.Exception，方言认得出错误码（xgorm/clickhouse errorCode）：
 // SQL failed 的 error 字段、Span 的状态和属性里只有 6；返回给业务的错误原样不变
@@ -341,7 +341,7 @@ func TestClickHouse_连接池指标按实例名打标签_Metric按实例关得�
 	})
 }
 
-// ClickHouse 的密码不出现在任何输出里：docs/config.md XGorm「日志只写驱动、地址、库名」、「其它驱动」
+// ClickHouse 的密码不出现在任何输出里：docs/observability.md「框架自己的日志」、「其它驱动」
 // 「这些错误一律不回显 DSN」。SQL 日志、debug、请求体日志、Span 全开，走一圈写入、点查、聚合、报错，
 // 中途断一次 ClickHouse（这时的错误最可能把连接串带出来），再核对 stdout / stderr、Span 文件、/metrics、响应体
 func TestClickHouse_密码不出现在任何日志Span指标和响应里(t *testing.T) {
@@ -503,7 +503,7 @@ func TestClickHouse_建连超时按DSN里写的dial_timeout_没写按这个实�
 }
 
 // 多主机 DSN（clickhouse://u:p@h1:9000,h2:9000/db）：驱动按逗号切成几个地址、依次去连（connection_open_strategy
-// 默认 in_order），第一个连不上就换下一个。docs/config.md「链路与指标」：server.address / server.port
+// 默认 in_order），第一个连不上就换下一个。docs/observability.md「链路」：server.address / server.port
 // 「从 DSN 解出的主机、端口，分开记」；建连日志的 addr 是「主机:端口」。和 PostgreSQL 的多主机一样记第一个。
 //
 // 这条原先是 bug：resolve 把 URL 的整个 Host（"h1:9000,h2:9000"）当成地址，net.SplitHostPort 解不开，

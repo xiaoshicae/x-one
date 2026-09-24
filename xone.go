@@ -1,6 +1,24 @@
 // Package xone 统一读配置、按阶段初始化所有已登记的组件、逆序关闭。
 //
-// 使用者只需要 import 想用的 contrib 包，然后调用 Run。
+// import 想用的集成包（xgin、xgorm、xredis……），写一份配置文件，然后调一次 Run：
+//
+//	func main() {
+//		xone.MustRun(xgin.New().WithRoutes(routes))
+//	}
+//
+// Run 做的事，按顺序：
+//
+//   - 接管 SIGINT / SIGTERM（在读配置之前）；
+//   - 加载配置（WithConfigPath > --config > XONE_CONFIG > conf/application.yml 等约定路径）；
+//   - 按档位跑全部启动钩子（xhook.BeforeStart），日志 → 链路/指标 → 客户端 → 业务 → 服务；
+//   - 调 Runnable.Start，阻塞到它返回或收到退出信号；
+//   - 退出：取消 Start 的 ctx，调可选的 Stop，等 Start 返回，再逆序跑停止钩子。
+//
+// Runnable 只要写 Start；光靠 ctx 停不下来的再加一个 Stop(context.Context) error。
+// 整个退出流程只有一份预算 WithStopTimeout（默认 15s），服务最多用其中 2/3。
+// 第一个信号之后再发一次信号，进程立即终止。
+//
+// 用法和设计理由见仓库的 docs/guide.md 与 docs/architecture.md。
 package xone
 
 import (

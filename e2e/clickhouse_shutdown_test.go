@@ -128,7 +128,7 @@ func TestClickHouse_SIGTERM时在途的ClickHouse查询做完才关连接池(t *
 
 // ClickHouse 不回话时，传了请求 ctx 的查询在 ctx 被取消（不是到截止时间）时停不停得下来。
 //
-// docs/config.md「ClickHouse 的超时与取消」：「查询和执行认 ctx 的取消：读回包放在协程里，ctx 取消时当场返回
+// docs/behavior.md「XGorm：ClickHouse」：「查询和执行认 ctx 的取消：读回包放在协程里，ctx 取消时当场返回
 // context canceled，同时给服务端发 Cancel 包、关掉这条连接（不还回池里）」。池里的连接上量：
 //
 //   - 客户端断开：请求的 ctx 被取消，handler 当场返回，不等 read_timeout（默认 300s）；

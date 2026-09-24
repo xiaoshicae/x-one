@@ -189,7 +189,7 @@ func TestCoverage_Redis多实例各连各的_重试次数和退避按实例生�
 	})
 }
 
-// docs/config.md XHttp 那张表：「cookie jar：resty.New() 自带一个，同一 client 的所有请求共享会话 cookie ｜ 这里：没有」。
+// docs/behavior.md XHttp 那张表：「cookie jar：resty.New() 自带一个，同一 client 的所有请求共享会话 cookie ｜ 这里：没有」。
 // 下游第一次响应种一个 cookie，之后经 xhttp 的每次调用都不该把它带回去
 func TestCoverage_xhttp不带cookie_jar_下游种的cookie不会串到下一次调用(t *testing.T) {
 	harness.Require(t)

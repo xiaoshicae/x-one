@@ -354,7 +354,7 @@ func TestFault_运行中Redis拒绝连接_用到它的操作在预算内报错_�
 		t.Logf("数字：核对了 %d 字节输出", len(out))
 	})
 
-	// docs/architecture.md「我们故意跟底层库不一样的地方」：GORM 默认的 stdout logger、resty 写 stderr 的 logger
+	// docs/behavior.md「总表」：GORM 默认的 stdout logger、resty 写 stderr 的 logger
 	// 都被接回了 slog，理由是「绕开 slog 的日志进不了日志平台」。go-redis 的 internal.Logger
 	// 是同一类东西：xredis 在 init 里用 redis.SetLogger 接到 slog，消息是 xredis go-redis log、
 	// 级别 WARN（docs/config.md XRedis）。这一圈 Redis 拒绝连接，go-redis 每次建连失败都记一句

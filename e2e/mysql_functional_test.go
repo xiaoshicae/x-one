@@ -250,7 +250,7 @@ func TestMySQL_连接池指标按实例名打标签_Metric按实例关得掉(t *
 	})
 }
 
-// MySQL 的密码不出现在任何输出里：docs/config.md XGorm「日志只写驱动、地址、库名」、
+// MySQL 的密码不出现在任何输出里：docs/observability.md「框架自己的日志」、
 // xgorm/dsn.go「这里的做法是根本不打印 DSN」。SQL 日志、debug、请求体日志、Span 全开，
 // 走一圈增删改查，中途断一次 MySQL（这时的错误最可能把连接串带出来），再核对
 // stdout / stderr、Span 文件、/metrics、响应体
@@ -421,7 +421,7 @@ func TestMySQL_卡住或宕机时_查询在调用方给的截止时间返回(t *
 	}
 }
 
-// docs/config.md XGorm「服务端的错误原文不进日志和链路」：服务端报错的原文里就是参数值
+// docs/behavior.md「XGorm：通用」：服务端报错的原文里就是参数值
 // （实测 MySQL 8.0.46 的 1366 是 Incorrect integer value: '<值>' for column 'id'，
 // PG 16 的 22P02 是 invalid input syntax for type bigint: "<值>"）。
 // SQL failed 日志的 error 字段和 Span 的状态、属性、事件里只有错误码；返回给业务的错误原样不变

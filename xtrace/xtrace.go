@@ -367,5 +367,5 @@ func install(ctx context.Context, c Config) error {
 // init 链路要早于各类客户端就绪，否则它们发出的 Span 挂不上
 func init() {
 	xhook.BeforeStart(initXTrace, xhook.At(xhook.StageTelemetry))
-	xhook.BeforeStop(closeXTrace, xhook.At(xhook.StageTelemetry))
+	xhook.BeforeStop(closeXTrace) // 档位跟着上面那个启动钩子
 }

@@ -136,7 +136,7 @@ var reg = xclient.NewRegistry[instance]("xcache", ConfigKey)
 
 func init() {
 	xhook.BeforeStart(initXCache, xhook.At(xhook.StageClient))
-	xhook.BeforeStop(closeXCache, xhook.At(xhook.StageClient))
+	xhook.BeforeStop(closeXCache) // 档位跟着上面那个启动钩子
 }
 
 // initXCache 读配置，按名字把实例挨个建出来。

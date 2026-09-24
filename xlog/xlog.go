@@ -187,7 +187,7 @@ func Location() *time.Location {
 // init 日志要最先起、最后关，这样其余组件的启停日志都写得出去
 func init() {
 	xhook.BeforeStart(initXLog, xhook.At(xhook.StageLog))
-	xhook.BeforeStop(closeXLog, xhook.At(xhook.StageLog))
+	xhook.BeforeStop(closeXLog) // 档位跟着上面那个启动钩子
 }
 
 // closer 由 initXLog 填好，closeXLog 用它关掉写入器

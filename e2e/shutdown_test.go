@@ -638,7 +638,7 @@ func TestShutdown_启动期间收到SIGTERM_不启动服务_已建好的逆序�
 // 「handler 里的慢操作（查库、调下游）要传 c.Request.Context()，断连之后才停得下来」，
 // 留出来的那一截就是等这种 handler 收尾的。
 //
-// Redis 是那一节写明的例外（docs/config.md XRedis「取消与截止时间」）：go-redis 只认 ctx 的
+// Redis 是那一节写明的例外（docs/behavior.md「XRedis」）：go-redis 只认 ctx 的
 // 截止时间，取消叫不醒阻塞在读上的命令，它要等到 ReadTimeout、ctx 的截止时间或 xredis 的停止钩子
 // 关掉连接池才返回。所以 Redis 那一例断言的是这个：handler 在 closeXRedis 之后才返回，
 // Stop 如实报出还有 handler 没返回。

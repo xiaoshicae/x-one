@@ -6,7 +6,7 @@
 //	})
 //
 // 单独一个 module，不并进 xgin：Swagger UI 会把整套前端资源编进二进制，
-// 实测比只用 gin 多 26 个模块。文档是开发期的事，不该让每个线上服务都背上。
+// 实测比只用 gin 多 27 个模块（GOWORK=off go list -m all：只 import gin 是 55 个第三方模块，只 import xginswagger 是 82 个）。文档是开发期的事，不该让每个线上服务都背上。
 package xginswagger
 
 import (
@@ -91,7 +91,7 @@ func loadConfig(context.Context) error {
 
 // fileConfig 配置文件里的 XGinSwagger 块，没写的字段是默认值。
 //
-// 什么时候调都行：配置文件第一次读的时候才加载，读到的永远是最终值——
+// 在 Start 之前任何时候调都行：配置文件第一次读的时候才加载，读到的永远是最终值——
 // 在 main 顶上、xone.Run 之前就装配 engine 也一样。
 // xconfig.Unmarshal 解完会调 Validate；解不出来或者不合法时返回默认值和那个错误
 func fileConfig() (Config, error) {

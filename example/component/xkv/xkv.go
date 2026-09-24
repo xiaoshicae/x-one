@@ -195,7 +195,7 @@ var (
 // 和用它的业务钩子同档，谁先谁后就看包的初始化顺序了。
 func init() {
 	xhook.BeforeStart(initXKV, xhook.At(xhook.StageClient))
-	xhook.BeforeStop(closeXKV, xhook.At(xhook.StageClient))
+	xhook.BeforeStop(closeXKV) // 档位跟着上面那个启动钩子
 }
 
 // initXKV 读配置、建实例、存起来。里面是普通的 Go 代码。

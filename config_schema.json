@@ -220,7 +220,7 @@
             "boolean",
             "string"
           ],
-          "description": "是否把请求体记进访问日志。默认不记。 记 body 要缓存请求体的前 256KB 并对每个字段做脱敏，代价和风险都不小。 打开前先确认敏感词配全了（middleware.AddSensitiveFields，规则见 docs/config.md）。",
+          "description": "是否把请求体记进访问日志。默认不记。 记 body 要缓存请求体的前 256KB 并对每个字段做脱敏，代价和风险都不小。 打开前先确认敏感词配全了（middleware.AddSensitiveFields，规则见 docs/observability.md「访问日志」）。",
           "pattern": "\\$\\{"
         },
         "LogResponseBody": {
@@ -287,7 +287,7 @@
             "boolean",
             "string"
           ],
-          "description": "是否为入站请求开服务端 Span。默认启用。 只管 Span。关掉之后照样接上游传来的 traceparent、baggage 和透传 Header （可信规则同 TrustedProxies），日志里的 trace_id 是上游的那条， 经 xhttp 发出的请求也照样带给下游；响应里不再回带 X-Trace-Id。",
+          "description": "是否为入站请求开服务端 Span。默认启用。 只管 Span。关掉之后照样接上游传来的 traceparent、baggage 和透传 Header （可信规则同 TrustedProxies），日志里的 trace_id 是上游的那条， 经 xhttp 发出的请求也照样带给下游；响应里不再回带 X-Trace-Id。 Span 和 X-Trace-Id 响应头要 import xtrace 才有：没装 xtrace 时全局 TracerProvider 是 OTel 的 noop，Span 无效，也就没有可回带的 trace id。",
           "pattern": "\\$\\{"
         },
         "TrustedProxies": {
@@ -452,7 +452,7 @@
                 },
                 "Params": {
                   "type": "object",
-                  "description": "其它任意 PG 运行时参数，原样拼进 DSN。 pgx 自己的连接参数也写在这里，比如经 PgBouncer 的事务池连库时要写 default_query_exec_mode: exec——pgx 默认的 cache_statement 用具名预备语句， 实测 PgBouncer 1.22 事务池（max_prepared_statements 为 0，1.24 之前的默认值） 20 个协程并发 1000 条查询，701 条报 prepared statement \"stmtcache_…\" already exists （42P05）。细节和各模式的代价见 docs/config.md。",
+                  "description": "其它任意 PG 运行时参数，原样拼进 DSN。 pgx 自己的连接参数也写在这里，比如经 PgBouncer 的事务池连库时要写 default_query_exec_mode: exec——pgx 默认的 cache_statement 用具名预备语句， 实测 PgBouncer 1.22 事务池（max_prepared_statements 为 0，1.24 之前的默认值） 20 个协程并发 1000 条查询，701 条报 prepared statement \"stmtcache_…\" already exists （42P05）。细节和各模式的代价见 docs/behavior.md「XGorm：PostgreSQL」。",
                   "additionalProperties": {
                     "type": "string"
                   }
@@ -470,7 +470,7 @@
             },
             "TLS": {
               "type": "object",
-              "description": "连库时走不走 TLS。默认不走（DSN 里自己写的 TLS 参数照旧生效）。 字段和规则各模块共用，见 xtls.Config。 开着时 TLS 全由这一块决定：证书一律校验，**不会退回明文**。DSN 里再写 TLS 参数 （PostgreSQL 的 sslmode、sslrootcert 等 ssl 开头的那几个，MySQL 的 tls） 是配置错误——两处说法不一，哪处作数都会让另一处白写。 驱动怎么接、量出来的行为见 docs/config.md「TLS」。",
+              "description": "连库时走不走 TLS。默认不走（DSN 里自己写的 TLS 参数照旧生效）。 字段和规则各模块共用，见 xtls.Config。 开着时 TLS 全由这一块决定：证书一律校验，**不会退回明文**。DSN 里再写 TLS 参数 （PostgreSQL 的 sslmode、sslrootcert 等 ssl 开头的那几个，MySQL 的 tls） 是配置错误——两处说法不一，哪处作数都会让另一处白写。 驱动怎么接、量出来的行为见 docs/behavior.md「TLS」。",
               "properties": {
                 "CAFile": {
                   "type": "string",
@@ -608,7 +608,7 @@
                       },
                       "Params": {
                         "type": "object",
-                        "description": "其它任意 PG 运行时参数，原样拼进 DSN。 pgx 自己的连接参数也写在这里，比如经 PgBouncer 的事务池连库时要写 default_query_exec_mode: exec——pgx 默认的 cache_statement 用具名预备语句， 实测 PgBouncer 1.22 事务池（max_prepared_statements 为 0，1.24 之前的默认值） 20 个协程并发 1000 条查询，701 条报 prepared statement \"stmtcache_…\" already exists （42P05）。细节和各模式的代价见 docs/config.md。",
+                        "description": "其它任意 PG 运行时参数，原样拼进 DSN。 pgx 自己的连接参数也写在这里，比如经 PgBouncer 的事务池连库时要写 default_query_exec_mode: exec——pgx 默认的 cache_statement 用具名预备语句， 实测 PgBouncer 1.22 事务池（max_prepared_statements 为 0，1.24 之前的默认值） 20 个协程并发 1000 条查询，701 条报 prepared statement \"stmtcache_…\" already exists （42P05）。细节和各模式的代价见 docs/behavior.md「XGorm：PostgreSQL」。",
                         "additionalProperties": {
                           "type": "string"
                         }
@@ -626,7 +626,7 @@
                   },
                   "TLS": {
                     "type": "object",
-                    "description": "连库时走不走 TLS。默认不走（DSN 里自己写的 TLS 参数照旧生效）。 字段和规则各模块共用，见 xtls.Config。 开着时 TLS 全由这一块决定：证书一律校验，**不会退回明文**。DSN 里再写 TLS 参数 （PostgreSQL 的 sslmode、sslrootcert 等 ssl 开头的那几个，MySQL 的 tls） 是配置错误——两处说法不一，哪处作数都会让另一处白写。 驱动怎么接、量出来的行为见 docs/config.md「TLS」。",
+                    "description": "连库时走不走 TLS。默认不走（DSN 里自己写的 TLS 参数照旧生效）。 字段和规则各模块共用，见 xtls.Config。 开着时 TLS 全由这一块决定：证书一律校验，**不会退回明文**。DSN 里再写 TLS 参数 （PostgreSQL 的 sslmode、sslrootcert 等 ssl 开头的那几个，MySQL 的 tls） 是配置错误——两处说法不一，哪处作数都会让另一处白写。 驱动怎么接、量出来的行为见 docs/behavior.md「TLS」。",
                     "properties": {
                       "CAFile": {
                         "type": "string",
@@ -868,7 +868,7 @@
         },
         "Timezone": {
           "type": "string",
-          "description": "日志时间戳按哪个时区渲染，IANA 时区名，如 Asia/Shanghai。 留空表示跟随进程的本地时区（容器里通常就是 UTC）。 配了却加载不到会直接启动失败，不会悄悄退回本地时区—— 那意味着你以为在看东八区的时间，实际是 UTC，差八小时而毫无提示。 scratch / distroless 这类镜像里没有 /usr/share/zoneinfo， 需要在自己的 main 包里加一行把时区库编进二进制（约 400KB）： 框架不替你编进去：没用到这项的人不该背这 400KB。"
+          "description": "日志时间戳按哪个时区渲染，IANA 时区名，如 Europe/Berlin。 留空表示跟随进程的本地时区（容器里通常就是 UTC）。 配了却加载不到会直接启动失败，不会悄悄退回本地时区—— 那意味着你以为在看柏林时间，实际是 UTC，差一两个小时而毫无提示。 scratch / distroless 这类镜像里没有 /usr/share/zoneinfo， 需要在自己的 main 包里加一行把时区库编进二进制（约 400KB）： 框架不替你编进去：没用到这项的人不该背这 400KB。"
         }
       },
       "additionalProperties": false
