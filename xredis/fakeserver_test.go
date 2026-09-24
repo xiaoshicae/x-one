@@ -2,6 +2,7 @@ package xredis
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -25,15 +26,22 @@ type fakeRedis struct {
 	failPing bool     // 让 PING 返回错误，用来测连不上的分支
 	failAuth bool     // 让 AUTH 回 WRONGPASS，用来测认证失败的分支
 	stall    string   // 这个命令收下但永不回复，用来测 deadline
+	resp3    bool     // 认 HELLO 3，之后按 RESP3 回复：go-redis 只在 RESP3 连接上发维护通知的握手
 	live     int      // 当前还开着的连接数
 	conns    map[net.Conn]struct{}
 }
 
-func newFakeRedis(t *testing.T) *fakeRedis {
+func newFakeRedis(t *testing.T) *fakeRedis { return newFakeRedisTLS(t, nil) }
+
+// newFakeRedisTLS 同 newFakeRedis，cfg 不为 nil 时监听的是 TLS
+func newFakeRedisTLS(t *testing.T, cfg *tls.Config) *fakeRedis {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if cfg != nil {
+		ln = tls.NewListener(ln, cfg)
 	}
 	f := &fakeRedis{ln: ln, conns: map[net.Conn]struct{}{}}
 	t.Cleanup(func() { ln.Close() })
@@ -62,6 +70,12 @@ func (f *fakeRedis) setFailPing(v bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.failPing = v
+}
+
+func (f *fakeRedis) setResp3(v bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resp3 = v
 }
 
 func (f *fakeRedis) setFailAuth(v bool) {
@@ -147,6 +161,7 @@ func (f *fakeRedis) serve(conn net.Conn) {
 		fail := f.failPing
 		failAuth := f.failAuth
 		stall := f.stall == name
+		resp3 := f.resp3
 		f.mu.Unlock()
 
 		if stall {
@@ -156,6 +171,9 @@ func (f *fakeRedis) serve(conn net.Conn) {
 
 		var reply string
 		switch {
+		case name == "hello" && resp3:
+			// HELLO 回一个 map，go-redis 由此认定协商成了 RESP3
+			reply = "%1\r\n+proto\r\n:3\r\n"
 		case name == "hello":
 			// 回错误，go-redis 会退回 RESP2 继续——省掉实现 RESP3 握手
 			reply = "-ERR unknown command 'HELLO'\r\n"

@@ -59,6 +59,20 @@ type ClientConfig struct {
 	//
 	// 0 表示永不过期；负数启动失败——ristretto 会把 ttl<0 的写入直接丢掉。
 	DefaultTTL time.Duration `yaml:"DefaultTTL"`
+
+	// Metric 是否导出命中率等指标。默认开启，与 XGorm / XRedis 一致。
+	//
+	// 按实例生效：配了 Metric: false 的实例不出现在 /metrics 里，ristretto 也不计数。
+	// 计数是 ristretto 自己的：它的 Metrics 默认关着，不打开就什么都看不到。
+	// 打开的代价，实测（ristretto v2.4.2，4 核）：
+	//
+	//   - 内存：每个实例常驻多约 84KB；另有一张记录写入时间的表（给它的存活时长
+	//     直方图用，最多 10 万条），写过 10 万个以上不同的键之后多约 8–12MB。
+	//   - CPU：本包的 Get / Set 基准前后差异不显著（p>0.2）；ristretto 自己的
+	//     4 协程并发 Get 每次约多 20ns（110ns → 131ns，噪声 ±12%）。
+	//
+	// 实例多、条目多又在意内存的，按实例关掉。
+	Metric bool `yaml:"Metric"`
 }
 
 // DefaultClientConfig 单个实例的全部默认值集中在这里
@@ -68,6 +82,7 @@ func DefaultClientConfig() ClientConfig {
 		MaxCost:     100_000,
 		BufferItems: 64,
 		DefaultTTL:  5 * time.Minute,
+		Metric:      true,
 	}
 }
 
@@ -81,8 +96,12 @@ func loadConfig() (Config, error) {
 	return Config{Clients: clients}, err
 }
 
-// validate 检查配置本身说不通的地方
-func (c ClientConfig) validate() error {
+// Validate 检查配置本身说不通的地方。
+//
+// xconfig.UnmarshalClients 每解完一个实例调一次，配错的值在读配置时就失败、
+// 带着是哪个实例；直接调 New 的，New 也会调一次。
+// 返回普通 error，由调它的那一层包一次 xerror。
+func (c ClientConfig) Validate() error {
 	if c.NumCounters <= 0 {
 		return fmt.Errorf("NumCounters must be > 0, got=%d", c.NumCounters)
 	}

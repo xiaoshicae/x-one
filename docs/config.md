@@ -517,7 +517,40 @@ XRedis:
                            # 连同值写进 db.statement（实测 SET 的值原样出现），这里关掉了。
                            # 钩子不是零成本：没装链路时实测每条命令约 +3µs、+8 次分配（本机回环）
   Metric: true             # 连接池指标，按实例生效，同 XGorm
+  TLS:                     # 默认不走 TLS，见下
+    Enable: false
+    CAFile: ""             # 校验服务端证书的 CA（PEM）。空 = 系统根证书；自签证书填这里
+    CertFile: ""           # 客户端证书（PEM），服务端要求双向认证时和 KeyFile 成对填
+    KeyFile: ""
+    ServerName: ""         # 比对证书的名字。空 = 取 Addr 的主机部分；按 IP 连、证书写的是域名时填
 ```
+
+配错的值在读配置时就失败，报错里点名是哪个实例；直接调 `xredis.New` 的由 `New` 校验。
+**负数一律不收**，只有文档里写的三个暗号例外：`MaxRetries: -1`、`MinRetryBackoff: -1ns`、
+`MaxRetryBackoff: -1ns`，都是「关掉」。go-redis 自己还认 `ReadTimeout` / `WriteTimeout` 的 -1（不限时）
+和 -2（不设 deadline）、`ConnMaxIdleTime` 的 -1（不按空闲回收），一个减号就静默关掉超时保护，这里不收。
+每个实例连上时打一条 `xredis connected`，带着 `name`、`addr`、`db`、`tls`、`min_idle_conns`，不带密码。
+
+**TLS**：`TLS.Enable: true` 之后握手受 `DialTimeout` 管（go-redis v9.22.0 用 `tls.DialWithDialer`，
+拨号和握手共用那一个超时），最低 TLS 1.2。证书校验一直开着，**不提供跳过校验的开关**——自签证书把 CA 填进 `CAFile`。
+没开 `Enable` 却写了别的几项，启动失败：那多半是忘了开，照明文连过去比报错更糟。
+实测 Redis 7.0.15 `--tls-port`：填了 `CAFile` 连得上；不填（用系统根证书）报
+`x509: certificate signed by unknown authority`；没开 TLS 用明文连 TLS 端口报 `EOF`。
+要更细的控制（加密套件、自定义校验）就自己 `redis.NewClient`。
+
+**每条新连接上发什么**：go-redis v9.22.0 的默认和这里的取舍（实测 Redis 7.0.15，挂着 redisotel 数 Span）：
+
+| | go-redis 默认 | 这里 |
+|---|---|---|
+| `HELLO` | 每条新连接一次，协商 RESP3（`Protocol` 默认 3）；服务端不认就退回 RESP2。配成 2 也照样发 `HELLO 2`，省不掉这一个往返 | 不改，也不开放配置 |
+| `CLIENT SETINFO` | 每条新连接多一个 pipeline（lib-name、lib-ver 两条），只为让 `CLIENT LIST` 显示客户端库名。Redis 7.2 之前没有这个子命令：7.0.15 上**每条连接**回 `unknown subcommand 'setinfo'`，go-redis 吞掉错误，但每条连接留下一个报错的 `redis.pipeline` Span——`ConnMaxLifetime` 每 5 分钟换一轮连接，就每 5 分钟一批 | 关掉（`DisableIdentity: true`） |
+| `CLIENT MAINT_NOTIFICATIONS` | auto：每条新连接先试一次，服务端认就开启「维护通知」（go-redis 注释说给 Redis Cloud 用），维护期间把读写超时临时放宽（源码里的默认 `RelaxedTimeout` 是 10s，手头没有认这条命令的服务端，没有实测）、后台迁移连接。7.0.15 回 `unknown subcommand`，并发建起来的头几条连接各留一个报错的 Span（并发 3 条时 1–2 个），之后整个 client 不再发 | 关掉：放宽到 10s 和 `ReadTimeout` 的承诺对不上 |
+
+**每条连接的内存**：go-redis 给每条连接配 32KiB 读缓冲 + 32KiB 写缓冲，实测（v9.22.0，200 条空闲连接）
+每条连接约 66KiB 堆。连接池涨满时是 `PoolSize × 66KiB`：默认 `PoolSize` 是 10 × GOMAXPROCS，
+4 核 40 条约 2.6MB，64 核 640 条约 41MB；平时只有 `MinIdleConns`（默认 5）条，约 330KiB。
+缓冲区大小不开放配置（改成 4KiB 时实测每条约 11KiB）：需要的话自己 `redis.NewClient`。
+**并发建连数**（`MaxConcurrentDials`）go-redis 默认等于 `PoolSize`，不另设。
 
 **启动时的建连验证**：Ping 一次，单次超时 `DialTimeout + ReadTimeout`（默认 1s），
 按「通用规则 · 建连重试」最多试 3 次，默认最多 3 × 1s + 3s = 6s 失败。
@@ -572,9 +605,34 @@ XCache:
   BufferItems: 64
   DefaultTTL: 5m           # 包级 Set 用的过期时间。0 是永不过期；负数启动失败
                            # （ristretto 会把 ttl<0 的写入直接丢掉，一条都存不进去）
+  Metric: true             # 命中率等指标，按实例生效，同 XGorm / XRedis，见下
 ```
 
 同样支持多实例，写法和 XGorm 一样：`XCache: {Clients: {hot: {...}, cold: {...}}}`。
+
+配错的值（`NumCounters` / `MaxCost` / `BufferItems` 不是正数、`DefaultTTL` 为负）在读配置时就失败，
+报错里点名是哪个实例；直接调 `xcache.New` 的由 `New` 校验。每个实例建好时打一条
+`xcache created`，带着 `name`、`max_cost`、`default_ttl`、`metric`。
+
+**指标**：`Metric` 开着时（默认）打开 ristretto 自己的计数，被抓取时才读，按实例带 `name` 标签，
+前缀是 XMetric 的 `Namespace`：
+
+| 指标 | 类型 | 含义 |
+|---|---|---|
+| `cache_hits_total` / `cache_misses_total` | counter | Get 命中 / 没命中的次数，命中率就是 `hits / (hits + misses)` |
+| `cache_keys_added_total` | counter | 新收下的键 |
+| `cache_keys_updated_total` | counter | 覆盖已有键的写入 |
+| `cache_keys_evicted_total` | counter | 被移除的键：**不只是容量满了被挤掉**，显式 `Del` 和 TTL 到期被清理的也算在里面（ristretto 走的是同一个计数，实测） |
+| `cache_sets_dropped_total` | counter | 写缓冲满了、直接丢掉的写入（`Set` 返回 false 的那些） |
+| `cache_sets_rejected_total` | counter | 准入策略判定不值得留、悄悄丢掉的写入（`Set` 照样返回 true） |
+| `cache_cost` / `cache_max_cost` | gauge | 当前占用的成本 / 上限。本包写入时 cost 为 1，所以 `cache_cost` 就是条目数 |
+
+ristretto 的计数默认是关着的，所以不开 `Metric` 就什么都看不到。打开有代价，实测（ristretto v2.4.2，4 核）：
+每个实例常驻多约 84KB；另有一张记录写入时间的表（给它的存活时长直方图用，最多 10 万条），
+写过 10 万个以上不同的键之后多约 8–12MB。CPU 上，本包的 Get / Set 基准前后差异不显著，
+ristretto 自己的 4 协程并发 Get 每次约多 20ns（110ns → 131ns）。实例多、条目多又在意内存的，按实例关掉。
+调原生的 `C().Clear()` 会把这些计数清零，Prometheus 把它当成计数器重置，`rate()` 照常能算。
+TTL 到期的键不是到点就移除：ristretto 按 5s 一个桶、每 2.5s 扫一轮，到期之后几秒才计进 `keys_evicted`。
 
 `xcache.DefaultTTL("name")` 名字写错时和 `C("name")` 一样 panic，不返回 0——
 0 在 ristretto 里是「永不过期」。
@@ -598,7 +656,8 @@ XHttp:
   DialKeepAlive: 30s
   MaxIdleConns: 100
   MaxIdleConnsPerHost: 10  # 标准库默认只有 2，对只调几个下游的服务太小
-  IdleConnTimeout: 90s
+  MaxConnsPerHost: 0       # 每 host 连接数上限，0 不限（标准库默认），见下
+  IdleConnTimeout: 90s     # 要小于下游的 keep-alive 超时，见下
   RetryCount: 0            # 默认不重试
   RetryWaitTime: 100ms
   RetryMaxWaitTime: 2s
@@ -609,6 +668,21 @@ XHttp:
 ```
 
 配错的值（负的时长、负的重试次数和连接数）在读配置时就失败，直接调 `xhttp.New` 的由 `New` 校验。
+`DialKeepAlive` 是唯一允许负数的：标准库用负值表示「不发 keep-alive 探测」。
+
+**连接池没配的那些就是标准库的默认值**（连接池从 `http.DefaultTransport` 克隆），逐个量过（Go 1.25、resty v2.17.2）：
+
+| 项 | 默认 | 实测的行为 |
+|---|---|---|
+| 代理 | `ProxyFromEnvironment` | 设了 `HTTP_PROXY` / `HTTPS_PROXY` 就**全部出站都走代理**，`http://` 的请求连同查询串原样交给代理；回环地址不走，`NO_PROXY` 可以排除。环境变量在进程里第一次用到时读一次就缓存：之后再改、哪怕 unset 都不生效 |
+| TLS 握手超时 | 10s | 对端收下 TCP 连接不回握手，10.0s 报 `TLS handshake timeout` |
+| 等响应头 | 不限 | 由 `Timeout` 管住整次尝试；`Timeout` 也配 0 的话，收下请求不回话的对端会让请求永远挂着 |
+| `MaxConnsPerHost` | 0，不限 | 并发多少开多少：对一个 300ms 才回的下游并发 200 个请求，它收到 200 条新连接；紧接着再来 200 个，只有 `MaxIdleConnsPerHost` 那 10 条复用得上，另开 190 条。下游一慢，连接数跟着并发一起涨。配成正数后超出的请求排队等连接，等待算在 `Timeout` 和调用方的 ctx 里 |
+| 重定向 | resty 不设策略，用标准库的：最多跟 10 次 | 第 11 次报 `stopped after 10 redirects`。跨 host 跳转时只去掉 `Authorization`、`Cookie` 这几个，**自定义的凭证头（如 `X-Api-Key`）照样带给新 host**；302 把 POST 变成不带 body 的 GET，307 保留方法和 body。不想跟随就在原生 client 上改：`xhttp.C().SetRedirectPolicy(resty.NoRedirectPolicy())` |
+
+`IdleConnTimeout` 要小于下游（或中间负载均衡）的 keep-alive 超时：对端先关掉空闲连接时，恰好在那一刻复用
+这条连接的请求会失败。实测服务端空闲超时 200ms、请求间隔在 200ms 上下：300 个 POST 失败 27 个
+（`connection reset by peer` / `use of closed network connection`），GET 由标准库自动在新连接上重发，200 个一个没失败。
 
 `Metric` 开着时导出 `http_client_request_duration_seconds`（带 XMetric 的 `Namespace` 前缀），
 标签三个：

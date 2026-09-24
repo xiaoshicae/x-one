@@ -151,7 +151,22 @@ func (s scrubURL) RoundTrip(r *http.Request) (*http.Response, error) {
 	return s.next.RoundTrip(r)
 }
 
-// tunedTransport 从 DefaultTransport 克隆再改，保留 TLS、HTTP/2、代理等默认设置
+// tunedTransport 从 DefaultTransport 克隆再改。
+//
+// 没改的那些就是接受了标准库的默认值，逐个量过（Go 1.25）：
+//
+//   - Proxy: ProxyFromEnvironment。设了 HTTP_PROXY / HTTPS_PROXY 就全部出站都走代理
+//     （实测 http:// 的请求连同查询串原样交给代理），回环地址除外，NO_PROXY 可以排除。
+//     环境变量在进程里第一次用到时读一次就缓存了：之后再改（哪怕 unset）不生效。
+//   - TLSHandshakeTimeout: 10s。对端收下 TCP 连接不回握手，实测 10.0s 报 TLS handshake timeout。
+//   - ResponseHeaderTimeout: 0，传输层不限等响应头的时间，由 Timeout 管住整次尝试；
+//     Timeout 也配成 0 的话，一个收下请求不回话的对端会让请求永远挂着。
+//   - MaxConnsPerHost: 0，不限；可配，见 Config.MaxConnsPerHost。
+//   - ForceAttemptHTTP2: true，https 的下游协商成 HTTP/2 后一条连接多路复用。
+//   - 重定向：resty v2.17 不设 CheckRedirect，于是是标准库的默认，最多跟 10 次，第 11 次报
+//     stopped after 10 redirects。跨 host 跳转时标准库只去掉 Authorization、Cookie 这几个，
+//     自定义的凭证头（实测 X-Api-Key）照样带给新 host；302 把 POST 变成不带 body 的 GET，
+//     307 保留方法和 body。要改就在原生 client 上 SetRedirectPolicy。
 func tunedTransport(cfg Config) http.RoundTripper {
 	t, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
@@ -162,6 +177,7 @@ func tunedTransport(cfg Config) http.RoundTripper {
 	t = t.Clone()
 	t.MaxIdleConns = cfg.MaxIdleConns
 	t.MaxIdleConnsPerHost = cfg.MaxIdleConnsPerHost
+	t.MaxConnsPerHost = cfg.MaxConnsPerHost
 	t.IdleConnTimeout = cfg.IdleConnTimeout
 	t.DialContext = (&net.Dialer{Timeout: cfg.DialTimeout, KeepAlive: cfg.DialKeepAlive}).DialContext
 	return t

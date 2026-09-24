@@ -78,6 +78,14 @@
               "description": "缓存总成本上限。默认 100000。 本包写入时 cost 固定为 1，所以它等价于「最多存多少条」。 自己调 C().Set 传别的 cost 时，它才是真正的成本上限。 这里统计的是使用者给出的 cost，不含 ristretto 每条 56 字节的内部开销。 按字节记 cost 时把这部分算进自己的预算里。",
               "pattern": "\\$\\{"
             },
+            "Metric": {
+              "type": [
+                "boolean",
+                "string"
+              ],
+              "description": "是否导出命中率等指标。默认开启，与 XGorm / XRedis 一致。 按实例生效：配了 Metric: false 的实例不出现在 /metrics 里，ristretto 也不计数。 计数是 ristretto 自己的：它的 Metrics 默认关着，不打开就什么都看不到。 打开的代价，实测（ristretto v2.4.2，4 核）： - 内存：每个实例常驻多约 84KB；另有一张记录写入时间的表（给它的存活时长 直方图用，最多 10 万条），写过 10 万个以上不同的键之后多约 8–12MB。 - CPU：本包的 Get / Set 基准前后差异不显著（p\u003e0.2）；ristretto 自己的 4 协程并发 Get 每次约多 20ns（110ns → 131ns，噪声 ±12%）。 实例多、条目多又在意内存的，按实例关掉。",
+              "pattern": "\\$\\{"
+            },
             "NumCounters": {
               "type": [
                 "integer",
@@ -116,6 +124,14 @@
                       "string"
                     ],
                     "description": "缓存总成本上限。默认 100000。 本包写入时 cost 固定为 1，所以它等价于「最多存多少条」。 自己调 C().Set 传别的 cost 时，它才是真正的成本上限。 这里统计的是使用者给出的 cost，不含 ristretto 每条 56 字节的内部开销。 按字节记 cost 时把这部分算进自己的预算里。",
+                    "pattern": "\\$\\{"
+                  },
+                  "Metric": {
+                    "type": [
+                      "boolean",
+                      "string"
+                    ],
+                    "description": "是否导出命中率等指标。默认开启，与 XGorm / XRedis 一致。 按实例生效：配了 Metric: false 的实例不出现在 /metrics 里，ristretto 也不计数。 计数是 ristretto 自己的：它的 Metrics 默认关着，不打开就什么都看不到。 打开的代价，实测（ristretto v2.4.2，4 核）： - 内存：每个实例常驻多约 84KB；另有一张记录写入时间的表（给它的存活时长 直方图用，最多 10 万条），写过 10 万个以上不同的键之后多约 8–12MB。 - CPU：本包的 Get / Set 基准前后差异不显著（p\u003e0.2）；ristretto 自己的 4 协程并发 Get 每次约多 20ns（110ns → 131ns，噪声 ±12%）。 实例多、条目多又在意内存的，按实例关掉。",
                     "pattern": "\\$\\{"
                   },
                   "NumCounters": {
@@ -610,7 +626,15 @@
         },
         "IdleConnTimeout": {
           "type": "string",
-          "description": "空闲连接多久后关闭。默认 90s。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+          "description": "空闲连接多久后关闭。默认 90s，与标准库一致。 下游（或中间的负载均衡）先于它关掉空闲连接时，恰好在那一刻复用这条连接的请求 会失败：实测服务端空闲超时 200ms、请求间隔在 200ms 上下时，300 个 POST 失败 27 个 （connection reset by peer / use of closed network connection）；GET 由标准库自动 在新连接上重发，200 个一个都没失败。所以它要小于下游的 keep-alive 超时。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+        },
+        "MaxConnsPerHost": {
+          "type": [
+            "integer",
+            "string"
+          ],
+          "description": "每个 host 的连接数上限（含正在用的）。默认 0，不限制，与标准库一致。 不限制的意思是并发多少就开多少：实测对一个每次 300ms 才回的下游并发 200 个请求， 它收到 200 条新连接；紧接着再来 200 个，只有 MaxIdleConnsPerHost 那 10 条复用得上， 另开 190 条。下游一慢，连接数跟着并发一起涨，可能先耗尽对端的连接数或本机的端口。 配成正数之后超出的请求排队等连接，等的时间算在 Timeout 和调用方的 ctx 里。",
+          "pattern": "\\$\\{"
         },
         "MaxIdleConns": {
           "type": [
@@ -913,6 +937,37 @@
               "type": "string",
               "description": "读超时。默认 500ms。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
             },
+            "TLS": {
+              "type": "object",
+              "description": "连 Redis 时走不走 TLS。默认不走。",
+              "properties": {
+                "CAFile": {
+                  "type": "string",
+                  "description": "校验服务端证书用的 CA 证书（PEM）。默认空，用系统的根证书；自签的证书填这里。"
+                },
+                "CertFile": {
+                  "type": "string",
+                  "description": "客户端证书（PEM），服务端要求双向认证时和 KeyFile 成对填。默认空。"
+                },
+                "Enable": {
+                  "type": [
+                    "boolean",
+                    "string"
+                  ],
+                  "description": "是否走 TLS。默认 false。下面几项只在开着时生效，没开却写了它们，启动失败—— 那多半是忘了开，照明文连过去比报错更糟。",
+                  "pattern": "\\$\\{"
+                },
+                "KeyFile": {
+                  "type": "string",
+                  "description": "客户端私钥（PEM），和 CertFile 成对填。默认空。"
+                },
+                "ServerName": {
+                  "type": "string",
+                  "description": "校验服务端证书时比对的名字。默认空，取 Addr 的主机部分； 按 IP 连、而证书上写的是域名时填它。"
+                }
+              },
+              "additionalProperties": false
+            },
             "Trace": {
               "type": [
                 "boolean",
@@ -1032,6 +1087,37 @@
                   "ReadTimeout": {
                     "type": "string",
                     "description": "读超时。默认 500ms。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+                  },
+                  "TLS": {
+                    "type": "object",
+                    "description": "连 Redis 时走不走 TLS。默认不走。",
+                    "properties": {
+                      "CAFile": {
+                        "type": "string",
+                        "description": "校验服务端证书用的 CA 证书（PEM）。默认空，用系统的根证书；自签的证书填这里。"
+                      },
+                      "CertFile": {
+                        "type": "string",
+                        "description": "客户端证书（PEM），服务端要求双向认证时和 KeyFile 成对填。默认空。"
+                      },
+                      "Enable": {
+                        "type": [
+                          "boolean",
+                          "string"
+                        ],
+                        "description": "是否走 TLS。默认 false。下面几项只在开着时生效，没开却写了它们，启动失败—— 那多半是忘了开，照明文连过去比报错更糟。",
+                        "pattern": "\\$\\{"
+                      },
+                      "KeyFile": {
+                        "type": "string",
+                        "description": "客户端私钥（PEM），和 CertFile 成对填。默认空。"
+                      },
+                      "ServerName": {
+                        "type": "string",
+                        "description": "校验服务端证书时比对的名字。默认空，取 Addr 的主机部分； 按 IP 连、而证书上写的是域名时填它。"
+                      }
+                    },
+                    "additionalProperties": false
                   },
                   "Trace": {
                     "type": [
