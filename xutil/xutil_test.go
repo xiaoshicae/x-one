@@ -3,8 +3,10 @@ package xutil
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -310,54 +312,48 @@ func TestRetry_退避之后每次尝试都跑得到(t *testing.T) {
 	}
 }
 
-// withoutJitter 把抖动换成恒等映射，让等待时长可预测
-func withoutJitter(t *testing.T) {
+// recordWaits 把抖动换成「记下请求的退避、不真的等」，返回记下的那些。
+//
+// 断言的是 Retry 请求等多久，而不是墙钟上等了多久：后者在负载高的机器上
+// 抖得厉害，翻倍这种比例断言迟早会误报
+func recordWaits(t *testing.T) *[]time.Duration {
 	t.Helper()
+	var waits []time.Duration
 	old := jitter
-	jitter = func(d time.Duration) time.Duration { return d }
+	jitter = func(d time.Duration) time.Duration { waits = append(waits, d); return 0 }
 	t.Cleanup(func() { jitter = old })
+	return &waits
 }
 
 func TestRetry_两次之间的等待逐次翻倍(t *testing.T) {
 	// 这是退避的全部意义：固定间隔会一直按同一个节奏敲一个正在恢复的下游。
-	// 抖动关掉之后才好测准，抖动本身由 TestJitter 单独盯着
-	withoutJitter(t)
+	// 抖动本身由 TestJitter 单独盯着
+	waits := recordWaits(t)
 
 	const interval = 20 * time.Millisecond
-	var at []time.Time
-	_ = Retry(context.Background(), 3, time.Millisecond, interval,
-		func(context.Context) error {
-			at = append(at, time.Now())
-			return errors.New("nope")
-		})
+	_ = Retry(context.Background(), 4, time.Millisecond, interval,
+		func(context.Context) error { return errors.New("nope") })
 
-	if len(at) != 3 {
-		t.Fatalf("该试 3 次，实际 %d 次", len(at))
-	}
-	first, second := at[1].Sub(at[0]), at[2].Sub(at[1])
-	t.Logf("两次等待：%v → %v", first.Round(time.Millisecond), second.Round(time.Millisecond))
-	if second < first*3/2 {
-		t.Errorf("第二次等待该明显长于第一次（翻倍），got %v → %v", first, second)
+	want := []time.Duration{interval, 2 * interval, 4 * interval}
+	if !slices.Equal(*waits, want) {
+		t.Errorf("4 次尝试之间的退避该是 %v，got %v", want, *waits)
 	}
 }
 
 func TestRetry_第一次等待也不超过上限(t *testing.T) {
 	// 文档说两次之间最多等 maxBackoff。interval 配得比它还大时，
 	// 从前第一次等待原样用 interval，配 1h 就真的等 1h
-	var waits []time.Duration
-	old := jitter
-	jitter = func(d time.Duration) time.Duration { waits = append(waits, d); return 0 }
-	t.Cleanup(func() { jitter = old })
+	waits := recordWaits(t)
 
 	_ = Retry(context.Background(), 3, time.Millisecond, time.Hour,
 		func(context.Context) error { return errors.New("nope") })
 
-	if len(waits) != 2 {
-		t.Fatalf("3 次尝试之间该等 2 次，got %v", waits)
+	if len(*waits) != 2 {
+		t.Fatalf("3 次尝试之间该等 2 次，got %v", *waits)
 	}
-	for _, w := range waits {
+	for _, w := range *waits {
 		if w > maxBackoff {
-			t.Errorf("每次等待的上界都不该超过 %v，got %v", maxBackoff, waits)
+			t.Errorf("每次等待的上界都不该超过 %v，got %v", maxBackoff, *waits)
 		}
 	}
 }
@@ -365,5 +361,48 @@ func TestRetry_第一次等待也不超过上限(t *testing.T) {
 func TestRetryBudget_第一次退避也按上限算(t *testing.T) {
 	if got, want := retryBudget(3, time.Millisecond, time.Hour), 3*time.Millisecond+2*maxBackoff; got != want {
 		t.Errorf("预算按封顶后的退避算，got=%v want=%v", got, want)
+	}
+}
+
+func TestRetry_永久错误不再重试(t *testing.T) {
+	// 密码错、库不存在：重试多少次都一样，只会白白拖长启动
+	root := errors.New("auth failed")
+	calls := 0
+	err := Retry(context.Background(), 5, time.Second, time.Hour, func(context.Context) error {
+		calls++
+		return Permanent(root)
+	})
+
+	if calls != 1 {
+		t.Errorf("永久错误之后不该再试，got=%d 次", calls)
+	}
+	if err != root {
+		t.Errorf("该返回去掉标记之后的原错误，got=%#v", err)
+	}
+}
+
+func TestRetry_包在别的错误里的永久错误也认(t *testing.T) {
+	root := errors.New("auth failed")
+	calls := 0
+	err := Retry(context.Background(), 5, time.Second, time.Hour, func(context.Context) error {
+		calls++
+		return fmt.Errorf("connect: %w", Permanent(root))
+	})
+	if calls != 1 || err != root {
+		t.Errorf("该只试 1 次并返回原错误，got 次数=%d err=%#v", calls, err)
+	}
+}
+
+func TestPermanent_透传文本和错误链(t *testing.T) {
+	root := errors.New("auth failed")
+	p := Permanent(root)
+	if p.Error() != root.Error() {
+		t.Errorf("标记不该改变错误文本，got=%q", p.Error())
+	}
+	if !errors.Is(p, root) {
+		t.Error("标记不该挡住 errors.Is")
+	}
+	if Permanent(nil) != nil {
+		t.Error("Permanent(nil) 该是 nil，否则 fn 成功了也会被当成失败")
 	}
 }

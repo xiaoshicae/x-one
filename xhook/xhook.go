@@ -2,7 +2,7 @@
 //
 //	func init() {
 //		xhook.BeforeStart(initXRedis, xhook.At(xhook.StageClient))
-//		xhook.BeforeStop(closeXRedis, xhook.At(xhook.StageClient))
+//		xhook.BeforeStop(closeXRedis) // 档位跟着上面那个启动钩子
 //	}
 //
 //	func initXRedis(ctx context.Context) error {
@@ -74,15 +74,19 @@ type HookFunc func(ctx context.Context) error
 // Option 钩子的可选设置
 type Option func(*options)
 
-type options struct{ stage Stage }
+type options struct {
+	stage Stage
+	set   bool // 显式写了 At
+}
 
-// At 指定档位。不写就是 StageBusiness。
+// At 指定档位。启动钩子不写就是 StageBusiness；停止钩子不写就跟着和它
+// 配对的那个启动钩子（见 BeforeStop），没有配对的才是 StageBusiness。
 //
 //	xhook.BeforeStart(initXLog, xhook.At(xhook.StageLog))
 //
 // 只有「必须早于或晚于别人」的东西才需要它：日志要最先起最后关，链路和指标
 // 要早于客户端，客户端要早于业务。业务代码不写，默认那一档就对。
-func At(s Stage) Option { return func(o *options) { o.stage = s } }
+func At(s Stage) Option { return func(o *options) { o.stage, o.set = s, true } }
 
 // BeforeStart 登记一个启动钩子，在配置加载完之后、服务起来之前执行。
 //
@@ -100,10 +104,12 @@ func BeforeStart(f HookFunc, opts ...Option) {
 // BeforeStop 登记一个停止钩子，在服务停下来之后执行。
 //
 // 执行顺序是 BeforeStart 的整体镜像：档位降序，同档内按登记顺序逆序。
-// 所以你只要声明一个档位，就同时做到了「先启动、后关闭」。
 //
 // 它和同一个包里在它之前最近登记的那个启动钩子是一对：那个启动钩子成功了才执行，
 // 所以停止钩子里不必处理「还没建起来」。之前没有启动钩子的话，它总会执行。
+//
+// 不写 At 时档位跟着那个启动钩子：只在启动钩子上声明一次档位，就同时做到了
+// 「先启动、后关闭」。显式写了 At 的以它为准。
 //
 // 一个返回错误不会打断其余的——退出阶段要尽量把能关的都关掉。
 func BeforeStop(f HookFunc, opts ...Option) {
@@ -116,7 +122,7 @@ func entry(f HookFunc, opts []Option) hook.Entry {
 		opt(&o)
 	}
 	full := fullName(f)
-	return hook.Entry{Name: shortName(full), Pkg: registrant(full), Stage: o.stage, Run: hook.Func(f)}
+	return hook.Entry{Name: shortName(full), Pkg: registrant(full), Stage: o.stage, Run: hook.Func(f), Inherit: !o.set}
 }
 
 // registrant 认出是哪个包在登记：调用栈上最近的那个包初始化函数

@@ -128,10 +128,12 @@ func Run(r Runnable, opts ...Option) error {
 
 	// 全部启动钩子都跑完了，此时还没人读过的顶层 key 就是没人要的。
 	// 多半是拼错了，或者忘了 import 对应的集成包——两种都会让人配了半天
-	// 才发现不生效，而配置文件是使用者唯一的操作界面
+	// 才发现不生效，而配置文件是使用者唯一的操作界面。还有一种是读得太晚：
+	// 只在 Start 里才读的 key 此时同样没人读过，报错里要说清该挪到哪里
 	if orphan := config.Unclaimed(); len(orphan) > 0 {
 		return errors.Join(xerror.Newf("xone", "config",
-			"config keys %v are not read by anyone: check the spelling, or whether the matching package is imported", orphan),
+			"config keys %v are not read by anyone: check the spelling, or whether the matching package is imported; "+
+				"a key first read after startup (inside Start) is too late to count, read it in main or a BeforeStart hook", orphan),
 			stopWithin(o, started))
 	}
 
@@ -154,7 +156,7 @@ func Run(r Runnable, opts ...Option) error {
 	serverCtx, serverCancel := context.WithTimeout(stopCtx, o.stopTimeout-o.stopTimeout/3)
 	defer serverCancel()
 	if s, ok := r.(stopper); ok {
-		first = errors.Join(first, safe("stop", func() error { return s.Stop(serverCtx) }))
+		first = errors.Join(first, stopServer(serverCtx, o, s))
 	}
 
 	// 等 Start 真正返回再关其余组件。
@@ -180,6 +182,26 @@ func Run(r Runnable, opts ...Option) error {
 	}
 
 	return errors.Join(first, runStop(stopCtx, o, started))
+}
+
+// stopServer 在 ctx 的截止时间之前调服务的 Stop，到点就不再等它。
+//
+// 和 runWithin 同一个道理：Stop 收了 ctx，但它未必真的看。同步调的话，
+// 一个不看 ctx 的 Stop 能把 Run 永远挂住，后面一个停止钩子都轮不到。
+// 超时只告警、不算错误：和下面「等 Start 返回」超时一样，是服务没停利索，
+// 剩下的组件照样要关。
+func stopServer(ctx context.Context, o options, s stopper) error {
+	done := make(chan error, 1)
+	go func() { done <- safe("stop", func() error { return s.Stop(ctx) }) }()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		o.log().Warn("server Stop did not return within its share of the stop budget, closing the rest",
+			"budget", o.stopTimeout)
+		return nil
+	}
 }
 
 // stopWithin 启动阶段失败时的关闭，自己开一份停止预算。
@@ -394,8 +416,7 @@ func WithConfigPath(p string) Option { return func(o *options) { o.configPath = 
 //
 // 框架在内部把它分开用：服务最多占前 2/3，其余留给停止钩子，钩子之间再给排在
 // 后面的各留一份——不肯退出的服务、关不掉的连接池都吃不掉别人那份。
-// 前提是服务的 Stop 按它收到的 ctx 返回：Stop 是同步调用的，卡在里面时
-// 第二个退出信号能直接终止进程。
+// 服务的 Stop 不按它收到的 ctx 返回的话，到了服务那一段的截止时间就不再等它。
 func WithStopTimeout(d time.Duration) Option { return func(o *options) { o.stopTimeout = d } }
 func WithLogger(l *slog.Logger) Option       { return func(o *options) { o.logger = l } }
 

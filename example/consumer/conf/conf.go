@@ -2,7 +2,7 @@
 //
 // 框架对没人读的顶层 key 是直接启动失败的（多半是拼错了，或者忘了
 // import 对应的包），所以配置文件里写了 MyApp，就得有人读它。
-// 读只要一行 xconfig.Unmarshal，什么时候调都行——这个例子在 main 里调。
+// 读只要一行 xconfig.Unmarshal，在 Start 之前任何时候调都行——这个例子在 main 里调。
 //
 // 单独一个包而不是写在 main 里：别的包也要取配置，放在这里谁都能 import。
 package conf

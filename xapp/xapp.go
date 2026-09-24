@@ -44,7 +44,18 @@ func init() {
 	xhook.BeforeStart(loadConfig, xhook.At(xhook.StageLog))
 }
 
-func loadConfig(context.Context) error { return xconfig.Unmarshal(ConfigKey, &cfg) }
+// loadConfig 解进一份新的默认值，成功了才换上。
+//
+// 直接解进 cfg 的话，同一进程里前一次 Run 的值会带进下一次（没写的字段不回到默认值），
+// 解码失败时写了一半的值也已经落到了 cfg 上。
+func loadConfig(context.Context) error {
+	c := DefaultConfig()
+	if err := xconfig.Unmarshal(ConfigKey, &c); err != nil {
+		return err
+	}
+	cfg = c
+	return nil
+}
 
 // Name 返回应用名，未配置时为空字符串。
 //

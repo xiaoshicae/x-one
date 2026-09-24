@@ -121,7 +121,7 @@ func New(ctx context.Context, cfg Config) (*T, io.Closer, error)  // 会建连�
 func init() {
 	// 被业务依赖的客户端声明 StageClient；业务代码自己的钩子不写档位
 	xhook.BeforeStart(initXMine, xhook.At(xhook.StageClient))
-	xhook.BeforeStop(closeXMine, xhook.At(xhook.StageClient))
+	xhook.BeforeStop(closeXMine) // 档位跟着上面那个启动钩子
 }
 
 func initXMine(ctx context.Context) error {
@@ -144,7 +144,7 @@ func closeXMine(context.Context) error { return currentCloser().Close() }
 以及按相反的顺序调停止钩子。**没有句柄、没有泛型、没有要先理解才能用的名词。**
 
 `xconfig.Unmarshal` 把「默认值 + 配置文件覆盖」的结果填进你的结构体，认不出的字段
-是错误，结构体实现了 `Validate() error` 的话解完会调一次。**什么时候调都行**——
+是错误，结构体实现了 `Validate() error` 的话解完会调一次。**在 `Start` 之前任何时候调都行**——
 在 `main` 里、在 `xone.Run` 之前都一样：第一次调用时框架才去找配置文件、加载它，
 读到的永远是最终值，不会因为读得早就静默拿到一份默认值。
 
@@ -168,7 +168,8 @@ xhook.BeforeStart(initXLog, xhook.At(xhook.StageLog))
 | `StageBusiness` | 你自己的业务资源（预热、定时任务、消费者）。**不写就是它** |
 | `StageServer` | 对外服务：最后起、最先关 |
 
-停止钩子是启动的整体镜像，所以一个资源只声明一次档位就同时管住了两头。
+停止钩子不写档位时跟着和它配对的那个启动钩子（显式写了 `At` 的以它为准），停止顺序
+又是启动的整体镜像，所以一个资源只在启动钩子上声明一次档位就同时管住了两头。
 
 同一档内按登记顺序执行，也就是 Go 初始化各个包的顺序：同一份代码每次都一样，但它由
 import 关系和包路径的字典序决定，不是 import 语句的书写顺序。所以有先后要求的东西

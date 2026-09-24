@@ -2,6 +2,7 @@ package xutil
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"time"
@@ -45,6 +46,9 @@ const maxBackoff = 30 * time.Second
 // 启动期的建连重试靠这一条：收到退出信号时进程不必等满整轮才肯退出。
 // 传 nil 等同于 context.Background()。
 //
+// fn 返回 Permanent(err) 时不再重试，立即返回 err 本身（去掉 Permanent 那一层）：
+// 密码错、库不存在这类错误，重试多少次都是同一个结果，只会白白拖长启动。
+//
 // 返回最后一次的错误；一次都没成功且预算先耗尽时，返回的是耗尽前那次的错误。
 // parent 在两次尝试之间被取消时，返回的错误同时满足 errors.Is(err, parent.Err())
 // 和 errors.Is(err, 最后一次的错误)：取消是这一轮停下来的原因，前面那些失败是背景。
@@ -87,9 +91,28 @@ func Retry(parent context.Context, attempts int, timeout, interval time.Duration
 		if last == nil {
 			return nil
 		}
+		if p := (*permanentError)(nil); errors.As(last, &p) {
+			return p.err
+		}
 	}
 	return last
 }
+
+// Permanent 把 err 标记为「重试也没用」：Retry 遇到它立即返回 err，不再尝试。
+// 标记只给 Retry 看，Retry 返回的是去掉标记之后的 err；err 为 nil 时返回 nil。
+func Permanent(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &permanentError{err}
+}
+
+// permanentError Permanent 的标记。Error 和 Unwrap 都透传，
+// 标记本身不改变错误的文本，也不挡 errors.Is / errors.As
+type permanentError struct{ err error }
+
+func (p *permanentError) Error() string { return p.err.Error() }
+func (p *permanentError) Unwrap() error { return p.err }
 
 // retryBudget 整轮的上限：每次尝试的超时，加上各次退避的上界
 func retryBudget(attempts int, timeout, interval time.Duration) time.Duration {

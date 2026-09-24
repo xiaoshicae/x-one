@@ -14,7 +14,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xiaoshicae/x-one/internal/config"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -22,6 +21,7 @@ import (
 	"github.com/xiaoshicae/x-one"
 	"github.com/xiaoshicae/x-one/xgin"
 	"github.com/xiaoshicae/x-one/xmetric"
+	"github.com/xiaoshicae/x-one/xonetest"
 )
 
 // 这是唯一一处把各模块放在一起跑的测试：单元测试证明不了
@@ -60,20 +60,7 @@ func (s *serveOnce) Start(ctx context.Context) error {
 
 func (s *serveOnce) Stop(ctx context.Context) error { return s.g.Stop(ctx) }
 
-// isolateConfigs 让每个用例从干净的配置开始。
-//
-// 各包的配置是它们自己的包级变量，一个用例灌进去的值会留给下一个用例——
-// map 类型的字段尤其麻烦，配置加载是「合并」而不是「替换」，上一个用例设的
-// ConstLabels 会一直跟着走，让后面的断言莫名其妙地对不上。
-// 清掉已加载的配置，下一次 Run 会重新走一遍各包的启动钩子。
-func isolateConfigs(t *testing.T) {
-	t.Helper()
-	config.Reset()
-	t.Cleanup(config.Reset)
-}
-
 func TestEndToEnd(t *testing.T) {
-	isolateConfigs(t)
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "application.yml")
 	os.WriteFile(cfg, []byte(`
@@ -95,6 +82,12 @@ XMetric:
   GoMetrics: false
   ProcessMetrics: false
 `), 0o644)
+
+	// 让每个用例从干净的配置开始：先清掉已加载的，再按这份文件加载，用例结束时清掉。
+	// 各包的配置是它们自己的包级变量，配置加载又是「合并」而不是「替换」——
+	// 上一个用例留下的配置（比如 ConstLabels）会让后面的断言莫名其妙地对不上。
+	// Run 看到已经加载的就是 WithConfigPath 点名的这一份，照常沿用
+	xonetest.UseConfig(t, cfg)
 
 	// 框架自己的日志单独收一份，用来断言初始化和关闭的顺序
 	var framework strings.Builder
@@ -256,7 +249,6 @@ func newRequest() *http.Request {
 
 // TestServe 把 main 里那几行原样跑一遍：起服务、打请求、优雅关闭
 func TestServe(t *testing.T) {
-	isolateConfigs(t)
 	dir := t.TempDir()
 	port := freePort(t)
 	cfg := filepath.Join(dir, "application.yml")
@@ -278,6 +270,7 @@ XGin:
   Host: 127.0.0.1
   Port: ${XONE_EXAMPLE_PORT}
 `, dir)), 0o644)
+	xonetest.UseConfig(t, cfg) // 同 TestEndToEnd
 
 	var body, metrics string
 	var traceID string

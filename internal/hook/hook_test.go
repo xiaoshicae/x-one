@@ -199,6 +199,27 @@ func TestAddStop_配的是同包里之前最近登记的那个启动钩子(t *te
 	}
 }
 
+func TestAddStop_没显式指定档位的跟着配对的启动钩子(t *testing.T) {
+	// 一对钩子管的是同一个资源：只在启动钩子上声明档位，关闭也该在那一档
+	Reset()
+	t.Cleanup(Reset)
+	AddStart(Entry{Name: "a.open", Pkg: "a", Stage: StageClient, Run: noop})
+	AddStop(Entry{Name: "a.close", Pkg: "a", Stage: StageBusiness, Inherit: true, Run: noop})
+	AddStop(Entry{Name: "a.flush", Pkg: "a", Stage: StageServer, Run: noop})
+	AddStop(Entry{Name: "c.flush", Pkg: "c", Stage: StageBusiness, Inherit: true, Run: noop})
+
+	want := map[string]Stage{
+		"a.close": StageClient,   // 继承
+		"a.flush": StageServer,   // 显式指定的不动
+		"c.flush": StageBusiness, // 没配上对，保持原样
+	}
+	for _, e := range Stop() {
+		if e.Stage != want[e.Name] {
+			t.Errorf("%s 的档位该是 %v，got=%v", e.Name, want[e.Name], e.Stage)
+		}
+	}
+}
+
 func TestStage_业务档在客户端之后服务之前(t *testing.T) {
 	// 五档的相对次序是对外承诺的一部分，靠 iota 的书写顺序保证。
 	// 业务钩子里直接用 xgorm.C()，靠的就是 StageClient < StageBusiness

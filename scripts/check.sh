@@ -65,7 +65,11 @@ r=$(go doc -all ./xhook | grep -cE '^(func|type) ')
 [ "$r" -le 6 ] || fail "xhook 公开 API $r 个，超过上限 6——先想清楚能不能砍掉一个再加"
 x=$(go doc -all ./xconfig | grep -cE '^(func|type) ')
 [ "$x" -le 6 ] || fail "xconfig 公开 API $x 个，超过上限 6"
-echo "✓ 公开 API：根包 $a（上限 15）、xhook $r（上限 6）、xconfig $x（上限 6）"
+# xonetest 是给使用者测试用的，同样是永久 API：换配置、跑钩子，就这些。
+# 想往里加「再帮你做一件事」的，先问那件事是不是该由 xone.Run 或被测包自己做
+tt=$(go doc -all ./xonetest | grep -cE '^(func|type) ')
+[ "$tt" -le 3 ] || fail "xonetest 公开 API $tt 个，超过上限 3"
+echo "✓ 公开 API：根包 $a（上限 15）、xhook $r（上限 6）、xconfig $x（上限 6）、xonetest $tt（上限 3）"
 
 # ---- 6. 集成包必须导出纯构造器 New，且不得引用根包 ----
 # New 保证「零装配」永远只是默认路径，不是唯一路径：
@@ -82,6 +86,15 @@ for d in $integrations; do
   grep -rqE '^func New[(\[]' "$d"/*.go || fail "$d 登记了组件，却没有纯构造器 New"
 done
 echo "✓ 集成包检查通过（$(echo "$integrations" | wc -w) 个）"
+
+# ---- 6.1 示例只用使用者用得到的东西 ----
+# example/ 的 module 路径在 github.com/xiaoshicae/x-one 之下，Go 的 internal 规则
+# 因此放它进来——但使用者的代码进不来。示例用了 internal/config、internal/hook，
+# 使用者照抄就编译不过。测试里要换配置、跑钩子，用 xonetest
+bad=$(files 'example/*.go' | xargs grep -ln '"github.com/xiaoshicae/x-one/internal/' || true)
+[ -z "$bad" ] || fail "example/ 不能 import internal/（使用者 import 不到），改用 xonetest：
+$bad"
+echo "✓ example/ 不 import internal/"
 
 # ---- 7. 配置字段都写进文档 ----
 # 配置是使用者唯一的操作界面，加了字段却没写文档，等于没加。

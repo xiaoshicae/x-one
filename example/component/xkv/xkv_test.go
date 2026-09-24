@@ -7,8 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaoshicae/x-one/internal/config"
-	"github.com/xiaoshicae/x-one/internal/hook"
+	"github.com/xiaoshicae/x-one/xonetest"
 )
 
 // 这个文件也是样例的一部分：纯构造器 New 的回报就是测试里不需要任何 mock，
@@ -67,33 +66,27 @@ func TestStore_数据文件坏掉时建不起来(t *testing.T) {
 }
 
 func TestRegister_登记了启停钩子(t *testing.T) {
-	// 这是本包和框架之间唯一的一根线：钩子漏登记、档位挂错，
-	// 表现是「配置不生效」或者「实例比用它的东西晚就绪」，别处都测不出来
-	var got *hook.Entry
-	for _, e := range hook.Start() {
-		if e.Pkg == "github.com/xiaoshicae/x-one/example/component/xkv" {
-			got = &e
+	// 这是本包和框架之间唯一的一根线：钩子漏登记的话，表现是「C() 取不到」
+	// 或者「退出时数据没刷下去」，别处都测不出来。所以按框架的方式跑一遍钩子，
+	// 而不是直接调 initXKV / closeXKV
+	path := filepath.Join(t.TempDir(), "kv.json")
+	t.Run("起停一轮", func(t *testing.T) {
+		useConf(t, "XKV:\n  Path: \""+path+"\"\n  FlushInterval: 1h\n")
+		xonetest.StartHooks(t) // 子测试结束时跑停止钩子
+		if C() == nil {
+			t.Fatal("启动钩子没登记，C() 取不到")
 		}
-	}
-	if got == nil {
-		t.Fatal("没有登记启动钩子")
-	}
-	if got.Stage != hook.StageClient {
-		t.Errorf("被业务依赖的东西该在 StageClient 就绪，got=%v", got.Stage)
-	}
+		C().Set("k", "v")
+	})
 
-	var stopped bool
-	for _, e := range hook.Stop() {
-		if e.Pkg == "github.com/xiaoshicae/x-one/example/component/xkv" {
-			stopped = true
-			if e.Stage != hook.StageClient {
-				// 启动和停止不在同一档的话，业务还在用的时候它就被关了
-				t.Errorf("停止钩子也该在 StageClient，got=%v", e.Stage)
-			}
-		}
+	// 刷盘间隔是 1h，读得回来只能是停止钩子关闭时刷下去的
+	s, closer, err := New(Config{Path: path, FlushInterval: time.Hour})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !stopped {
-		t.Error("有资源要关就必须登记停止钩子，否则退出时数据刷不下去")
+	t.Cleanup(func() { _ = closer.Close() })
+	if got, _ := s.Get("k"); got != "v" {
+		t.Errorf("停止钩子没登记，退出时数据没刷下去，got=%q", got)
 	}
 }
 
@@ -187,13 +180,5 @@ func TestStore_一次刷盘失败不丢数据(t *testing.T) {
 // useConf 把一份配置装进全局配置
 func useConf(t *testing.T, yml string) {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "application.yml")
-	if err := os.WriteFile(p, []byte(yml), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	config.Reset()
-	if err := config.Load(p); err != nil {
-		t.Fatalf("加载配置失败：%v", err)
-	}
-	t.Cleanup(config.Reset)
+	xonetest.UseConfigYAML(t, yml)
 }

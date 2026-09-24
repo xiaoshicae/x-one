@@ -49,6 +49,9 @@ type Entry struct {
 	Run   Func
 	Seq   int // 启动钩子的登记序号，从 1 编起
 	Pair  int // 停止钩子配对的那个启动钩子的 Seq，0 表示没有，见 AddStop
+
+	// Inherit 停止钩子没有显式指定档位：AddStop 配上对之后改用那个启动钩子的档位
+	Inherit bool
 }
 
 var (
@@ -76,12 +79,18 @@ func AddStart(e Entry) {
 // closeA 配 openA，closeB 配 openB。openB 失败时 closeA 照常执行、closeB 不执行——
 // 各关各的，谁都不用处理「还没建起来」。之前没有同包的启动钩子时 Pair 为 0：
 // 这样的停止钩子不依赖任何启动，总会执行。
+//
+// Inherit 的停止钩子同时继承配对的那个启动钩子的档位：一对钩子管的是同一个资源，
+// 档位本来就该一样。没配上对的保持原来的档位。
 func AddStop(e Entry) {
 	mu.Lock()
 	defer mu.Unlock()
 	for i := len(start) - 1; i >= 0; i-- {
 		if start[i].Pkg == e.Pkg {
 			e.Pair = start[i].Seq
+			if e.Inherit {
+				e.Stage = start[i].Stage
+			}
 			break
 		}
 	}

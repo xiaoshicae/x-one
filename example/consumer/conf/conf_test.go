@@ -1,12 +1,10 @@
 package conf
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/xiaoshicae/x-one/internal/config"
+	"github.com/xiaoshicae/x-one/xonetest"
 )
 
 func TestLoad_配错的值启动时就失败(t *testing.T) {
@@ -37,14 +35,5 @@ func useConf(t *testing.T, yml string) {
 	old := conf
 	t.Cleanup(func() { conf = old })
 	conf = DefaultConfig()
-
-	p := filepath.Join(t.TempDir(), "application.yml")
-	if err := os.WriteFile(p, []byte(yml), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	config.Reset()
-	if err := config.Load(p); err != nil {
-		t.Fatalf("加载配置失败：%v", err)
-	}
-	t.Cleanup(config.Reset)
+	xonetest.UseConfigYAML(t, yml)
 }

@@ -61,6 +61,25 @@ func TestAt_指定档位覆盖默认值(t *testing.T) {
 	}
 }
 
+func TestBeforeStop_不写档位时跟着配对的启动钩子(t *testing.T) {
+	// 只在启动钩子上写一次 At：关闭也落在同一档，不会掉回 StageBusiness——
+	// 否则客户端会在业务钩子之前被关掉，业务的收尾动作摸到的是关掉的连接
+	clean(t)
+	BeforeStart(initFake, At(StageClient))
+	BeforeStop(initFake)
+	if got := only(t, hook.Stop()).Stage; got != StageClient {
+		t.Errorf("停止钩子该继承启动钩子的档位 StageClient，got=%v", got)
+	}
+}
+
+func TestBeforeStop_没有配对的启动钩子时落在业务那一档(t *testing.T) {
+	clean(t)
+	BeforeStop(initFake)
+	if got := only(t, hook.Stop()).Stage; got != StageBusiness {
+		t.Errorf("没有配对时停止钩子该在 StageBusiness，got=%v", got)
+	}
+}
+
 func TestAt_多次指定以最后一次为准(t *testing.T) {
 	clean(t)
 	BeforeStart(initFake, At(StageLog), At(StageServer))

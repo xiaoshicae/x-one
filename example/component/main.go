@@ -5,7 +5,7 @@
 // 看点有三个：
 //
 //	xkv/      自己写的集成：BeforeStart 里读配置、建实例，BeforeStop 里关掉，C() 取实例
-//	conf/     业务自己的配置块：一个 Load、一个 C()，什么时候读都行
+//	conf/     业务自己的配置块：一个 Load、一个 C()，在 Start 之前任何时候读都行
 //	main()    装配就是匿名 import + 一行 Run，没有别的
 package main
 

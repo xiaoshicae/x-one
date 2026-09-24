@@ -342,6 +342,10 @@ func TestRun_没人读过的配置块要报错(t *testing.T) {
 	if !strings.Contains(err.Error(), "XGrom") {
 		t.Errorf("错误里应点名是哪个 key，got=%v", err)
 	}
+	// 另一种常见原因是读得太晚：Start 里才读的 key，启动检查时还没人读过
+	if !strings.Contains(err.Error(), "read it in main or a BeforeStart hook") {
+		t.Errorf("错误里应说清该在哪里读，got=%v", err)
+	}
 	if strings.Contains(r.String(), "start:server") {
 		t.Errorf("既然启动失败就不该把服务起起来，got=%s", r.String())
 	}
@@ -1373,6 +1377,41 @@ func TestRun_服务迟迟不退出时仍关掉其余组件(t *testing.T) {
 		t.Errorf("等不到服务退出也要把组件关掉，got=%s", r.String())
 	}
 	if !strings.Contains(logbuf.String(), "did not exit within its share of the stop budget") {
+		t.Errorf("该留下一条说得清楚的告警，实际日志=\n%s", logbuf.String())
+	}
+}
+
+func TestRun_Stop不看ctx时不挂住退出(t *testing.T) {
+	// Stop 收了 ctx，但里面可能是一个不吃 ctx 的第三方调用。同步调的话
+	// Run 永远返回不了，一个停止钩子都轮不到
+	r := &recorder{}
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+
+	srv := &lateRunnable{
+		start: func(ctx context.Context) error { <-ctx.Done(); return nil },
+		stop:  func(context.Context) error { <-release; return nil },
+	}
+
+	var logbuf bytes.Buffer
+	go func() { time.Sleep(50 * time.Millisecond); syscallSelfInterrupt(t) }()
+	comps(t, comp("a", hook.StageClient, r, nil))
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(srv, WithConfigPath(emptyConf(t)),
+			WithLogger(slog.New(slog.NewTextHandler(&logbuf, nil))),
+			WithStopTimeout(300*time.Millisecond))
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("卡住的 Stop 把整个退出流程挂住了")
+	}
+	if !strings.Contains(r.String(), "close:a") {
+		t.Errorf("Stop 卡住也要把组件关掉，got=%s", r.String())
+	}
+	if !strings.Contains(logbuf.String(), "server Stop did not return within its share of the stop budget") {
 		t.Errorf("该留下一条说得清楚的告警，实际日志=\n%s", logbuf.String())
 	}
 }

@@ -222,6 +222,11 @@ mutate("预算里的第一次退避也封顶", "xutil/convert.go", ".", "TestRet
        swap('\tbackoff := min(interval, maxBackoff) // 与 Retry 一致', '\tbackoff := interval // 与 Retry 一致'))
 mutate("重试的等待带抖动", "xutil/convert.go", ".", "TestJitter",
        swap('\treturn time.Duration(rand.Int64N(int64(d) + 1))', '\treturn d - time.Duration(rand.Int64N(2))'))
+# 密码错、库不存在也照样重试满整轮，启动白白拖长几十秒
+mutate("永久错误不再重试", "xutil/convert.go", ".", "TestRetry_永久错误|TestRetry_包在别的错误里",
+       swap('errors.As(last, &p) {', 'errors.As(last, &p) && false {'))
+mutate("永久错误返回去掉标记的原错误", "xutil/convert.go", ".", "TestRetry_永久错误|TestRetry_包在别的错误里",
+       swap('\t\t\treturn p.err\n\t\t}\n', '\t\t\treturn last\n\t\t}\n'))
 # 退避期间被取消时只报上一次的「连不上」，启动路径会把按要求退出当成故障
 mutate("退避期间被取消时如实报告取消", "xutil/convert.go", ".", "TestRetry",
        swap('return fmt.Errorf("%w, last attempt failed: %w", err, last)', 'return fmt.Errorf("%v, last attempt failed: %w", err, last)'))
@@ -359,6 +364,9 @@ mutate("第二个信号能终止卡住的进程", "xone.go", ".", "TestRun",
 # 在途请求没做完、注册中心那条记录没注销，等于没有优雅退出这回事
 mutate("Stop 拿到的 ctx 不继承那次取消", "xone.go", ".", "TestRun_Stop拿到的ctx不继承那次取消",
        swap('context.WithTimeout(context.WithoutCancel(ctx), o.stopTimeout)','context.WithTimeout(ctx, o.stopTimeout)'))
+# Stop 收了 ctx 却不看它：同步调的话 Run 永远返回不了，一个停止钩子都轮不到
+mutate("不看 ctx 的 Stop 挂不住退出", "xone.go", ".", "TestRun_Stop不看ctx",
+       swap('errors.Join(first, stopServer(serverCtx, o, s))', 'errors.Join(first, safe("stop", func() error { return s.Stop(serverCtx) }))'))
 # 服务只能用预算的前 2/3。让它用满整份的话，不肯退出的服务把时间吃光，
 # 每个停止钩子一进去就判超时，Close() 被扔进没人等的协程，资源全留在原地
 mutate("服务吃不掉留给停止钩子的那一段", "xone.go", ".", "TestShutdown|TestRun_服务迟迟不退出",
@@ -712,6 +720,10 @@ mutate("xgin 与 xtrace 的可信记号对得上", "xtrace/propagator.go", "./ex
 section("登记板")
 # 档位是使用者理解生命周期的全部依据：日志最先起、链路早于客户端、
 # 服务最后起。排错一档，表现是「实例比用它的东西晚就绪」，别处都测不出来
+# 直接解进全局：前一次 Run 的服务名带进下一次，解码失败时写了一半的值也落了上去
+mutate("xapp 解进新的默认值再换上", "xapp/xapp.go", ".", "TestLoadConfig_",
+       swap('\tc := DefaultConfig()\n\tif err := xconfig.Unmarshal(ConfigKey, &c); err != nil {\n\t\treturn err\n\t}\n\tcfg = c\n\treturn nil',
+            '\treturn xconfig.Unmarshal(ConfigKey, &cfg)'))
 mutate("启动按档位升序", "internal/hook/hook.go", ".", "TestStartOrder|TestStopOrder|TestAddStart",
        swap('sort.SliceStable(out, func(i, j int) bool { return out[i].Stage < out[j].Stage })',
      'sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })'))
@@ -759,6 +771,20 @@ mutate("停止钩子配的是之前最近登记的那个启动钩子", "internal
 # 或者它自己没建起来时停止钩子照样被调到
 # Pair 为 0 表示「没有配对、总会执行」。序号从 0 编起的话，第一个登记的启动钩子
 # 失败时，它的停止钩子会被当成不依赖启动的那种照样调到
+# 只在启动钩子上写 At 的话，停止钩子从前掉回 StageBusiness：客户端先于业务被关掉
+mutate("停止钩子不写档位时跟着配对的启动钩子", "xhook/xhook.go", "./xhook", "TestBeforeStop_不写档位",
+       swap('Run: hook.Func(f), Inherit: !o.set}', 'Run: hook.Func(f), Inherit: false}'))
+mutate("停止钩子显式写的档位以它为准", "xhook/xhook.go", "./xhook", "TestAt_指定档位覆盖默认值",
+       swap('Run: hook.Func(f), Inherit: !o.set}', 'Run: hook.Func(f), Inherit: true}'))
+mutate("配上对时才继承档位", "internal/hook/hook.go", ".", "TestAddStop_没显式指定档位",
+       swap('\t\t\tif e.Inherit {\n\t\t\t\te.Stage = start[i].Stage\n\t\t\t}\n', ''))
+# 测试辅助和 Run 是同一条规矩：启动失败的那一对不跑停止钩子，起来了的照样关
+mutate("xonetest 只关配对的启动钩子成功了的", "xonetest/xonetest.go", ".", "TestStartHooks",
+       swap('\t\t\tif e.Pair != 0 && !started[e.Pair] {', '\t\t\tif false {'))
+mutate("xonetest 记下成功了的启动钩子", "xonetest/xonetest.go", ".", "TestStartHooks",
+       swap('\t\tstarted[e.Seq] = true\n', ''))
+mutate("xonetest 结束时清掉配置", "xonetest/xonetest.go", ".", "TestUseConfig",
+       swap('\tt.Cleanup(config.Reset)\n', ''))
 mutate("启动钩子的序号从 1 编起", "internal/hook/hook.go", ".", "TestAddStop",
        swap('e.Seq = len(start) + 1', 'e.Seq = len(start)'))
 mutate("停止钩子只配同一个包的启动钩子", "internal/hook/hook.go", ".", "TestAddStop|TestRun_停止钩子只认",
@@ -1055,6 +1081,9 @@ mutate("Workers 不大于 0 启动失败", "example/consumer/conf/conf.go", "./e
        swap('if c.Workers <= 0 {', 'if false {'))
 mutate("MessageTimeout 不大于 0 启动失败", "example/consumer/conf/conf.go", "./example", "TestLoad_",
        swap('if c.MessageTimeout <= 0 {', 'if false {'))
+# 漏登记停止钩子：退出时最后一批改动刷不下去，直接调 closeXKV 的测试照样全绿
+mutate("xkv 登记了停止钩子", "example/component/xkv/xkv.go", "./example", "TestRegister_",
+       swap('\txhook.BeforeStop(closeXKV, xhook.At(xhook.StageClient))\n', ''))
 # FlushInterval 为 0 时 time.NewTicker 在后台协程里 panic，进程直接死掉
 mutate("刷盘间隔不大于 0 启动失败", "example/component/xkv/xkv.go", "./example", "TestInitXKV|TestNew_",
        swap('if c.FlushInterval <= 0 {', 'if false {'))

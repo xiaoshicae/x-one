@@ -35,6 +35,7 @@ xone/
 ├── xgin/                Web 服务，基于 Gin，内置四个中间件（独立 module）
 ├── xginswagger/         Swagger UI（独立 module，UI 资源不进普通服务）
 ├── xflow/               流程编排 + 自动回滚，零第三方依赖
+├── xonetest/            给使用者的测试辅助：换一份配置、跑一遍钩子
 ├── docs/
 │   ├── config.md        全部配置项参考
 │   ├── architecture.md  设计原则与启停流程
@@ -164,7 +165,7 @@ func New(ctx context.Context, c Config) (*Client, io.Closer, error) { /* ... */ 
 
 func init() {
 	xhook.BeforeStart(initXMine, xhook.At(xhook.StageClient))
-	xhook.BeforeStop(closeXMine, xhook.At(xhook.StageClient))
+	xhook.BeforeStop(closeXMine) // 档位跟着上面那个启动钩子
 }
 
 func initXMine(ctx context.Context) error {
@@ -193,6 +194,8 @@ func C() *Client { /* ... */ }
 - 停止钩子只在它前面那个启动钩子成功之后才执行，里面不必处理「还没建起来」。
 - 错误用 `xerror.New` / `xerror.Newf` 包一次，底层错误用 `%w`；错误和日志消息用英文。
 - 带三方依赖的集成做成独立的 Go module，别让它的依赖进核心。
+- 测钩子用 `xonetest`：`UseConfigYAML(t, yml)` 换一份配置，`StartHooks(t)` 按档位跑启动钩子、
+  测试结束时跑配对的停止钩子。`example/` 不许 import `internal/`（`check.sh` 会查）——使用者 import 不到。
 
 可运行的完整样例：[`example/component/xkv/`](../example/component/xkv/)。
 多实例写法（`xconfig.DecodeClients`、按名字的 `C(name...)` / `Has` / `Names`）和

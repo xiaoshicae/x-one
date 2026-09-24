@@ -101,6 +101,34 @@ func TestLoadConfig_配置写错时启动失败(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_不带上前一次的值(t *testing.T) {
+	// 同一进程里跑第二次 Run（测试里常见）：这次没写的字段该回到默认值，
+	// 而不是沿用上一次的服务名
+	keepCfg(t)
+	cfg = Config{Name: "last.run", Version: "v0"}
+	useConf(t, "App:\n  Version: v1.2.0\n")
+
+	if err := loadConfig(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if Name() != "" || Version() != "v1.2.0" {
+		t.Errorf("该只剩这次配置里的值，got=%q %q", Name(), Version())
+	}
+}
+
+func TestLoadConfig_解码失败时不动现有的值(t *testing.T) {
+	keepCfg(t)
+	cfg = Config{Name: "kept"}
+	useConf(t, "App:\n  Name: half\n  Version: [1, 2]\n")
+
+	if err := loadConfig(context.Background()); err == nil {
+		t.Fatal("类型不对应当报错")
+	}
+	if Name() != "kept" || Version() != "" {
+		t.Errorf("失败了就不该动现有的值，got=%q %q", Name(), Version())
+	}
+}
+
 func TestLoadConfig_还没加载时先加载再读(t *testing.T) {
 	// 读得早拿到的也是文件里的值，不是一份静默的默认值
 	keepCfg(t)
