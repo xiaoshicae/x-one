@@ -1,5 +1,5 @@
 #!/bin/sh
-# 跑 e2e/ 下的真实 Web 服务测试：真的 PostgreSQL、真的 MySQL、真的 Redis、真的进程和信号。
+# 跑 e2e/ 下的真实 Web 服务测试：真的 PostgreSQL、MySQL、Redis、ClickHouse，真的进程和信号。
 #
 #   scripts/e2e.sh                 # 全部（压测除外）
 #   scripts/e2e.sh -run Smoke      # 后面的参数原样交给 go test
@@ -8,6 +8,8 @@
 # 压测要独占机器：压测器、被测服务、PG 本来就挤在同一台机器上，再有别的负载数字就没法看了。
 #
 # PG / MySQL / Redis 已经在跑就直接用，没在跑就按本机的装法拉起来。
+# ClickHouse 跑在 Docker 容器 xone-ch 里（XONE_E2E_CH_CONTAINER）：停着就 docker start；
+# 没有 Docker、没有这个容器或起不来时不算失败——CH 的用例各自跳过并说明原因，其余照跑。
 # 连接参数都能用环境变量盖掉，默认值和 e2e/harness 里的一致。
 #
 # 不在 CI 里、也不在 scripts/test.sh 里：那两处没有数据库，e2e 的每个测试
@@ -40,6 +42,13 @@ done
 : "${XONE_E2E_PG_CLUSTER:=16 main}"
 export XONE_E2E_PG_ADDR XONE_E2E_PG_USER XONE_E2E_PG_PASSWORD XONE_E2E_PG_DB XONE_E2E_REDIS_ADDR
 export XONE_E2E_MYSQL_ADDR XONE_E2E_MYSQL_USER XONE_E2E_MYSQL_PASSWORD XONE_E2E_MYSQL_DB
+: "${XONE_E2E_CH_ADDR:=127.0.0.1:9000}"
+: "${XONE_E2E_CH_HTTP_ADDR:=127.0.0.1:8123}"
+: "${XONE_E2E_CH_USER:=xone}"
+: "${XONE_E2E_CH_PASSWORD:=e2e-secret-pw}"
+: "${XONE_E2E_CH_DB:=xone_e2e}"
+: "${XONE_E2E_CH_CONTAINER:=xone-ch}"
+export XONE_E2E_CH_ADDR XONE_E2E_CH_HTTP_ADDR XONE_E2E_CH_USER XONE_E2E_CH_PASSWORD XONE_E2E_CH_DB
 
 pg_host=${XONE_E2E_PG_ADDR%:*}
 pg_port=${XONE_E2E_PG_ADDR##*:}
@@ -118,6 +127,41 @@ else
   redis-server --port "$redis_port" --daemonize yes --save '' --appendonly no >/dev/null
   wait_for Redis redis-cli -h "$redis_host" -p "$redis_port" ping
   echo "✓ Redis 已启动"
+fi
+
+# ---- ClickHouse ----
+# 起不来就 XONE_E2E_CH=0：harness.RequireCH 据此跳过 CH 的用例，并在跳过原因里说清楚
+ch_ping() { curl -sf "http://$XONE_E2E_CH_HTTP_ADDR/ping" >/dev/null 2>&1; }
+# 凭证经 curl -K - 从标准输入给，不出现在命令行上
+ch_auth() {
+  printf 'user = "%s:%s"\n' "$XONE_E2E_CH_USER" "$XONE_E2E_CH_PASSWORD" |
+    curl -sf -K - "http://$XONE_E2E_CH_HTTP_ADDR/?database=$XONE_E2E_CH_DB" --data-binary 'SELECT 1' >/dev/null 2>&1
+}
+ch_skip() {
+  echo "⚠ ClickHouse 不可用（$1），CH 的用例会跳过；要跑它们：docker start $XONE_E2E_CH_CONTAINER"
+  export XONE_E2E_CH=0
+}
+if ch_ping; then
+  echo "✓ ClickHouse 已在 $XONE_E2E_CH_ADDR 运行"
+elif ! command -v docker >/dev/null 2>&1; then
+  ch_skip "没有 docker 命令"
+elif ! docker inspect "$XONE_E2E_CH_CONTAINER" >/dev/null 2>&1; then
+  ch_skip "没有名为 $XONE_E2E_CH_CONTAINER 的容器"
+else
+  echo "== 启动 ClickHouse（docker start $XONE_E2E_CH_CONTAINER）"
+  if docker start "$XONE_E2E_CH_CONTAINER" >/dev/null 2>&1; then
+    # ClickHouse 冷启动比 PG 慢，给到 30 秒
+    i=0
+    until ch_ping; do
+      i=$((i + 1))
+      [ "$i" -lt 150 ] || break
+      sleep 0.2
+    done
+  fi
+  if ch_ping; then echo "✓ ClickHouse 已启动"; else ch_skip "docker start 之后 30 秒仍没有就绪，看 docker logs $XONE_E2E_CH_CONTAINER"; fi
+fi
+if [ "${XONE_E2E_CH:-}" != 0 ] && ! ch_auth; then
+  ch_skip "用 $XONE_E2E_CH_USER 连不上 $XONE_E2E_CH_HTTP_ADDR 上的库 $XONE_E2E_CH_DB，密码用 XONE_E2E_CH_PASSWORD 告诉本脚本"
 fi
 
 # 和 scripts/test.sh 一样 GOWORK=off：测的是 e2e/go.mod 自己解出来的依赖

@@ -31,12 +31,12 @@ func mysqlRoutes(e *gin.Engine) {
 }
 
 type badSQLReq struct {
-	DB    string `json:"db"` // mysql 或 pg
+	DB    string `json:"db"` // mysql、pg 或 ch
 	Value string `json:"value"`
 }
 
 // badSQL 故意让服务端报一个原文里带着参数值的错：MySQL 把 value 塞进 BIGINT 列（1366），
-// PG 把 value 转成 bigint（22P02）。
+// PG 把 value 转成 bigint（22P02），ClickHouse 把 value 转成 Int64（6）。
 //
 // 测的是 xgorm 的 SQL 日志和 Span 里没有这个值；返回的错误原样不变，
 // 所以响应里告诉调用方「错误原文里有没有这个值」。这个 handler 自己不记错误原文——
@@ -54,8 +54,14 @@ func badSQL(c *gin.Context) {
 		err = store.BadInsertMySQL(ctx, req.Value)
 	case "pg":
 		err = store.BadCastPG(ctx, req.Value)
+	case "ch":
+		if !store.HasCH() {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ch instance is not configured"})
+			return
+		}
+		err = store.BadCastCH(ctx, req.Value)
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "db must be mysql or pg"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "db must be mysql, pg or ch"})
 		return
 	}
 	if err == nil {

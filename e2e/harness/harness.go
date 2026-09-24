@@ -14,6 +14,12 @@
 //	XONE_E2E_MYSQL_USER      默认 xone
 //	XONE_E2E_MYSQL_PASSWORD  默认 e2e-secret-pw
 //	XONE_E2E_MYSQL_DB        默认 xone_e2e
+//	XONE_E2E_CH_ADDR      ClickHouse native 协议，默认 127.0.0.1:9000
+//	XONE_E2E_CH_HTTP_ADDR ClickHouse HTTP 协议，默认 127.0.0.1:8123
+//	XONE_E2E_CH_USER      默认 xone
+//	XONE_E2E_CH_PASSWORD  默认 e2e-secret-pw
+//	XONE_E2E_CH_DB        默认 xone_e2e
+//	XONE_E2E_CH           scripts/e2e.sh 起不来 ClickHouse 时设成 0，CH 的用例跳过（RequireCH）
 //
 // 每个 Start 默认用自己的端口、自己的表名和 Redis key 前缀，测试结束时删掉，
 // 所以用例之间互不干扰，可以 t.Parallel。
@@ -32,6 +38,7 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 )
 
 // Require e2e 没开时跳过这个测试。每个 e2e 测试的第一行
@@ -40,6 +47,23 @@ func Require(t testing.TB) {
 	if os.Getenv("XONE_E2E") != "1" {
 		t.Skip("e2e tests are off: run scripts/e2e.sh, or set XONE_E2E=1 with PostgreSQL, MySQL and Redis running")
 	}
+}
+
+// RequireCH ClickHouse 用例的第一行：e2e 没开、或者 ClickHouse 不可用时跳过。
+//
+// ClickHouse 跑在 Docker 里，不是每台机器都有：scripts/e2e.sh 起不来它时设 XONE_E2E_CH=0，
+// 这里跳过并说清为什么；没经过脚本直接跑的，拨一下 native 端口，拨不通同样跳过
+func RequireCH(t testing.TB) {
+	t.Helper()
+	Require(t)
+	if os.Getenv("XONE_E2E_CH") == "0" {
+		t.Skip("ClickHouse is unavailable (scripts/e2e.sh could not start the xone-ch container): ClickHouse tests skipped")
+	}
+	c, err := net.DialTimeout("tcp", CHAddr(), time.Second)
+	if err != nil {
+		t.Skipf("ClickHouse is unavailable at %s (%v): ClickHouse tests skipped, start it with scripts/e2e.sh", CHAddr(), err)
+	}
+	c.Close()
 }
 
 // KnownBug 标记一个测试揭示出来的框架 bug：打印 KNOWN BUG 并跳过。
@@ -103,6 +127,31 @@ func MySQLPassword() string { return env("XONE_E2E_MYSQL_PASSWORD", "e2e-secret-
 // 测试要验的正是注入的那一份；要测「DSN 里写了的不被覆盖」时自己在后面拼
 func MySQLDSN(addr string) string {
 	return env("XONE_E2E_MYSQL_USER", "xone") + ":" + MySQLPassword() + "@tcp(" + addr + ")/" + env("XONE_E2E_MYSQL_DB", "xone_e2e")
+}
+
+// CHAddr ClickHouse native 协议的 host:port，不经代理
+func CHAddr() string { return env("XONE_E2E_CH_ADDR", "127.0.0.1:9000") }
+
+// CHHTTPAddr ClickHouse HTTP 协议的 host:port，不经代理
+func CHHTTPAddr() string { return env("XONE_E2E_CH_HTTP_ADDR", "127.0.0.1:8123") }
+
+// CHPassword harness 连 ClickHouse 用的密码
+func CHPassword() string { return env("XONE_E2E_CH_PASSWORD", "e2e-secret-pw") }
+
+// CHDSN 连到 addr 的 native 协议 DSN。addr 传 CHAddr() 直连，传 Proxy.Addr() 经代理。
+//
+// 不带任何超时参数：dial_timeout 由 xgorm 按 DialTimeout 注入，测试要验的正是注入的那一份
+func CHDSN(addr string) string { return CHDSNWith("clickhouse", addr, CHPassword()) }
+
+// CHDSNWith 指定 scheme（clickhouse / tcp / http / https）和密码的 DSN
+func CHDSNWith(scheme, addr, password string) string {
+	u := url.URL{
+		Scheme: scheme,
+		User:   url.UserPassword(env("XONE_E2E_CH_USER", "xone"), password),
+		Host:   addr,
+		Path:   "/" + env("XONE_E2E_CH_DB", "xone_e2e"),
+	}
+	return u.String()
 }
 
 // NewID 一个随机的小写标识符，比如 3fa9c1d2b7e4。表名、key 前缀用它拼

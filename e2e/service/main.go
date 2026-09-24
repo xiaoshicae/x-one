@@ -3,6 +3,8 @@
 //	E2E_PORT=8080 E2E_PG_DSN=postgres://... E2E_MYSQL_DSN='u:p@tcp(127.0.0.1:3306)/db' \
 //	  E2E_REDIS_ADDR=127.0.0.1:6379 go run . --config=application.yml
 //
+// 再加上 E2E_CH_DSN=clickhouse://u:p@127.0.0.1:9000/db 与 --profile=ch 就多一个 ClickHouse 实例 ch。
+//
 // 它就是使用者会写的样子：匿名 import 即装配，配置全部来自 application.yml，
 // main 里只有读业务配置、挂一个 Span 出口、一行 MustRun（E2E_DRAIN 时服务外面套一层收尾，见 drain.go）。
 //
@@ -19,8 +21,9 @@
 //	GET  /stuck?ms=N[&db=1][&mysql=1][&redis=1]  time.Sleep，故意不看 ctx；睡完再查一次 PG / MySQL、Ping 一次 Redis
 //	GET  /boom                  panic
 //	POST /upload                multipart 上传（字段 file），回大小和 sha256，测 multipart 不进日志
-//	GET  /dep?target=redis|db|mysql[&timeout=200ms]  对 Redis / PG / MySQL 做一次最小操作，回耗时，测故障下的超时
+//	GET  /dep?target=redis|db|mysql|ch[&timeout=200ms]  对 Redis / PG / MySQL / ClickHouse 做一次最小操作，回耗时，测故障下的超时
 //	POST /mysql/users 等        第二个 xgorm 实例 xgorm.C("mysql") 上的增删改查，见 mysql.go
+//	POST /ch/events 等          第三个 xgorm 实例 xgorm.C("ch")（ClickHouse，可选），见 clickhouse.go
 package main
 
 import (
@@ -42,6 +45,7 @@ import (
 	_ "github.com/xiaoshicae/x-one/xcache"
 	_ "github.com/xiaoshicae/x-one/xflow"
 	_ "github.com/xiaoshicae/x-one/xgorm"
+	_ "github.com/xiaoshicae/x-one/xgorm/clickhouse" // 注册 Driver: clickhouse
 	_ "github.com/xiaoshicae/x-one/xhttp"
 	_ "github.com/xiaoshicae/x-one/xlog"
 	_ "github.com/xiaoshicae/x-one/xmetric"

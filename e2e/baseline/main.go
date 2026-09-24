@@ -8,7 +8,11 @@
 // 设了 E2E_MYSQL_DSN 时另有 GET /mysql/users/:id，直接读 MySQL 上的同名表，
 // 连接池同样按 xgorm 的默认值配，对照 e2e 服务里第二个 xgorm 实例的同名接口。
 //
-// 配置只读环境变量，名字和 e2e 服务的一致：E2E_PORT、E2E_PG_DSN、E2E_MYSQL_DSN、E2E_TABLE。
+// 设了 E2E_CH_DSN 时另有 GET /ch/events/:id，直接读 ClickHouse 上的同名事件表（gorm.io/driver/clickhouse），
+// 对照 e2e 服务里第三个 xgorm 实例的同名接口：连接池同样 50 / 50 / 5m / 5m，DSN 里没写 dial_timeout 时
+// 补上 xgorm 默认注入的那个 500ms，读法同样是 Where("id = ?").Take。
+//
+// 配置只读环境变量，名字和 e2e 服务的一致：E2E_PORT、E2E_PG_DSN、E2E_MYSQL_DSN、E2E_CH_DSN、E2E_TABLE。
 package main
 
 import (
@@ -17,6 +21,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"regexp"
@@ -25,6 +30,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/driver/clickhouse"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -78,6 +84,19 @@ func main() {
 		e.GET("/mysql/users/:id", readUser(my, table))
 		pools = append(pools, mpool)
 	}
+	if cdsn := os.Getenv("E2E_CH_DSN"); cdsn != "" {
+		ch, cpool := open(clickhouse.New(clickhouse.Config{DSN: withDialTimeout(cdsn)}))
+		if err := ch.Exec(`CREATE TABLE IF NOT EXISTS ` + table + ` (
+			id         UInt64,
+			name       String,
+			value      Int64,
+			created_at DateTime64(3) DEFAULT now64(3)
+		) ENGINE = MergeTree ORDER BY id`).Error; err != nil {
+			log.Fatal(err)
+		}
+		e.GET("/ch/events/:id", readEvent(ch, table))
+		pools = append(pools, cpool)
+	}
 
 	srv := &http.Server{Addr: "127.0.0.1:" + port, Handler: e, ReadHeaderTimeout: 10 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -114,6 +133,47 @@ func open(d gorm.Dialector) (*gorm.DB, *sql.DB) {
 	pool.SetConnMaxLifetime(5 * time.Minute)
 	pool.SetConnMaxIdleTime(5 * time.Minute)
 	return db, pool
+}
+
+// withDialTimeout DSN 里没写 dial_timeout 时补上 500ms：xgorm 按 DialTimeout 的默认值注入的就是它
+func withDialTimeout(dsn string) string {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		log.Fatal("E2E_CH_DSN is not a URL")
+	}
+	q := u.Query()
+	if !q.Has("dial_timeout") {
+		q.Set("dial_timeout", "500ms")
+		u.RawQuery = q.Encode()
+	}
+	return u.String()
+}
+
+type event struct {
+	ID    uint64 `json:"id" gorm:"column:id"`
+	Name  string `json:"name" gorm:"column:name"`
+	Value int64  `json:"value" gorm:"column:value"`
+}
+
+// readEvent 按 id 读 ClickHouse 上的一行，和 e2e 服务里的读法一样
+func readEvent(db *gorm.DB, table string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil || id == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "id must be a positive integer"})
+			return
+		}
+		var ev event
+		err = db.WithContext(c.Request.Context()).Table(table).Where("id = ?", id).Take(&ev).Error
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
+		case err != nil:
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusOK, ev)
+		}
+	}
 }
 
 // readUser 按 id 读一行，和 e2e 服务里的读法一样

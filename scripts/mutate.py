@@ -936,6 +936,10 @@ mutate("ClickHouse 仍然查版本", "xgorm/clickhouse/clickhouse.go", "./xgorm/
 # 原样透传的话，驱动建连时的解析错误会连同整串 DSN、包括明文密码一起进日志
 mutate("ClickHouse 不是 URL 的 DSN 被拒绝", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestResolve",
        swap('\t\treturn "", xgorm.ConnInfo{}, errNotURL\n', '\t\treturn c.DSN, xgorm.ConnInfo{Driver: string(Driver)}, nil\n'))
+# 多主机 DSN 的 URL Host 是整串 "h1:9000,h2:9000"：当成地址的话 Span 的 server.address 是整串、
+# 没有 server.port，建连日志里也不是一个「主机:端口」
+mutate("ClickHouse 多主机 DSN 记第一个主机", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestResolve_多主机",
+       swap('\t\tAddr:         opts.Addr[0],\n', '\t\tAddr:         u.Host,\n'))
 mutate("ClickHouse 驱动的解析错误不回显 DSN", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestResolve",
        swap('chgo.ParseDSN(dsn)\n\tif err != nil {\n\t\treturn "", xgorm.ConnInfo{}, errMalformedDSN',
      'chgo.ParseDSN(dsn)\n\tif err != nil {\n\t\treturn "", xgorm.ConnInfo{}, err'))

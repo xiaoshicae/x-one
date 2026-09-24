@@ -10,6 +10,7 @@ replace (
 	github.com/xiaoshicae/x-one/xgin => ../xgin
 	github.com/xiaoshicae/x-one/xginswagger => ../xginswagger
 	github.com/xiaoshicae/x-one/xgorm => ../xgorm
+	github.com/xiaoshicae/x-one/xgorm/clickhouse => ../xgorm/clickhouse
 	github.com/xiaoshicae/x-one/xhttp => ../xhttp
 	github.com/xiaoshicae/x-one/xmetric => ../xmetric
 	github.com/xiaoshicae/x-one/xredis => ../xredis
@@ -17,6 +18,7 @@ replace (
 )
 
 require (
+	github.com/ClickHouse/clickhouse-go/v2 v2.30.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.10.0
@@ -29,15 +31,32 @@ require (
 	github.com/xiaoshicae/x-one/xgin v0.0.0
 	github.com/xiaoshicae/x-one/xginswagger v0.0.0
 	github.com/xiaoshicae/x-one/xgorm v0.0.0
+	github.com/xiaoshicae/x-one/xgorm/clickhouse v0.0.0
 	github.com/xiaoshicae/x-one/xhttp v0.0.0
 	github.com/xiaoshicae/x-one/xmetric v0.0.0
 	github.com/xiaoshicae/x-one/xredis v0.0.0
 	github.com/xiaoshicae/x-one/xtrace v0.0.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/sdk v1.46.0
+	gorm.io/driver/clickhouse v0.7.0
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/postgres v1.6.3
 	gorm.io/gorm v1.31.2
+)
+
+require (
+	github.com/ClickHouse/ch-go v0.61.5 // indirect
+	github.com/andybalholm/brotli v1.1.1 // indirect
+	github.com/go-faster/city v1.0.1 // indirect
+	github.com/go-faster/errors v0.7.1 // indirect
+	github.com/hashicorp/go-version v1.6.0 // indirect
+	github.com/klauspost/compress v1.19.1 // indirect
+	github.com/paulmach/orb v0.11.1 // indirect
+	github.com/pierrec/lz4/v4 v4.1.21 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/segmentio/asm v1.2.0 // indirect
+	github.com/shopspring/decimal v1.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 require (

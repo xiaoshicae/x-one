@@ -19,6 +19,7 @@ import (
 //	GET /dep?target=redis[&timeout=200ms]   Redis 上 GET 一个不存在的 key（redis.Nil 算成功）
 //	GET /dep?target=db[&timeout=200ms]      PG 上 SELECT 1
 //	GET /dep?target=mysql[&timeout=200ms]   MySQL 上 SELECT 1
+//	GET /dep?target=ch[&timeout=200ms]      ClickHouse 上 SELECT 1（没配 ch 实例时 503）
 //
 // 给了 timeout 就用 context.WithTimeout 包住请求的 ctx——「调用方给了截止时间」；
 // 不给就是请求的 ctx 本身，没有截止时间，管得住它的只剩各客户端自己配的超时。
@@ -52,8 +53,14 @@ func dep(c *gin.Context) {
 		err = store.Ping(ctx)
 	case "mysql":
 		err = store.PingMySQL(ctx)
+	case "ch":
+		if !store.HasCH() {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ch instance is not configured"})
+			return
+		}
+		err = store.PingCH(ctx)
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "target must be redis, db or mysql"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "target must be redis, db, mysql or ch"})
 		return
 	}
 	elapsed := time.Since(start)
