@@ -93,8 +93,9 @@ func (m mw) options(table string) harness.Options {
 		LogFile:       m.file,
 		Overlay: fmt.Sprintf("XGin:\n  Log: %v\n  LogRequestBody: %v\n  LogResponseBody: %v\n  Trace: %v\n  Metric: %v\n",
 			m.log, m.body, m.body, m.trace, m.metric) + xlog + xtrace +
-			fmt.Sprintf("XGorm:\n  Clients:\n    default:\n      Trace: %v\n    mysql:\n      Trace: %v\n", m.trace, m.trace) +
-			fmt.Sprintf("Service:\n  SpanDiscard: %v\n", m.export),
+			fmt.Sprintf("Service:\n  SpanDiscard: %v\n", m.export) +
+			// XGorm 放最后：chLoadOptions 往后接一个 ch 实例
+			fmt.Sprintf("XGorm:\n  Clients:\n    default:\n      Trace: %v\n    mysql:\n      Trace: %v\n", m.trace, m.trace),
 	}
 }
 
