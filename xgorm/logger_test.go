@@ -265,6 +265,58 @@ func TestLogger_SQL日志里没有参数值且就是发出去的那条(t *testin
 	}
 }
 
+func TestLogger_Scan的SQL日志里也没有参数值(t *testing.T) {
+	// Scan 执行期间 GORM 把 Logger 换成 logger.Recorder（v1.31.2 finisher_api.go:539），
+	// Recorder 不问实例 Logger 的 ParamsFilter，只认进程级的 logger.RecorderParamsFilter，
+	// 它的默认值把参数代进 SQL。xgorm 的 init 把它换成 withoutParams，这里验的是换上了：
+	// 两条 Scan 的写法，记下的都是发出去的那条带占位符的语句
+	const secret = "hunter2-in-a-scan"
+	for _, c := range []struct {
+		name      string
+		dialector gorm.Dialector
+	}{
+		{"mysql", mysql.New(mysql.Config{DSN: "u:p@tcp(127.0.0.1:1)/app", SkipInitializeWithVersion: true})},
+		{"postgres", postgres.New(postgres.Config{DSN: "postgres://u:p@127.0.0.1:1/app"})},
+	} {
+		db, err := gorm.Open(c.dialector,
+			&gorm.Config{DisableAutomaticPing: true, DryRun: true, Logger: newGormLogger(DefaultClientConfig(), pgDialect(), c.dialector)},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { sqlDB, _ := db.DB(); sqlDB.Close() })
+
+		for _, scan := range []struct {
+			name string
+			run  func(dest any) *gorm.DB
+		}{
+			{"Raw", func(dest any) *gorm.DB {
+				return db.Raw("SELECT count(*) AS n FROM users WHERE password = ?", secret).Scan(dest)
+			}},
+			{"Select", func(dest any) *gorm.DB {
+				return db.Table("users").Select("count(*) AS n").Where("password = ?", secret).Scan(dest)
+			}},
+		} {
+			t.Run(c.name+"_"+scan.name, func(t *testing.T) {
+				lines := capture(t)
+				var dest struct{ N int }
+				tx := scan.run(&dest)
+				sent := tx.Statement.SQL.String()
+				if sent == "" || strings.Contains(sent, secret) {
+					t.Fatalf("前提：发出去的语句该带占位符，实际 %q", sent)
+				}
+				got := lines()
+				if len(got) != 1 {
+					t.Fatalf("Scan 应记 1 条 SQL 日志，实际 %v", got)
+				}
+				if sql, _ := got[0]["sql"].(string); sql != sent {
+					t.Errorf("Scan 记下的 SQL 应就是发出去的那条：\n日志 %q\n发出 %q", sql, sent)
+				}
+			})
+		}
+	}
+}
+
 func TestLogger_PG占位符还原是Explain的精确逆运算(t *testing.T) {
 	// 原文里本来就有 $1$ 这种写法（字符串字面量里）也要原样还原，
 	// 不能只是「把 $N$ 都换成 $N」碰巧对上了常见的语句

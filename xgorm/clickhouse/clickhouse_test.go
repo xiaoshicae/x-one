@@ -66,7 +66,8 @@ func TestResolve_DSN里写了的不覆盖(t *testing.T) {
 
 func TestDialect_认得出认证失败(t *testing.T) {
 	// 没有能连的 ClickHouse，错误的形状取自驱动源码：native 协议握手时服务端回
-	// Exception 包，驱动原样返回 *clickhouse.Exception。错误码取自 ch-go 的类型化常量
+	// Exception 包，驱动原样返回 *clickhouse.Exception；HTTP 协议下是 *clickhouse.HTTPError
+	// 包着 *clickhouse.Exception（v2.48.0 conn_http_errors.go）。错误码取自 ch-go 的类型化常量
 	wrap := func(code int32) error {
 		return fmt.Errorf("dial: %w", &chgo.Exception{Code: code, Name: "DB::Exception", Message: "rejected"})
 	}
@@ -81,7 +82,8 @@ func TestDialect_认得出认证失败(t *testing.T) {
 		{"WRONG_PASSWORD", wrap(193), true, "193"},
 		{"REQUIRED_PASSWORD", wrap(194), true, "194"},
 		{"UNKNOWN_DATABASE 不算", wrap(81), false, "81"},
-		{"HTTP 协议的文本错误认不出", errors.New("clickhouse [execute]:: 401 code: Code: 516"), false, ""},
+		{"HTTP 协议", fmt.Errorf("sendQuery: %w", &chgo.HTTPError{StatusCode: 403, Err: &chgo.Exception{Code: 516}}), true, "516"},
+		{"HTTP 协议解析不出 Exception 的认不出", &chgo.HTTPError{StatusCode: 502, Err: errors.New("bad gateway")}, false, ""},
 	} {
 		if got := dialect.AuthFailed(c.err); got != c.auth {
 			t.Errorf("%s：AuthFailed=%v，want %v", c.name, got, c.auth)

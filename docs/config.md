@@ -369,6 +369,14 @@ DSN 里写了的（哪怕写的是 `parseTime=false`）以 DSN 为准；判断�
 （或 `loc=Asia%2FShanghai`）。注意：原来把 `DATETIME` 扫进 `string` 的，打开之后拿到的是
 `time.Time` 格式化出来的 RFC 3339（`2024-01-01T19:04:05Z`），要原样文本的在 DSN 里写 `parseTime=false`。
 
+**`Scan` 的 SQL 日志同样不带参数值。** GORM 的 `Scan`（`Raw(...).Scan(...)`、`Table(...).Select(...).Scan(...)`）
+执行期间把实例的 Logger 换成 `logger.Recorder`（gorm v1.31.2 `finisher_api.go:539`），它不问 xgorm Logger 的 `ParamsFilter`，
+只认进程级的 `logger.RecorderParamsFilter`，而那个变量的默认值原样返回参数。实测（ClickHouse 24.8，改之前）
+`WHERE name = ?` 记成了 `WHERE name = 'sql-3fa9c1d2b7e4'`，MySQL、PostgreSQL 一样。所以 import xgorm 时
+（它的 `init`）就把 `logger.RecorderParamsFilter` 换成了同一个不交出参数的过滤器。它是进程级的：进程里使用者自己
+`gorm.Open` 的实例，`Scan` 的日志也不带参数值。要换（比如本地调试时想看参数）就在 `main` 里重新给
+`logger.RecorderParamsFilter` 赋值，`main` 在所有 `init` 之后才跑，以它为准。
+
 **服务端的错误原文不进日志和链路。** 服务端报错时，原文会把参数值带出来，SQL 只记占位符也就白记了。实测：
 
 | 服务端 | 错误 | 原文 |
@@ -546,40 +554,48 @@ DSN 必须是上面四种 scheme 之一的 URL，否则启动失败——包括�
 版本号照样设进 Dialector，驱动靠它判断老版本不支持的改列名（< 20.4）和列精度（< 21.11）。
 
 为什么不直接放进 xgorm：实测一个只 import xgorm 的应用模块图是 65 个，
-加上 ClickHouse 驱动变成 146 个（编译包 140 → 183）。多出来的大头是 Docker 和
+加上 ClickHouse 驱动变成 128 个（`go list -deps` 里的非标准库包 127 → 171；clickhouse-go v2.48.0）。多出来的大头是 Docker 和
 testcontainers —— `clickhouse-go` 用它们跑集成测试，而 `go.mod` 分不出
 「只测试用」。Go 的 MVS 按模块图把版本要求强加给使用者，不用它的人不该付这个钱。
 
-密码错时不重试，报 `authentication to <addr> failed`：认的是 native 协议握手时服务端回的
-`*clickhouse.Exception`，错误码 516（AUTHENTICATION_FAILED，新版本服务端密码错、用户不存在都报它）、
-192 / 193 / 194（老版本分开报的 UNKNOWN_USER、WRONG_PASSWORD、REQUIRED_PASSWORD），码取自 ch-go v0.61.5 的类型化常量。
-实测（ClickHouse 24.8.14、e2e）：密码错、用户不存在都是 `code: 516, message: <user>: Authentication failed: …`，
-只试 1 次、启动 50ms 内失败；库不存在是 81（UNKNOWN_DATABASE），不算认证失败，照常试满 3 次、报 `cannot reach`。
-HTTP 协议下驱动返回的是一段拼好的文本、没有错误码，认不出，按连不上处理（实测试满 3 次、0.8–1.8s 后报（差别在退避的随机抖动）
-`cannot reach <addr>: clickhouse [execute]:: 403 code: Code: 516. DB::Exception: …`，状态码是 403 不是 401），
-SQL 日志和 Span 里也照原文记。
+密码错时不重试，报 `authentication to <addr> failed`：认的是服务端回的 `*clickhouse.Exception`
+（native 协议是握手时的 Exception 包；HTTP 协议下驱动把非 200 的响应解析成 `*clickhouse.HTTPError`，里面包着同一个
+`*clickhouse.Exception`），错误码 516（AUTHENTICATION_FAILED，新版本服务端密码错、用户不存在都报它）、
+192 / 193 / 194（老版本分开报的 UNKNOWN_USER、WRONG_PASSWORD、REQUIRED_PASSWORD），码取自 ch-go v0.74.0 的类型化常量。
+实测（clickhouse-go v2.48.0、ClickHouse 24.8.14、e2e）：密码错、用户不存在都是 `code: 516, message: <user>: Authentication failed: …`，
+只试 1 次、启动 50ms 内失败；HTTP 协议下一样（`[HTTP 403] code: 516, …`，状态码是 403 不是 401，40ms 失败）；
+库不存在是 81（UNKNOWN_DATABASE），不算认证失败，照常试满 3 次、报 `cannot reach`。
+HTTP 协议下 SQL 日志和 Span 同样只记错误码；解析不出 Exception 的（比如代理回的 502）照原文记。
 
-**ClickHouse 的超时与取消**（clickhouse-go v2.30.0 源码，native 协议；数字是 e2e 对 24.8.14 实测）：
+**ClickHouse 的超时与取消**（clickhouse-go v2.48.0 源码，native 协议；数字是 e2e 对 24.8.14 实测）：
 
-- `read_timeout` 没写时是 **300s**（`setDefaults`；实测对端不回话、不给截止时间，300.1s 后才报 `i/o timeout`）。
-  DSN 里写了的照写的来（实测 `read_timeout=2s` 就是 2.0s）。
-- **`read_timeout` 只管到第一个数据块（表头）为止。** 每条查询开始时设一次读 deadline，收到表头之后就清掉了，
-  余下的数据块在另一个协程里读、不再有读超时。ClickHouse 几乎立刻就回表头（实测 `SELECT sleep(2)` 配
-  `read_timeout=1s` 照样 2.0s 成功），所以流到一半对端不回话、调用方又没给截止时间，查询就**一直挂着**，
-  比 300s 还长（实测 6s 后仍挂着）。调用方的截止时间和取消在表头之后照样管用。
-- 调用方的 ctx 有截止时间时，池里的连接听它（实测给 200ms 就在 201ms 返回）。**新建连接不听**：
+- `read_timeout` 没写时是 **300s**（`setDefaults`；实测对端不回话、不给截止时间、`dial_timeout=500ms`：300.6s 后才报错——300s 读超时，再加重发那次新连接握手的 500ms，见下）。
+  DSN 里写了的照写的来。
+- **`read_timeout` 管的是一整段读，不是「多久没收到字节」。** 一条查询分两段读：读到第一个数据块（表头）、
+  再在另一个协程里读余下的全部数据块，每段开始时设一次读 deadline = 现在 + `read_timeout`，中途不续期。
+  所以**健康的查询只要余下的结果读得比 `read_timeout` 久，照样失败**：实测一行一个数据块、50 行 × 100ms 的流配
+  `read_timeout=1s`，1.0s 时报 `i/o timeout`；`SELECT sleep(2)` 配 `read_timeout=1s` 同样 1.0s 失败。
+  流到一半对端不回话、不给截止时间，也在 `read_timeout` 失败。跑得久的查询（导数、大聚合）要么调大 `read_timeout`，
+  要么给调用方的截止时间。
+- **调用方的截止时间代替 `read_timeout`**，比它长也照截止时间来（实测同一条 5s 的流配 `read_timeout=1s`、
+  截止时间 10s，5.0s 读完）；池里的连接给 200ms 就在 201ms 返回。**新建连接不听 ctx**：
   拨号是 `net.DialTimeout`、握手按 `dial_timeout` 设整条连接的 deadline，都不看 ctx（`database/sql` 调驱动的
   `Open` 时不带 ctx）。对端不回话或主机宕机时，池里的连接用完之后每条查询都要等满 `dial_timeout`
-  （默认 500ms，实测 500.4–501.3ms）才返回，比 200ms 的截止时间多出 300ms，但有上界。
+  （默认 500ms，实测 500.2–501.5ms）才返回，比 200ms 的截止时间多出 300ms，但有上界。
+- **读超时的查询会被 `database/sql` 重发，一共发 3 次。** 驱动把读超时认成坏连接、报 `driver.ErrBadConn`，
+  连接不再还回池里；`database/sql` 看到它就换一条连接再发（`maxBadConnRetries` = 2，第三次一定是新连接）。
+  实测 `read_timeout=1s`、池子 1 条连接：服务端要睡 1.5s 的查询 3.0s 后才失败，`system.query_log` 里它开始了 3 次，
+  返回的错误是 `driver: bad connection`——`i/o timeout` 这个根因丢了；紧接着的下一条查询拿到的是自己的结果。
+  对端不回话时第二次落在新连接的握手上：`read_timeout=2s` 的查询 2.5s（再加一个 `dial_timeout`）失败，
+  错误是握手那次的 `i/o timeout`。截止时间和取消走的是 ctx，不重发。
+  （clickhouse-go v2.30.0 时相反：读超时的连接还回池里，下一条借到它的查询**成功返回了上一条的结果**，上游 v2.47.0 修掉。）
+  所以给查询的截止时间要比 `read_timeout` 短，别让读超时先到：服务端要为同一条查询白跑三遍。
 - 查询和执行认 ctx 的**取消**：读回包放在协程里，ctx 取消时当场返回 `context canceled`，同时给服务端发 Cancel 包、
-  关掉这条连接（不还回池里）。实测客户端断开之后 0.2ms handler 就返回了；优雅退出时在断连那一刻返回。
-  服务端按数据块停下：逐块吐行的查询在客户端放弃之后约 120ms 从 `system.processes` 里消失，
+  关掉这条连接（不还回池里）。实测客户端断开之后 0.5ms handler 就返回了；优雅退出时在断连那一刻返回。
+  服务端按数据块停下：逐块吐行的查询在客户端放弃之后约 115ms 从 `system.processes` 里消失，
   一个 `sleep(2.5)` 打断不了、服务端照样睡满。
-- **读超时之后那条连接会回到池里**，下一条借到它的查询可能读到上一条的结果：驱动判断连接坏没坏用的是
-  类型断言 `err.(*net.OpError)`，而读超时的错误被包了一层，断言落空（上游 v2.47.0 才改成 `errors.As`）。
-  实测 `read_timeout=1s`、池子 1 条连接：A 在服务端睡 1.5s、1.0s 读超时失败，紧接着的 B（`SELECT 'B'…`）
-  **成功返回了 A 的结果**。调用方给了截止时间的不受影响——截止时间一到连接就被关掉。
-  所以给查询的截止时间要比 `read_timeout` 短，别让读超时先到。
+- 参数由驱动代进语句再发给服务端：整数原样，浮点数写成 `cast(1.5, 'Float64')`（v2.30.0 时是裸的 `1.5`），
+  在 `system.query_log` / `system.processes` 里按语句文本找查询时要按这个写法找。SQL 日志和 Span 里是 GORM 那一层带 `?` 的语句，不受影响。
 - `Ping` 只认截止时间、不认取消：没有截止时间的 ctx 被取消了，`Ping` 照样等满 `read_timeout`。
   xgorm 的建连探测每次都带截止时间（`2 × dial_timeout`），启动期间收到退出信号时，要等这一次拨号或握手
   撞上 `dial_timeout` 才退出（实测信号之后约 400ms，不会卡满整轮重试）。

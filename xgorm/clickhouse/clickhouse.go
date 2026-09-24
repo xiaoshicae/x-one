@@ -14,14 +14,14 @@
 //	  DSN: "${CH_DSN}"     # clickhouse://user:pass@host:9000/db
 //
 // 为什么是独立的 module：实测一个只 import xgorm 的应用模块图是 65 个，
-// 加上这个包变成 146 个（编译包 140 → 183）。多出来的大头是 Docker 和
-// testcontainers —— clickhouse-go 用它们跑集成测试，而 go.mod 分不出
-// 「只测试用」，所以它们落在主 require 块里，一路传给每个使用者。
+// 加上这个包变成 128 个（go list -deps 里的非标准库包 127 → 171；clickhouse-go v2.48.0）。
+// 多出来的大头是 Docker（moby）和 testcontainers —— clickhouse-go 用它们跑集成测试，
+// 而 go.mod 分不出「只测试用」，所以它们落在主 require 块里，一路传给每个使用者。
 // Go 的 MVS 按模块图强加版本要求，不用 ClickHouse 的人不该为它付这个钱。
 //
 // 驱动版本要盯着：gorm.io/driver/clickhouse v0.6.1 的 go.mod 里还积着
 // 126 个 cloud.google.com/* 的陈年 indirect 项，用它模块图是 733 个；
-// 升到 v0.7.0 直接降到 146。
+// 升到 v0.7.0 直接降到 146（那时 clickhouse-go 是 v2.30.0，升到 v2.48.0 又降到 128）。
 package clickhouse
 
 import (
@@ -166,7 +166,7 @@ func resolve(c xgorm.ClientConfig) (string, xgorm.ConnInfo, error) {
 
 	// 预算按驱动读出来的 dial_timeout 算：DSN 里写了更长的，xgorm 建连验证的预算
 	// 才会跟着放宽。驱动拿它管 TCP 建连，握手阶段又拿它设整条连接的 deadline
-	// （v2.30.0 conn_handshake.go），往返没有单独可依的配置，按同一量级再给一份。
+	// （v2.48.0 conn_handshake.go），往返没有单独可依的配置，按同一量级再给一份。
 	// 两处都没写时 ParseDSN 读出来是 0（驱动建连时才补 30s），交给 xgorm 按
 	// 2 × DialTimeout 兜底
 	//
@@ -187,10 +187,11 @@ func resolve(c xgorm.ClientConfig) (string, xgorm.ConnInfo, error) {
 // src/Common/ErrorCodes.cpp 同名）：新版本的服务端密码错、用户不存在一律报
 // 516 AUTHENTICATION_FAILED，192 / 193 / 194 是老版本分开报的三种。
 //
-// native 协议握手时服务端回 Exception 包，驱动原样返回 *clickhouse.Exception（v2.30.0 conn.go 的
-// exception()），错误链上 errors.As 得到。实测（e2e，ClickHouse 24.8.14）密码错、用户不存在
-// 都是 code: 516，只试 1 次；库不存在是 81，不在这里。HTTP 协议的错误是驱动拼的一段文本
-// （实测 "clickhouse [execute]:: 403 code: Code: 516. DB::Exception: ..."），没有错误码可认，按连不上处理
+// native 协议握手时服务端回 Exception 包，驱动原样返回 *clickhouse.Exception（v2.48.0 conn.go 的
+// exception()），错误链上 errors.As 得到。HTTP 协议下驱动把非 200 的响应解析成 *clickhouse.HTTPError，
+// 里面包着同一个 *clickhouse.Exception（v2.48.0 conn_http_errors.go），同样认得出。
+// 实测（e2e，ClickHouse 24.8.14）两种协议下密码错、用户不存在都是 code: 516，只试 1 次
+// （HTTP 的状态码是 403）；库不存在是 81，不在这里。v2.30.0 的 HTTP 错误只是一段拼好的文本，认不出
 var authCodes = []chproto.Error{
 	chproto.ErrAuthenticationFailed, // 516
 	chproto.ErrUnknownUser,          // 192
@@ -206,7 +207,7 @@ func authFailed(err error) bool {
 
 // errorCode 服务端报的错误码。原文（Exception.Message）里可能就有参数值，
 // 比如解析不了的输入会被原样引出来，所以日志和 Span 只记码。
-// HTTP 协议下没有类型化的错误，认不出，照原文记
+// HTTP 协议下错误链上同样有 *clickhouse.Exception（见 authCodes）；解析不出来的（比如代理回的 502）照原文记
 func errorCode(err error) string {
 	var ex *chgo.Exception
 	if errors.As(err, &ex) {

@@ -82,7 +82,7 @@ github.com/xiaoshicae/x-one           核心，2 个模块，Go 1.22
 - **Swagger UI** 要把整套前端资源编进二进制，比只用 gin 多 26 个模块，所以它是
   `xginswagger` 而不是 `xgin` 的一部分——文档是开发期的事，不该让每个线上服务都背着。
 - **数据库驱动**：一个只 import `xgorm` 的应用模块图是 65 个，加上 ClickHouse 驱动变成
-  **146** 个（编译包 140 → 183）。多出来的大头是 Docker 和 testcontainers —— `clickhouse-go`
+  **128** 个（`go list -deps` 里的非标准库包 127 → 171；clickhouse-go v2.48.0）。多出来的大头是 Docker 和 testcontainers —— `clickhouse-go`
   用它们跑集成测试，而 `go.mod` 分不出「只测试用」，于是它们落在主 require 块里一路传给
   每个使用者。所以 mysql 和 postgres 内置，其余驱动由独立 module 提供，`xgorm` 只留一个注册点：
 

@@ -102,7 +102,7 @@ func TestClickHouse_建连探测查到的版本号设进了Dialector_24点8上�
 // docs/config.md XGorm.Log：「记的是带占位符的 SQL，不含参数值」「占位符就是发给数据库的那样」——ClickHouse 是 ?；
 // 日志里的语句就是 Span 的 db.query.text。Log 按实例生效：只给 ch 开，PG、MySQL 的 SQL 一条都不该记。
 //
-// 聚合那一条走的是 GORM 的 Scan：见子测试「Scan」里的 KNOWN BUG
+// 聚合那一条走的是 GORM 的 Scan：见子测试「Scan」
 func TestClickHouse_SQL日志只记问号占位符不记参数值_和Span的db_query_text一致(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
@@ -157,13 +157,14 @@ func TestClickHouse_SQL日志只记问号占位符不记参数值_和Span的db_q
 	// GORM 的 Scan（v1.31.2 finisher_api.go:537）执行期间把 Logger 换成 logger.Recorder，
 	// 执行完再把 Recorder 记下的 SQL 交给我们的 Logger。Recorder 不走 xgorm 的 ParamsFilter，
 	// 它的 ParamsFilter 只认包级的 logger.RecorderParamsFilter（默认原样返回参数），
-	// 于是交过来的是 Explain 过、参数已经代进去的 SQL。实测：
+	// 于是交过来的是 Explain 过、参数已经代进去的 SQL。这条原先是 KNOWN BUG，改之前实测：
 	//
 	//	SELECT count() AS n, sum(value) AS s FROM `e2e_…` WHERE name = 'sql-3fa9c1d2b7e4'
 	//
 	// 这不是 ClickHouse 独有的：xgorm 的每个实例上，Raw(...).Scan(...) 和 Table(...).Select(...).Scan(...)
-	// 都这样（服务里 MySQL 的 SELECT SLEEP(?) 记下来就是 SELECT SLEEP(1.5)）。Span 不受影响：
-	// db.query.text 取自 Statement.SQL，照样是占位符
+	// 都这样（服务里 MySQL 的 SELECT SLEEP(?) 记下来就是 SELECT SLEEP(1.5)）。xgorm 的 init 把
+	// logger.RecorderParamsFilter 换成了不交出参数的那个（docs/config.md「Scan 的 SQL 日志同样不带参数值」）。
+	// Span 不受影响：db.query.text 取自 Statement.SQL，照样是占位符
 	t.Run("Scan", func(t *testing.T) {
 		r := p.Get(t, "/ch/stats?name="+name)
 		tid := traceIDOf(t, r)
@@ -177,8 +178,10 @@ func TestClickHouse_SQL日志只记问号占位符不记参数值_和Span的db_q
 			t.Errorf("Span 的 db.query.text 应是 %q，实际 %v", want, spans)
 		}
 		if logged := logs[0].Str("sql"); logged != want {
-			harness.KnownBug(t, fmt.Sprintf("GORM 的 Scan 绕开了 xgorm 的 ParamsFilter，SQL 日志里带着参数值：%q（应是 %q）", logged, want))
+			t.Errorf("GORM 的 Scan 绕开了 xgorm 的 ParamsFilter？SQL 日志应是带 ? 占位符的 %q，实际 %q", want, logged)
 		}
+		mustNotContain(t, "GET /ch/stats 的 SQL 日志", logs[0].Line, name)
+		t.Logf("数字：Scan 记下的 SQL：%s", logs[0].Str("sql"))
 	})
 }
 
@@ -229,7 +232,7 @@ func TestClickHouse_SQL的Span带上这个实例自己的连接信息(t *testing
 				t.Errorf("%s 不该标成错误（没查到记录也不算），实际 status=%s %s", c.span, s.StatusCode, s.StatusDescription)
 			}
 			mustNotContain(t, "Span "+c.span+" 的属性", fmt.Sprint(s.Attributes), name, fmt.Sprint(ids[0]))
-			// ClickHouse 的驱动对写入永远报 0 行（clickhouse-go v2.30.0 stdDriver.ExecContext 返回 driver.RowsAffected(0)），
+			// ClickHouse 的驱动对写入永远报 0 行（clickhouse-go v2.48.0 stdDriver.ExecContext 返回 driver.RowsAffected(0)），
 			// db.rows_affected 在这个实例上没有意义，只记下来
 			t.Logf("数字：%s 的 db.rows_affected=%s", c.what, s.Str("db.rows_affected"))
 		})

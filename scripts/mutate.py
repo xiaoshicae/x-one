@@ -968,6 +968,10 @@ mutate("go-redis 的日志带着调用方的 ctx", "xredis/xredis.go", "./xredis
 # redisotel 默认把整条命令连同参数写进 Span：两处都是凭证出去的口子
 mutate("SQL 日志里没有参数值", "xgorm/logger.go", "./xgorm", "TestLogger",
        swap('func (l *gormLogger) ParamsFilter(', 'func (l *gormLogger) paramsFilter('))
+# Scan 借用的 Recorder 不问实例 Logger 的 ParamsFilter，只认进程级的 RecorderParamsFilter：
+# 打在 init 里接它的那一行上
+mutate("Scan 的 SQL 日志里没有参数值", "xgorm/xgorm.go", "./xgorm", "TestLogger_Scan",
+       swap('\tlogger.RecorderParamsFilter = withoutParams\n', ''))
 # PG 方言的 Explain 没参数可代时把 $1 留成 $1$：日志里的语句和发出去的对不上。
 # 打在记 SQL 的调用点上，和判断方言占位符的那一处
 mutate("PG 的 SQL 日志就是发出去的那条", "xgorm/logger.go", "./xgorm", "TestLogger",

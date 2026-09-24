@@ -94,7 +94,19 @@ func (l *gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (stri
 // 否则把 Statement.Vars 逐个代进 SQL 再交给我们：实测 Log: true 时
 // WHERE password = ? 记下来的是 password = '<真实的值>'。参数里可能有
 // 个人信息或凭证，与 trace.go 不记 Statement.Vars 是同一条原则。
-func (l *gormLogger) ParamsFilter(_ context.Context, sql string, _ ...any) (string, []any) {
+func (l *gormLogger) ParamsFilter(ctx context.Context, sql string, params ...any) (string, []any) {
+	return withoutParams(ctx, sql, params...)
+}
+
+// withoutParams 只留带占位符的 SQL，参数一个都不交出去。
+//
+// 除了 gormLogger.ParamsFilter，它还是进程级的 logger.RecorderParamsFilter（见 xgorm.go 的 init）：
+// GORM 的 Scan 执行期间把实例的 Logger 换成 logger.Recorder（v1.31.2 finisher_api.go:539），
+// 执行完再把 Recorder 记下的 SQL 交给原来的 Logger。Recorder 不问我们的 ParamsFilter，
+// 只认这个包级变量，而它的默认值原样返回参数——于是 Raw(...).Scan(...)、
+// Table(...).Select(...).Scan(...) 交过来的是参数已经代进去的 SQL，每个驱动都是。
+// 实测（ClickHouse 24.8，改之前）：WHERE name = ? 记成了 WHERE name = 'sql-3fa9c1d2b7e4'
+func withoutParams(_ context.Context, sql string, _ ...any) (string, []any) {
 	return sql, nil
 }
 

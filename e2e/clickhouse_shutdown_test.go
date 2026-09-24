@@ -70,10 +70,12 @@ func TestClickHouse_SIGTERM时在途的ClickHouse查询做完才关连接池(t *
 	waitGauge(t, p, "e2e_stuck_inflight", stucks, 5*time.Second)
 	// sleep 已经发到 ClickHouse 上了：system.processes 里看得见它们，信号到的时候它们正在服务端执行
 	deadline := time.Now().Add(2 * time.Second)
-	running := chRunning(t, "sleep(1.5)")
+	// 参数由驱动代进语句再发出去：clickhouse-go v2.48.0 把 1.5 写成 cast(1.5, 'Float64')（v2.30.0 时是裸的 1.5）
+	const marker = "sleep(cast(1.5, 'Float64'))"
+	running := chRunning(t, marker)
 	for running < sleeps && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
-		running = chRunning(t, "sleep(1.5)")
+		running = chRunning(t, marker)
 	}
 	if running < sleeps {
 		t.Fatalf("发信号之前 ClickHouse 上应有 %d 条正在执行的 SELECT sleep，system.processes 里只有 %d 条", sleeps, running)
@@ -220,9 +222,10 @@ func TestClickHouse_客户端放弃之后_驱动发Cancel_服务端按数据块�
 		name, path, marker string
 		gone               time.Duration // 服务端最多多久之后不再有这条查询
 	}{
-		// numbers(N) 的 N 当标记：带参数的查询在服务端看到的是代进去之后的文本
+		// numbers(N) 的 N 当标记：带参数的查询在服务端看到的是代进去之后的文本。
+		// 整数原样代进去，浮点数 clickhouse-go v2.48.0 写成 cast(2.5, 'Float64')（v2.30.0 时是裸的 2.5）
 		{"逐块的查询", "/ch/stream?rows=4711&ms=100", "numbers(4711)", time.Second},
-		{"单个sleep", "/ch/sleep?ms=2500", "sleep(2.5)", 3 * time.Second},
+		{"单个sleep", "/ch/sleep?ms=2500", "sleep(cast(2.5, 'Float64'))", 3 * time.Second},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			const giveUp = 300 * time.Millisecond
@@ -244,6 +247,10 @@ func TestClickHouse_客户端放弃之后_驱动发Cancel_服务端按数据块�
 			}
 			if left > c.gone {
 				t.Errorf("客户端放弃之后服务端应在 %v 内停下，实际 %v", c.gone, left)
+			}
+			// 标记对不上的话上面第一眼就是 0，这条断言什么都没验：驱动换了代参数的写法时就会这样
+			if n := chQueryStarts(t, c.marker); n == 0 {
+				t.Fatalf("前提：服务端的 query_log 里应有带 %q 的查询，实际没有（驱动代参数的写法变了？）", c.marker)
 			}
 			t.Logf("数字：%s：客户端 %v 放弃之后 %s 服务端不再有这条查询", c.name, giveUp, fmtMS(left))
 		})

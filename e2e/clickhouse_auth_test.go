@@ -73,14 +73,15 @@ func TestClickHouse_启动时密码错误或用户不存在_native协议认得�
 	})
 }
 
-// HTTP 协议（http://…:8123）下密码错：docs/config.md「其它驱动」——「HTTP 协议下驱动返回的是一段拼好的文本、
-// 没有错误码，认不出，按连不上处理」。实测（clickhouse-go v2.30.0、ClickHouse 24.8.14）驱动的错误是
+// HTTP 协议（http://…:8123）下密码错：docs/config.md「其它驱动」——「HTTP 协议下同样认得出」。
+// clickhouse-go v2.48.0 把非 200 的响应解析成 *clickhouse.HTTPError，里面包着 *clickhouse.Exception
+// （conn_http_errors.go，错误码取自 X-ClickHouse-Exception-Code 头），errors.As 取得到。实测（ClickHouse 24.8.14）：
 //
-//	clickhouse [execute]:: 403 code: Code: 516. DB::Exception: xone: Authentication failed: … (AUTHENTICATION_FAILED) …
+//	failed to query server hello: …: sendQuery: [HTTP 403] code: 516, message: xone: Authentication failed: … (AUTHENTICATION_FAILED) …
 //
-// 状态码是 403（不是 401），错误链上没有 *clickhouse.Exception。所以试满 3 次、报 cannot reach，
-// 在建连预算内失败；密码照样不出现在输出里（错误文本里没有它）
-func TestClickHouse_启动时HTTP协议密码错误_认不出认证失败_按连不上重试_没有密码(t *testing.T) {
+// 状态码是 403（不是 401）。v2.30.0 时这里是一段拼好的文本、错误链上没有 Exception，认不出，试满 3 次、报 cannot reach。
+// 密码照样不出现在输出里（错误文本里没有它）
+func TestClickHouse_启动时HTTP协议密码错误_同样认得出是认证失败_不重试_没有密码(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	pw := harness.CHPassword()
@@ -90,17 +91,16 @@ func TestClickHouse_启动时HTTP协议密码错误_认不出认证失败_按连
 	exit, p := faultStartFails(t, harness.Options{ClickHouse: true, Env: map[string]string{"E2E_CH_DSN": dsn}})
 	stderr := p.Stderr()
 	mustNotContain(t, "进程的 stdout / stderr", p.Output(), pw, wrong, dsn)
-	faultMustContain(t, "stderr", stderr, "xgorm connect failed", `instance "ch"`, "cannot reach "+chp.Addr(),
-		"clickhouse [execute]:: 403 code: Code: 516", "AUTHENTICATION_FAILED")
-	if strings.Contains(stderr, "authentication to") {
-		t.Errorf("文档说 HTTP 协议下认不出认证失败；实际认出来了（文档该改）：%s", lastLine(stderr))
+	faultMustContain(t, "stderr", stderr, "xgorm connect failed", `instance "ch"`,
+		"authentication to "+chp.Addr()+" failed", "[HTTP 403] code: 516", "AUTHENTICATION_FAILED")
+	if strings.Contains(stderr, "cannot reach") {
+		t.Errorf("认证失败不是连不上，不该报 cannot reach：%s", lastLine(stderr))
 	}
-	// 退避带抖动（xutil.Retry），两次退避可以远短于上界：只卡上界，重试靠代理数到的连接数确认
-	if exit.Uptime > chStartBudget+faultStartSlack {
-		t.Errorf("按连不上处理要试满 3 次，应在预算 %v 内失败，实际 %v", chStartBudget, exit.Uptime)
+	if exit.Uptime > faultStartSlack {
+		t.Errorf("认证失败不重试，应在 %v 内退出，实际 %v", faultStartSlack, exit.Uptime)
 	}
-	if chp.Accepted() != faultPingAttempts {
-		t.Errorf("按连不上处理要试满 %d 次，代理实际收到 %d 个连接", faultPingAttempts, chp.Accepted())
+	if chp.Accepted() != 1 {
+		t.Errorf("认证失败不重试，代理应只收到 1 个连接，实际 %d 个", chp.Accepted())
 	}
 	t.Logf("数字：HTTP 协议密码错：%v 后以 %d 退出，试了 %d 次；错误：%s", exit.Uptime.Round(time.Millisecond), exit.Code, chp.Accepted(), grepLines(stderr, "xone start failed", 1))
 }

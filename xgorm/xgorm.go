@@ -240,6 +240,12 @@ func init() {
 	// 驱动在解析 DSN 时把当时的 logger 抄进连接配置，之后再调 SetLogger 只对新解析的 DSN 生效
 	// ——xgorm 在启动钩子里才解析，所以 main 里、xone 启动之前调的那次照样生效
 	_ = mysqldriver.SetLogger(mysqlDriverLogger{}) // 只在参数为 nil 时报错
+
+	// GORM 的 Scan 借用的 Recorder 只认这个进程级的变量，默认把参数值代进 SQL，
+	// 绕开了实例 Logger 的 ParamsFilter，见 withoutParams。道理同上：只能在这里接，
+	// 使用者要换（比如只在本地调试时看参数）就在 main 里重新赋值，main 在所有 init 之后才跑。
+	// 进程里使用者自己 gorm.Open 的实例也吃这一条：Scan 的 SQL 日志一样不带参数值
+	logger.RecorderParamsFilter = withoutParams
 }
 
 // initXGorm 读配置，按名字把实例挨个建出来。
