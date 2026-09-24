@@ -388,6 +388,9 @@ mutate("第二个信号能终止卡住的进程", "xone.go", ".", "TestRun",
 mutate("Stop 拿到的 ctx 不继承那次取消", "xone.go", ".", "TestRun_Stop拿到的ctx不继承那次取消",
        swap('context.WithTimeout(context.WithoutCancel(ctx), o.stopTimeout)','context.WithTimeout(ctx, o.stopTimeout)'))
 # Stop 收了 ctx 却不看它：同步调的话 Run 永远返回不了，一个停止钩子都轮不到
+# 到点之后不留那一截余量：看着截止时间返回的 Stop 报的错被丢掉，进程以 0 退出
+mutate("看着截止时间返回的 Stop 报的错不丢", "xone.go", ".", "TestRun_看着截止时间返回的Stop",
+       swap('case <-time.After(stopGrace):', 'default:'))
 mutate("不看 ctx 的 Stop 挂不住退出", "xone.go", ".", "TestRun_Stop不看ctx",
        swap('errors.Join(first, stopServer(serverCtx, o, s))', 'errors.Join(first, safe("stop", func() error { return s.Stop(serverCtx) }))'))
 # 服务只能用预算的前 2/3。让它用满整份的话，不肯退出的服务把时间吃光，

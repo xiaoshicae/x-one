@@ -1416,6 +1416,29 @@ func TestRun_Stop不看ctx时不挂住退出(t *testing.T) {
 	}
 }
 
+func TestRun_看着截止时间返回的Stop报的错不丢(t *testing.T) {
+	// 守规矩的 Stop 恰恰是等到截止时间才返回的：xgin 等在途 handler 等到那一刻，
+	// 再带着「N handler(s) still running」回来。它和框架那边的超时几乎同时发生，
+	// 框架先看到超时的话，这个错误就丢了，进程以 0 退出（e2e 撞上过）。
+	// 这里让它在截止时间之后 5ms 才返回，稳定地落在那一截余量里
+	boom := errors.New("2 handler(s) still running")
+	srv := &lateRunnable{
+		start: func(ctx context.Context) error { <-ctx.Done(); return nil },
+		stop: func(ctx context.Context) error {
+			<-ctx.Done()
+			time.Sleep(5 * time.Millisecond)
+			return boom
+		},
+	}
+	go func() { time.Sleep(50 * time.Millisecond); syscallSelfInterrupt(t) }()
+	comps(t, comp("a", hook.StageClient, &recorder{}, nil))
+	err := Run(srv, WithConfigPath(emptyConf(t)), WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
+		WithStopTimeout(300*time.Millisecond))
+	if !errors.Is(err, boom) {
+		t.Errorf("Stop 带回来的错误要如实报出，got=%v", err)
+	}
+}
+
 // ---- 配置 ----
 
 func TestRun_配置内容非法时一个钩子都不跑(t *testing.T) {

@@ -198,11 +198,24 @@ func stopServer(ctx context.Context, o options, s stopper) error {
 	case err := <-done:
 		return err
 	case <-ctx.Done():
+	}
+	// 到点之后再给它一小截：守规矩的 Stop 恰恰是看着同一个截止时间返回的
+	// （xgin 等在途 handler 等到截止时间，再带着「N handler(s) still running」返回），
+	// 和这里的 ctx.Done 几乎同时发生。不留这一截，select 就可能先看到 Done，
+	// 把 Stop 如实报出的错误丢掉，进程以 0 退出（e2e 两个退出用例撞上过）
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(stopGrace):
 		o.log().Warn("server Stop did not return within its share of the stop budget, closing the rest",
 			"budget", o.stopTimeout)
 		return nil
 	}
 }
+
+// stopGrace 服务的 Stop 到点之后还等它多久，见 stopServer。
+// 只用来接住「看着截止时间返回」的那个结果，从停止钩子的份额里借，量级要远小于 hookReserve
+const stopGrace = 50 * time.Millisecond
 
 // stopWithin 启动阶段失败时的关闭，自己开一份停止预算。
 //
