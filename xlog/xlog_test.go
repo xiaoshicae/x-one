@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xiaoshicae/x-one/internal/config"
 	"github.com/xiaoshicae/x-one/internal/hook"
+	"github.com/xiaoshicae/x-one/xonetest"
 )
 
 // fileCfg 造一份只写文件的配置，返回配置和日志文件路径
@@ -606,20 +606,6 @@ func TestLocation_没配时是本地时区(t *testing.T) {
 	}
 }
 
-// useConf 把一份配置装进全局配置，走的是框架真正会走的那条路
-func useConf(t *testing.T, yml string) {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "application.yml")
-	if err := os.WriteFile(p, []byte(yml), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	config.Reset()
-	if err := config.Load(p); err != nil {
-		t.Fatalf("加载配置失败：%v", err)
-	}
-	t.Cleanup(config.Reset)
-}
-
 // keepGlobals 记下会被 install 改掉的那些全局值，测试结束还原
 func keepGlobals(t *testing.T) {
 	t.Helper()
@@ -637,7 +623,7 @@ func TestInitXLog_没配也装好一个能用的默认日志(t *testing.T) {
 	// 日志是唯一一个「没配也必须有」的东西：配置本身出问题时，
 	// 使用者要能看见那条错误
 	keepGlobals(t)
-	useConf(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
 
 	if err := initXLog(context.Background()); err != nil {
 		t.Fatalf("没配不该报错：%v", err)
@@ -649,7 +635,7 @@ func TestInitXLog_没配也装好一个能用的默认日志(t *testing.T) {
 
 func TestInitXLog_配置写错时启动失败(t *testing.T) {
 	keepGlobals(t)
-	useConf(t, "XLog:\n  Lvl: debug\n")
+	xonetest.UseConfigYAML(t, "XLog:\n  Lvl: debug\n")
 
 	if err := initXLog(context.Background()); err == nil {
 		t.Fatal("字段拼错应当让启动失败")
@@ -658,7 +644,7 @@ func TestInitXLog_配置写错时启动失败(t *testing.T) {
 
 func TestInitXLog_取值非法时启动失败(t *testing.T) {
 	keepGlobals(t)
-	useConf(t, "XLog:\n  Level: verbose\n")
+	xonetest.UseConfigYAML(t, "XLog:\n  Level: verbose\n")
 
 	if err := initXLog(context.Background()); err == nil {
 		t.Fatal("认不出的级别应当让启动失败，而不是悄悄退回某个默认级别")
@@ -668,7 +654,7 @@ func TestInitXLog_取值非法时启动失败(t *testing.T) {
 func TestInitXLog_配置装到了全局_logger_上(t *testing.T) {
 	keepGlobals(t)
 	dir := t.TempDir()
-	useConf(t, "XLog:\n  Level: error\n  Console: false\n  File:\n    Enable: true\n    Path: \""+dir+"\"\n    Name: app.log\n")
+	xonetest.UseConfigYAML(t, "XLog:\n  Level: error\n  Console: false\n  File:\n    Enable: true\n    Path: \""+dir+"\"\n    Name: app.log\n")
 
 	if err := initXLog(context.Background()); err != nil {
 		t.Fatal(err)
@@ -693,7 +679,7 @@ func TestInitXLog_配置装到了全局_logger_上(t *testing.T) {
 
 func TestInitXLog_时区配置装到全局(t *testing.T) {
 	keepGlobals(t)
-	useConf(t, "XLog:\n  Timezone: Asia/Tokyo\n")
+	xonetest.UseConfigYAML(t, "XLog:\n  Timezone: Asia/Tokyo\n")
 
 	if err := initXLog(context.Background()); err != nil {
 		t.Fatal(err)
@@ -716,7 +702,7 @@ func TestCloseXLog_关掉文件之后的日志改写到stderr(t *testing.T) {
 	// 被丢下的停止钩子、在途请求打的日志，Console 关着时一声不响就没了
 	keepGlobals(t)
 	dir := t.TempDir()
-	useConf(t, "XLog:\n  Console: false\n  File:\n    Enable: true\n    Path: \""+dir+"\"\n    Name: app.log\n")
+	xonetest.UseConfigYAML(t, "XLog:\n  Console: false\n  File:\n    Enable: true\n    Path: \""+dir+"\"\n    Name: app.log\n")
 	if err := initXLog(context.Background()); err != nil {
 		t.Fatal(err)
 	}

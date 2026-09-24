@@ -11,8 +11,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -23,11 +21,12 @@ import (
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 
-	"github.com/xiaoshicae/x-one/internal/config"
 	"github.com/xiaoshicae/x-one/internal/hook"
+	"github.com/xiaoshicae/x-one/internal/testkit"
 	"github.com/xiaoshicae/x-one/internal/xclient"
 	"github.com/xiaoshicae/x-one/xerror"
 	"github.com/xiaoshicae/x-one/xmetric"
+	"github.com/xiaoshicae/x-one/xonetest"
 )
 
 // TestMain 调短重试间隔：连不上的用例要跑满整轮重试，按一秒算一次就是几十秒
@@ -61,7 +60,7 @@ func TestNew_连不上时不漏协程(t *testing.T) {
 	c.MySQL.ReadTimeout = 50 * time.Millisecond
 
 	const rounds = 5
-	before := stabilize()
+	before := testkit.Stabilize()
 	for i := 0; i < rounds; i++ {
 		db, closer, err := New(context.Background(), c)
 		if err == nil {
@@ -75,7 +74,7 @@ func TestNew_连不上时不漏协程(t *testing.T) {
 
 	// 必须等协程真正退出再数：连接池关闭后它的 opener 协程是异步退出的，
 	// 立刻去数会把「正在退出」当成「泄漏」，也会把真泄漏淹没在噪声里
-	if after := settleTo(before); after > before+1 {
+	if after := testkit.SettleTo(before); after > before+1 {
 		t.Errorf("建连失败 %d 次后协程数从 %d 涨到 %d，说明连接池没被关掉", rounds, before, after)
 	}
 }
@@ -322,7 +321,7 @@ func TestInitAll_一个失败就全部回滚(t *testing.T) {
 	bad.DialTimeout, bad.MySQL.ReadTimeout = 30*time.Millisecond, 30*time.Millisecond
 	cfg := Config{Clients: map[string]ClientConfig{"a": bad, "b": bad}}
 
-	before := stabilize()
+	before := testkit.Stabilize()
 	err := initComponent(t, cfg)
 	if err == nil {
 		t.Fatal("连不上时应当报错")
@@ -330,7 +329,7 @@ func TestInitAll_一个失败就全部回滚(t *testing.T) {
 	if !strings.Contains(err.Error(), `"a"`) {
 		t.Errorf("错误里应点名是哪个实例，got=%v", err)
 	}
-	if after := settleTo(before); after > before+1 {
+	if after := testkit.SettleTo(before); after > before+1 {
 		t.Errorf("回滚不干净，协程数从 %d 涨到 %d", before, after)
 	}
 }
@@ -372,7 +371,7 @@ func TestSettle_能看见泄漏的连接池(t *testing.T) {
 	// 于是「不漏协程」那条测试怎么改都通过——一条永远不会失败的测试
 	// 比没有测试更糟，它让人以为查过了。
 	addr := deadAddr(t)
-	before := stabilize()
+	before := testkit.Stabilize()
 
 	const leaked = 5
 	pools := make([]*sql.DB, 0, leaked)
@@ -387,48 +386,17 @@ func TestSettle_能看见泄漏的连接池(t *testing.T) {
 		pools = append(pools, pool)
 	}
 
-	if during := settleTo(before); during <= before {
+	// 判「涨了没有」用 ClimbTo：SettleTo 的判据是「回落到 target 以内」，
+	// 漏着的池子永远回落不了，它必然烧满整个 10 秒才返回。每个池子至少一个 opener 协程
+	if during := testkit.ClimbTo(before+leaked, 3*time.Second); during < before+leaked {
 		t.Fatalf("漏了 %d 个连接池却没看出协程增长（%d -> %d），这把尺子是坏的", leaked, before, during)
 	}
 	for _, p := range pools {
 		p.Close()
 	}
-	if after := settleTo(before); after > before+1 {
+	if after := testkit.SettleTo(before); after > before+1 {
 		t.Errorf("全关掉之后应当回落，got %d -> %d", before, after)
 	}
-}
-
-// stabilize 等协程数不再变化，用来取一个基准值
-func stabilize() int {
-	last := runtime.NumGoroutine()
-	stable := 0
-	for i := 0; i < 200; i++ {
-		time.Sleep(50 * time.Millisecond)
-		n := runtime.NumGoroutine()
-		if n == last {
-			if stable++; stable >= 3 {
-				return n
-			}
-			continue
-		}
-		last, stable = n, 0
-	}
-	return last
-}
-
-// settleTo 等协程数回落到 target 附近，最多等 10 秒，超时返回实际值。
-//
-// 不能用「连续几次读数相同」当作稳定：后台协程是一批批退出的，
-// 中间会有好几百毫秒纹丝不动，那时候读三次都一样，却离回落还远。
-// 上一版就是这么误报的——它在半路上就宣布「稳定了，还剩 8 个」。
-func settleTo(target int) int {
-	for i := 0; i < 200; i++ {
-		if n := runtime.NumGoroutine(); n <= target+1 {
-			return n
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return runtime.NumGoroutine()
 }
 
 func TestNew_ctx已取消时首次建连也当场放弃(t *testing.T) {
@@ -535,24 +503,10 @@ func initComponent(t *testing.T, c Config) error {
 	return install(context.Background(), c)
 }
 
-// useConf 把一份配置装进全局配置，走的是框架真正会走的那条路
-func useConf(t *testing.T, yml string) {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "application.yml")
-	if err := os.WriteFile(p, []byte(yml), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	config.Reset()
-	if err := config.Load(p); err != nil {
-		t.Fatalf("加载配置失败：%v", err)
-	}
-	t.Cleanup(config.Reset)
-}
-
 func TestInitXGorm_没写这一块就一个连接都不建(t *testing.T) {
 	// xgorm 是可选依赖：没配不该让服务起不来，更不该去连一个默认地址
 	t.Cleanup(func() { _ = closeXGorm(context.Background()) })
-	useConf(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
 
 	if err := initXGorm(context.Background()); err != nil {
 		t.Fatalf("没配不该报错：%v", err)
@@ -564,7 +518,7 @@ func TestInitXGorm_没写这一块就一个连接都不建(t *testing.T) {
 
 func TestInitXGorm_写了空块也不建(t *testing.T) {
 	t.Cleanup(func() { _ = closeXGorm(context.Background()) })
-	useConf(t, "XGorm:\n")
+	xonetest.UseConfigYAML(t, "XGorm:\n")
 
 	if err := initXGorm(context.Background()); err != nil {
 		t.Fatalf("空块不该报错：%v", err)
@@ -576,7 +530,7 @@ func TestInitXGorm_写了空块也不建(t *testing.T) {
 
 func TestInitXGorm_配置写错时启动失败(t *testing.T) {
 	t.Cleanup(func() { _ = closeXGorm(context.Background()) })
-	useConf(t, "XGorm:\n  DS: \"host=127.0.0.1\"\n")
+	xonetest.UseConfigYAML(t, "XGorm:\n  DS: \"host=127.0.0.1\"\n")
 
 	if err := initXGorm(context.Background()); err == nil {
 		t.Fatal("字段拼错应当让启动失败，否则使用者会一直以为自己配上了")
@@ -591,7 +545,7 @@ func TestInitXGorm_配置读到了实例上(t *testing.T) {
 	// 证明这一段配置确实走到了建连那一步，而不是在哪里被丢掉了
 	t.Cleanup(func() { _ = closeXGorm(context.Background()) })
 	addr := deadAddr(t)
-	useConf(t, "XGorm:\n  Clients:\n    report:\n      Driver: mysql\n      DialTimeout: 30ms\n      DSN: \"u:p@tcp("+addr+")/app\"\n")
+	xonetest.UseConfigYAML(t, "XGorm:\n  Clients:\n    report:\n      Driver: mysql\n      DialTimeout: 30ms\n      DSN: \"u:p@tcp("+addr+")/app\"\n")
 
 	err := initXGorm(context.Background())
 	if err == nil {
@@ -696,7 +650,7 @@ func TestInitXGorm_没配时C说的是没配而不是调早了(t *testing.T) {
 	// 没配也要让注册表知道启动钩子跑过了。否则 C() 会把「没配」说成「调早了」，
 	// 使用者会去查调用时机，而真正该查的是配置文件
 	t.Cleanup(func() { _ = closeXGorm(context.Background()) })
-	useConf(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
 	if err := initXGorm(context.Background()); err != nil {
 		t.Fatal(err)
 	}

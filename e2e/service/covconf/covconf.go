@@ -2,7 +2,7 @@
 //
 // 它和 Service 块互为对照：Service 在 main 里、xone.Run 之前读（docs/config.md「通用规则·什么时候读」），
 // Cov 在启动钩子里读（docs/config.md「业务自己的配置块」的另一种写法）。两处读到的
-// 都应该是合并完 profile / Import、展开完 ${VAR} 之后的最终值，GET /cov/config 把两者一起回给测试。
+// 都应该是合并完 profile / Import、展开完 ${VAR} 之后的最终值，GET /probe/config 把两者一起回给测试。
 //
 // 不配这一块就是默认值，也不会被当成「没人认领」：启动钩子里读过它就算认领了
 package covconf

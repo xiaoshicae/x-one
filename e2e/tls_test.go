@@ -251,7 +251,8 @@ func TestTLS_MySQL(t *testing.T) {
 	t.Run("客户端证书不是服务端认的CA签的", func(t *testing.T) {
 		// mysqld 的 CertificateRequest 里不列 CA，Go 的客户端于是照样出示这张证书，服务端回
 		// unknown_ca 告警。go-sql-driver v1.10.1 把它报成 invalid connection（照常重试），
-		// 告警本身只进驱动的日志——xgorm 把它接成一条 WARN
+		// 告警本身只进驱动的日志——xgorm 把它接成一条 WARN。
+		// 告警和驱动那一读谁先到不固定：实测偶尔报成 driver: bad connection（同样照常重试），两种都认
 		var logs strings.Builder
 		old := slog.Default()
 		slog.SetDefault(slog.New(slog.NewJSONHandler(&syncWriter{w: &logs}, nil)))
@@ -260,7 +261,10 @@ func TestTLS_MySQL(t *testing.T) {
 		start := time.Now()
 		_, _, err := xgorm.New(context.Background(), mysqlTLSConfig(my.DSN(harness.TLSMTLSUser),
 			xtls.Config{Enable: true, CAFile: certs.CAFile, CertFile: certs.StrangerCert, KeyFile: certs.StrangerKey}))
-		rejected(t, "别的 CA 签的客户端证书", err, "invalid connection")
+		rejected(t, "别的 CA 签的客户端证书", err)
+		if msg := err.Error(); !strings.Contains(msg, "invalid connection") && !strings.Contains(msg, "bad connection") {
+			t.Errorf("别的 CA 签的客户端证书：错误里该有 invalid connection 或 bad connection，got=%v", err)
+		}
 		if !strings.Contains(logs.String(), "remote error: tls: unknown certificate authority") {
 			t.Errorf("驱动日志里该有服务端的告警，got=%s", logs.String())
 		}

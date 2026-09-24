@@ -46,6 +46,13 @@ import (
 // 又远小于任何一条被测的超时，不会把「超时没生效」放过去
 const faultSlack = 300 * time.Millisecond
 
+// faultUnaffected 「不碰出故障的依赖，照常而且快」的上限。
+//
+// 这些请求实测 1–5ms（全部 TestFault 并行）。出故障的依赖真把它们拖住的话，
+// 拖的是一次超时，被测的超时里最短的是 500ms（XRedis.DialTimeout / ReadTimeout、XGorm.DialTimeout）。
+// 给到 400ms：比量出来的大两个数量级，服务带 -race、机器满载也够，又仍短于最短的那个超时
+const faultUnaffected = 400 * time.Millisecond
+
 // docs/config.md XRedis 的默认值；service/application.yml 没改这几项
 const (
 	faultRedisDialTimeout     = 500 * time.Millisecond
@@ -186,14 +193,14 @@ func faultBurst(p *harness.Process, n int, target string, wait time.Duration) []
 }
 
 // faultQuick 断言一个不碰故障依赖的请求照常返回，而且快
-func faultQuick(t *testing.T, p *harness.Process, what, path string, want int, limit time.Duration) harness.Response {
+func faultQuick(t *testing.T, p *harness.Process, what, path string, want int) harness.Response {
 	t.Helper()
 	r, took := faultTimed(t, p, http.MethodGet, path, nil)
 	if r.Status != want {
 		t.Errorf("%s 不碰出故障的依赖，应照常回 %d，实际 %v", what, want, r)
 	}
-	if took > limit {
-		t.Errorf("%s 不碰出故障的依赖，应该不受影响（< %v），实际用了 %v", what, limit, took)
+	if took > faultUnaffected {
+		t.Errorf("%s 不碰出故障的依赖，应该不受影响（< %v），实际用了 %v", what, faultUnaffected, took)
 	}
 	t.Logf("数字：故障期间 %s 用了 %s", what, faultMS(took))
 	return r
@@ -306,10 +313,10 @@ func TestFault_运行中Redis拒绝连接_用到它的操作在预算内报错_�
 	})
 
 	t.Run("不碰Redis的接口不受影响", func(t *testing.T) {
-		faultQuick(t, p, "GET /ping", "/ping", http.StatusOK, 200*time.Millisecond)
-		faultQuick(t, p, "GET /users/:id?cache=off（只读 PG）", fmt.Sprintf("/users/%d?cache=off", cold.ID), http.StatusOK, 200*time.Millisecond)
+		faultQuick(t, p, "GET /ping", "/ping", http.StatusOK)
+		faultQuick(t, p, "GET /users/:id?cache=off（只读 PG）", fmt.Sprintf("/users/%d?cache=off", cold.ID), http.StatusOK)
 		var u user
-		faultQuick(t, p, "GET /users/:id（本地缓存命中）", fmt.Sprintf("/users/%d", cached.ID), http.StatusOK, 200*time.Millisecond).JSON(t, &u)
+		faultQuick(t, p, "GET /users/:id（本地缓存命中）", fmt.Sprintf("/users/%d", cached.ID), http.StatusOK).JSON(t, &u)
 		if u.Source != "local" {
 			t.Errorf("本地缓存里有的用户应直接命中 local，实际 source=%s", u.Source)
 		}
@@ -385,7 +392,9 @@ func TestFault_运行中PG拒绝连接_用到它的操作当场报错_其他接�
 	t.Parallel()
 	pw := pgPassword(t)
 	pg := harness.NewProxy(t, harness.PGAddr())
-	p := harness.Start(t, harness.Options{PGAddr: pg.Addr()})
+	// DialTimeout 从默认的 500ms 调到 2s：「被拒不等超时」的上限取 1s，离实测（几毫秒）
+	// 和反例（等满一次 DialTimeout）都远。上限贴着 500ms 的话，满载的机器上会误报
+	p := harness.Start(t, harness.Options{PGAddr: pg.Addr(), Overlay: "XGorm:\n  Clients:\n    default:\n      DialTimeout: 2s\n"})
 
 	cached := createUser(t, p, "cached", "cached@example.com")
 	getUser(t, p, cached.ID)
@@ -406,8 +415,8 @@ func TestFault_运行中PG拒绝连接_用到它的操作当场报错_其他接�
 				t.Errorf("第 %d 次：错误应说清连不上哪（%s，connection refused），实际 %q", i+1, pg.Addr(), r.Error)
 			}
 			// 连接被拒是立即的：database/sql 丢掉坏连接重拨，pgx 拨号立刻失败，没有要等的超时。
-			// 上限给 DialTimeout（500ms）：真等了哪怕一次超时也会超过它
-			if r.Server > 500*time.Millisecond {
+			// 上限给 DialTimeout（上面调成了 2s）的一半：真等了哪怕一次超时也会超过它
+			if r.Server > time.Second {
 				t.Errorf("第 %d 次：新连接被拒不该等任何超时，实际 %v", i+1, r.Server)
 			}
 			took = append(took, r.Server)
@@ -431,10 +440,10 @@ func TestFault_运行中PG拒绝连接_用到它的操作当场报错_其他接�
 	})
 
 	t.Run("不碰PG的接口不受影响", func(t *testing.T) {
-		faultQuick(t, p, "GET /ping", "/ping", http.StatusOK, 200*time.Millisecond)
-		faultQuick(t, p, "GET /dep?target=redis", "/dep?target=redis", http.StatusOK, 200*time.Millisecond)
+		faultQuick(t, p, "GET /ping", "/ping", http.StatusOK)
+		faultQuick(t, p, "GET /dep?target=redis", "/dep?target=redis", http.StatusOK)
 		var u user
-		faultQuick(t, p, "GET /users/:id（本地缓存命中）", fmt.Sprintf("/users/%d", cached.ID), http.StatusOK, 200*time.Millisecond).JSON(t, &u)
+		faultQuick(t, p, "GET /users/:id（本地缓存命中）", fmt.Sprintf("/users/%d", cached.ID), http.StatusOK).JSON(t, &u)
 		if u.Source != "local" {
 			t.Errorf("本地缓存里有的用户应直接命中 local，实际 source=%s", u.Source)
 		}

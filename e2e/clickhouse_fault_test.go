@@ -108,9 +108,9 @@ func TestClickHouse_运行中ClickHouse拒绝连接_用到它的操作当场报�
 	})
 
 	t.Run("PG和MySQL和不碰ClickHouse的接口不受影响", func(t *testing.T) {
-		faultQuick(t, p, "GET /ping", "/ping", http.StatusOK, 200*time.Millisecond)
-		faultQuick(t, p, "GET /dep?target=db", "/dep?target=db", http.StatusOK, 200*time.Millisecond)
-		faultQuick(t, p, "GET /dep?target=mysql", "/dep?target=mysql", http.StatusOK, 200*time.Millisecond)
+		faultQuick(t, p, "GET /ping", "/ping", http.StatusOK)
+		faultQuick(t, p, "GET /dep?target=db", "/dep?target=db", http.StatusOK)
+		faultQuick(t, p, "GET /dep?target=mysql", "/dep?target=mysql", http.StatusOK)
 	})
 
 	t.Run("ClickHouse回来之后自动恢复", func(t *testing.T) {
@@ -221,7 +221,7 @@ func TestClickHouse_运行中ClickHouse不回话_不给截止时间只有read_ti
 		t.Logf("数字：ClickHouse 不回话、并发 4、read_timeout=2s、dial_timeout=%v：%s；错误：%s", chDialTimeout, faultSummary(took), res[0].Error)
 		var other []time.Duration
 		for i, r := range pg {
-			if r.Status != http.StatusOK || r.Server > 200*time.Millisecond {
+			if r.Status != http.StatusOK || r.Server > faultUnaffected {
 				t.Errorf("第 %d 次：ClickHouse 卡住时 PG / MySQL 应照常而且快，实际 %v", i+1, r)
 			}
 			other = append(other, r.Server)

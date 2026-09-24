@@ -4,8 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,39 +11,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/swaggo/swag"
 
-	"github.com/xiaoshicae/x-one/internal/config"
 	"github.com/xiaoshicae/x-one/internal/hook"
+	"github.com/xiaoshicae/x-one/internal/testkit"
+	"github.com/xiaoshicae/x-one/xonetest"
 )
 
 func init() { gin.SetMode(gin.TestMode) }
-
-// useConf 写一份配置文件并加载，测试结束后还原
-func useConf(t *testing.T, yml string) {
-	t.Helper()
-	config.Reset()
-	t.Cleanup(config.Reset)
-	if err := config.Load(writeFile(t, yml)); err != nil {
-		t.Fatalf("加载失败：%v", err)
-	}
-}
-
-// useEnvConf 只把配置文件交给 XONE_CONFIG、不加载：第一次读的时候才加载，
-// 和「main 顶上、xone.Run 之前就装配 engine」时一样
-func useEnvConf(t *testing.T, yml string) {
-	t.Helper()
-	config.Reset()
-	t.Cleanup(config.Reset)
-	t.Setenv(config.EnvKey, writeFile(t, yml))
-}
-
-func writeFile(t *testing.T, yml string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "application.yml")
-	if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
 
 // runStartHooks 走一遍各包自己的启动钩子：xapp 的配置是它自己读进去的
 func runStartHooks(t *testing.T) {
@@ -67,7 +38,7 @@ func TestRegister_早于xoneRun时元信息照样来自配置(t *testing.T) {
 	// xgin 允许在 xone.Run 之前就装配 engine（main 顶上调一下 Engine()）。
 	// 配置那时读得到，标题默认取的 App.Name 却要等 xapp 的启动钩子——
 	// 在 Register 那一刻就填的话，文档照样打得开，只是标题不对
-	useEnvConf(t, "App:\n  Name: swagger.lazy.app\nXGinSwagger:\n  Host: api.example.com\n")
+	testkit.UseConfigEnv(t, "App:\n  Name: swagger.lazy.app\nXGinSwagger:\n  Host: api.example.com\n")
 	info := testSpec()
 
 	e := gin.New()
@@ -96,7 +67,7 @@ func testSpec() *swag.Spec {
 func TestRegister_早于xoneRun时前缀也来自配置(t *testing.T) {
 	// 路由在注册那一刻就定死了。从前 Register 读的是启动钩子填的包变量，
 	// 早于它就只能挂在默认前缀上、再让启动失败；现在配置什么时候读都是最终值
-	useEnvConf(t, "XGinSwagger:\n  URLPrefix: /internal\n")
+	testkit.UseConfigEnv(t, "XGinSwagger:\n  URLPrefix: /internal\n")
 
 	e := gin.New()
 	Register(e, nil)
@@ -112,7 +83,7 @@ func TestRegister_早于xoneRun时前缀也来自配置(t *testing.T) {
 func TestLoadConfig_前缀格式不对时启动失败(t *testing.T) {
 	// gin 自己会把它们规整成 /internal/swagger/*any，但 URL() 拼出来的就对不上了
 	for _, p := range []string{"internal", "/internal/"} {
-		useConf(t, "XGinSwagger:\n  URLPrefix: "+p+"\n")
+		xonetest.UseConfigYAML(t, "XGinSwagger:\n  URLPrefix: "+p+"\n")
 		if err := loadConfig(context.Background()); err == nil {
 			t.Errorf("URLPrefix=%q 该启动失败", p)
 		}
@@ -120,7 +91,7 @@ func TestLoadConfig_前缀格式不对时启动失败(t *testing.T) {
 }
 
 func TestRegister_挂上UI(t *testing.T) {
-	useConf(t, "")
+	xonetest.UseConfigYAML(t, "")
 	e := gin.New()
 	Register(e, nil)
 
@@ -130,7 +101,7 @@ func TestRegister_挂上UI(t *testing.T) {
 }
 
 func TestRegister_可以加前缀(t *testing.T) {
-	useConf(t, "XGinSwagger:\n  URLPrefix: /internal\n")
+	xonetest.UseConfigYAML(t, "XGinSwagger:\n  URLPrefix: /internal\n")
 
 	e := gin.New()
 	Register(e, nil)
@@ -187,7 +158,7 @@ func TestFill_配了就覆盖(t *testing.T) {
 
 func TestFill_标题与版本默认跟App走(t *testing.T) {
 	// 同一个事实配两遍迟早会不一致
-	useConf(t, "App:\n  Name: xone.demo.app\n  Version: v2.3.4\nXGinSwagger:\n  BasePath: /api\n")
+	xonetest.UseConfigYAML(t, "App:\n  Name: xone.demo.app\n  Version: v2.3.4\nXGinSwagger:\n  BasePath: /api\n")
 	runStartHooks(t)
 	c, err := fileConfig()
 	if err != nil {
@@ -227,7 +198,7 @@ func TestRegister_只读配置不建任何东西(t *testing.T) {
 func TestConfig_没写Schemes时保留注解里的协议(t *testing.T) {
 	// 回归用例。默认值原先是 ["https", "http"]，而默认值是预填进结构体的：
 	// 配置里只写了 BasePath，Schemes 也等于配了，注解里的 @schemes 永远被盖掉
-	useConf(t, "XGinSwagger:\n  BasePath: /api\n")
+	xonetest.UseConfigYAML(t, "XGinSwagger:\n  BasePath: /api\n")
 	c, err := fileConfig()
 	if err != nil {
 		t.Fatal(err)

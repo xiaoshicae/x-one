@@ -23,11 +23,11 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
-	"github.com/xiaoshicae/x-one/internal/config"
 	"github.com/xiaoshicae/x-one/internal/hook"
 	"github.com/xiaoshicae/x-one/xapp"
 	"github.com/xiaoshicae/x-one/xerror"
 	"github.com/xiaoshicae/x-one/xlog"
+	"github.com/xiaoshicae/x-one/xonetest"
 )
 
 // recorder 收集 Span 的 SpanProcessor，用来断言「Span 真的到了处理器手里」
@@ -749,14 +749,7 @@ func readLog(t *testing.T, dir string) map[string]any {
 // loadConfig 把一段 YAML 走真实的加载路径灌进来
 func loadConfig(t *testing.T, yml string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "application.yml")
-	if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := config.Load(path); err != nil {
-		t.Fatalf("加载配置失败：%v", err)
-	}
-	t.Cleanup(config.Reset)
+	xonetest.UseConfigYAML(t, yml)
 
 	// 配置是各包自己在启动钩子里读的，所以要把钩子也走一遍——
 	// 这个用例关心的正是 xapp 读到的服务名会进到链路里

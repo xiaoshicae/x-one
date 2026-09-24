@@ -67,10 +67,10 @@ func TestMySQL_运行中MySQL拒绝连接_用到它的操作当场报错_PG不�
 	})
 
 	t.Run("PG和不碰MySQL的接口不受影响", func(t *testing.T) {
-		faultQuick(t, p, "GET /ping", "/ping", http.StatusOK, 200*time.Millisecond)
-		faultQuick(t, p, "GET /dep?target=db", "/dep?target=db", http.StatusOK, 200*time.Millisecond)
+		faultQuick(t, p, "GET /ping", "/ping", http.StatusOK)
+		faultQuick(t, p, "GET /dep?target=db", "/dep?target=db", http.StatusOK)
 		pu := createUser(t, p, "pg-while-mysql-cut", "pg@example.com")
-		faultQuick(t, p, "GET /users/:id?cache=off（PG）", fmt.Sprintf("/users/%d?cache=off", pu.ID), http.StatusOK, 200*time.Millisecond)
+		faultQuick(t, p, "GET /users/:id?cache=off（PG）", fmt.Sprintf("/users/%d?cache=off", pu.ID), http.StatusOK)
 	})
 
 	t.Run("MySQL回来之后自动恢复", func(t *testing.T) {
@@ -135,7 +135,7 @@ func TestMySQL_运行中MySQL不回话_查询在ReadTimeout失败_PG不受影响
 
 	var pgTook []time.Duration
 	for i, r := range pg {
-		if r.Status != http.StatusOK || r.Server > 200*time.Millisecond {
+		if r.Status != http.StatusOK || r.Server > faultUnaffected {
 			t.Errorf("第 %d 次：MySQL 卡住时 PG 那个实例应照常而且快，实际 %v", i+1, r)
 		}
 		pgTook = append(pgTook, r.Server)

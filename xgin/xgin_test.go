@@ -27,6 +27,7 @@ import (
 
 	"github.com/xiaoshicae/x-one/internal/config"
 	"github.com/xiaoshicae/x-one/internal/hook"
+	"github.com/xiaoshicae/x-one/internal/testkit"
 	"github.com/xiaoshicae/x-one/xerror"
 	"github.com/xiaoshicae/x-one/xgin/middleware"
 	"github.com/xiaoshicae/x-one/xgin/trans"
@@ -61,7 +62,7 @@ func loadErr(t *testing.T, yml string) error {
 // configWith 默认配置上改几项。
 //
 // 测试一律经 WithConfig 把配置交进去，不读配置文件：跑测试的机器上设了
-// XONE_CONFIG 也不受影响。专门测「读配置文件」的那几条用 useConfigFile
+// XONE_CONFIG 也不受影响。专门测「读配置文件」的那几条用 testkit.UseConfigEnv
 func configWith(mutate ...func(*Config)) Config {
 	c := DefaultConfig()
 	for _, m := range mutate {
@@ -76,30 +77,6 @@ func quiet(c *Config) { c.Log, c.Metric = false, false }
 // on 监听本机的这个端口
 func on(port int) func(*Config) {
 	return func(c *Config) { c.Host, c.Port = "127.0.0.1", port }
-}
-
-// useConfigFile 让这份 YAML 成为配置文件，经 XONE_CONFIG 被找到——和使用者的
-// 程序一样，第一次有人读的时候才加载。测试结束交还
-func useConfigFile(t *testing.T, yml string) {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "application.yml")
-	if err := os.WriteFile(path, []byte(yml), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv(config.EnvKey, path)
-	config.Reset()
-	t.Cleanup(config.Reset)
-}
-
-// freePort 找一个空闲端口
-func freePort(t *testing.T) int {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
 }
 
 // serving 起服务并等它真的开始监听，测试结束时关掉。返回 http://127.0.0.1:port
@@ -610,7 +587,7 @@ func TestBuild_回调里改的engine设置盖得过配置(t *testing.T) {
 	// 回调在配置落到 engine 上之后才跑：使用者在代码里明确设了的，就以代码为准。
 	// 原先反过来——Start 时再把配置落一遍，回调里的设置被悄悄盖掉。
 	// 所以起了服务再看一次：Start 不能再落一遍配置
-	port := freePort(t)
+	port := testkit.FreePort(t)
 	g := New().WithConfig(configWith(quiet, on(port), func(c *Config) { c.MaxMultipartMemory = 2 << 20 })).
 		WithRoutes(echoClientIP, func(e *gin.Engine) {
 			e.MaxMultipartMemory = 64 << 20
@@ -632,7 +609,7 @@ func TestBuild_回调里改的engine设置盖得过配置(t *testing.T) {
 // ---- 启停 ----
 
 func TestStartStop_优雅关闭(t *testing.T) {
-	port := freePort(t)
+	port := testkit.FreePort(t)
 	g := New().WithConfig(configWith(quiet, on(port))).WithRoutes(func(e *gin.Engine) {
 		e.GET("/ping", func(c *gin.Context) { c.String(200, "pong") })
 	})
@@ -683,7 +660,7 @@ func TestStart_用的是装配时的那份配置(t *testing.T) {
 	// 监听地址、超时和 engine 上的中间件、信任的代理必须出自同一份配置。
 	// Start 自己再读一遍的话两边可能对不上——这里用「装配之后才 WithConfig」
 	// 造出这种局面：它在装配之后不生效，监听的端口也就不该跟着变
-	portA, portB := freePort(t), freePort(t)
+	portA, portB := testkit.FreePort(t), testkit.FreePort(t)
 	g := New().WithConfig(configWith(quiet, on(portA)))
 	g.Engine()
 	g.WithConfig(configWith(quiet, on(portB)))
@@ -694,7 +671,7 @@ func TestStart_用的是装配时的那份配置(t *testing.T) {
 func TestStart_信号早于启动到达(t *testing.T) {
 	// 照常监听的话，服务会在「已经收到停止信号」之后才起来，
 	// 然后一直跑到框架等超时为止
-	port := freePort(t)
+	port := testkit.FreePort(t)
 	g := New().WithConfig(configWith(quiet, on(port)))
 	if err := g.Stop(context.Background()); err != nil {
 		t.Fatalf("还没启动就 Stop 不该报错：%v", err)
@@ -719,7 +696,7 @@ func TestStart_信号早于启动到达(t *testing.T) {
 }
 
 func TestStart_重复启动报错(t *testing.T) {
-	port := freePort(t)
+	port := testkit.FreePort(t)
 	g := New().WithConfig(configWith(quiet, on(port)))
 	serving(t, g, port)
 
@@ -745,7 +722,7 @@ func servingWithHungRequest(t *testing.T) *XGin {
 // 关闭的 channel —— 强制断连有没有生效，只有它看得出来
 func servingWithHungRequestDone(t *testing.T) (*XGin, <-chan struct{}) {
 	t.Helper()
-	port := freePort(t)
+	port := testkit.FreePort(t)
 
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
@@ -820,7 +797,7 @@ func TestStop_断连之后等handler真正返回(t *testing.T) {
 	// Close 只关连接、取消请求的 ctx，handler 所在的协程照跑。原先 Close 完就返回，
 	// 看到 ctx 取消、正在收尾的 handler 还没返回，框架就接着去关数据库了。
 	// 截止时间也不能被 Shutdown 用满：得给断连之后的这段收尾留出时间
-	port := freePort(t)
+	port := testkit.FreePort(t)
 	var returned atomic.Bool
 	g := New().WithConfig(configWith(quiet, on(port))).WithRoutes(func(e *gin.Engine) {
 		e.GET("/ping", func(c *gin.Context) { c.Status(200) })
@@ -869,7 +846,7 @@ func TestEngine_在Run之前调也用的是配置文件里的最终值(t *testin
 	// 才落到 engine 上，单独拿 Engine() 去用的只拿得到默认值。现在配置在第一次读的
 	// 时候才加载：New 在前、配置文件就位在后，装配时读到的照样是最终值
 	g := New().WithRoutes(echoClientIP)
-	useConfigFile(t, "XGin:\n  TrustedProxies: [10.0.0.0/8]\n  MaxMultipartMemory: 1048576\n  Metric: false\n")
+	testkit.UseConfigEnv(t, "XGin:\n  TrustedProxies: [10.0.0.0/8]\n  MaxMultipartMemory: 1048576\n  Metric: false\n")
 
 	if got := clientIPOf(t, g.Engine(), "10.0.0.5:1234"); got != "1.2.3.4" {
 		t.Errorf("配置里的 TrustedProxies 没生效，client_ip=%q", got)
@@ -885,7 +862,7 @@ func TestEngine_在Run之前调也用的是配置文件里的最终值(t *testin
 func TestEngine_配置文件不合法时按偏安全的默认值装配(t *testing.T) {
 	// 照样给一个 engine（使用者可能在 Run 之前就拿了它），但按默认值装：
 	// 解到一半的非法配置里，TrustedProxies 可能正是 0.0.0.0/0。错误由 Start 报，不监听
-	useConfigFile(t, "XGin:\n  Port: 0\n  TrustedProxies: [0.0.0.0/0]\n")
+	testkit.UseConfigEnv(t, "XGin:\n  Port: 0\n  TrustedProxies: [0.0.0.0/0]\n")
 	g := New().WithRoutes(echoClientIP)
 	if got := clientIPOf(t, g.Engine(), "10.0.0.5:1234"); got != "10.0.0.5" {
 		t.Errorf("配置不合法时该退回谁都不信，client_ip=%q", got)
@@ -899,7 +876,7 @@ func TestEngine_配置文件不合法时按偏安全的默认值装配(t *testin
 
 func TestCurrentConfig_随时读到配置文件里的那一块(t *testing.T) {
 	// 不用等 xone.Run：第一次读的时候才加载配置文件，读到的就是最终值
-	useConfigFile(t, "XGin:\n  Port: 18080\n  Mode: debug\n  Log: false\n")
+	testkit.UseConfigEnv(t, "XGin:\n  Port: 18080\n  Mode: debug\n  Log: false\n")
 	c := CurrentConfig()
 	if c.Port != 18080 || c.Mode != "debug" || c.Log {
 		t.Errorf("该读到配置文件里的值，got=%+v", c)
@@ -912,7 +889,7 @@ func TestCurrentConfig_随时读到配置文件里的那一块(t *testing.T) {
 func TestCurrentConfig_那一块不合法时返回默认值(t *testing.T) {
 	// 错误由 xone.Run 在启动时报（见 TestLoadConfig_取值非法时启动失败）。
 	// 这里返回的东西会被拿去 WithConfig，必须是安全的：解到一半的非法配置不算
-	useConfigFile(t, "XGin:\n  Port: 0\n  TrustedProxies: [0.0.0.0/0]\n")
+	testkit.UseConfigEnv(t, "XGin:\n  Port: 0\n  TrustedProxies: [0.0.0.0/0]\n")
 	if got := CurrentConfig(); !reflect.DeepEqual(got, DefaultConfig()) {
 		t.Errorf("该退回默认值，got=%+v", got)
 	}
@@ -920,7 +897,7 @@ func TestCurrentConfig_那一块不合法时返回默认值(t *testing.T) {
 
 func TestLoadConfig_字段拼错时启动失败(t *testing.T) {
 	// 拼错的字段在启动阶段就该被拦下，否则使用者会一直以为自己配上了
-	useConfigFile(t, "XGin:\n  Prot: 8080\n")
+	testkit.UseConfigEnv(t, "XGin:\n  Prot: 8080\n")
 	if err := loadConfig(context.Background()); err == nil {
 		t.Fatal("字段拼错应当让启动失败")
 	}
@@ -934,7 +911,7 @@ func TestLoadConfig_取值非法时启动失败(t *testing.T) {
 		"只配一半的 TLS":   "XGin:\n  CertFile: cert.pem\n",
 		"指标路径不以 / 开头": "XGin:\n  MetricPath: metrics\n",
 	} {
-		useConfigFile(t, yml)
+		testkit.UseConfigEnv(t, yml)
 		if err := loadConfig(context.Background()); err == nil {
 			t.Errorf("%s 应当让启动失败", name)
 		}
@@ -945,9 +922,9 @@ func TestWithConfig_两个实例监听各自的端口(t *testing.T) {
 	// 没有 WithConfig 时两个实例读的是同一块配置，只能监听同一个端口——
 	// 「需要两套配置时也有出路」这条承诺对 xgin 就是假的。
 	// 配置文件里那一块留在默认端口上，证明两个实例谁都没按它监听
-	useConfigFile(t, "XGin:\n  Port: 8080\n")
+	testkit.UseConfigEnv(t, "XGin:\n  Port: 8080\n")
 
-	portA, portB := freePort(t), freePort(t)
+	portA, portB := testkit.FreePort(t), testkit.FreePort(t)
 	for _, s := range []struct {
 		port int
 		body string
@@ -980,8 +957,8 @@ func TestWithConfig_两个实例监听各自的端口(t *testing.T) {
 
 func TestWithConfig_不给就跟着配置文件走(t *testing.T) {
 	// 默认路径：端口、开关都来自配置文件里的 XGin 块
-	port := freePort(t)
-	useConfigFile(t, fmt.Sprintf("XGin:\n  Host: 127.0.0.1\n  Port: %d\n  Log: false\n  Metric: false\n", port))
+	port := testkit.FreePort(t)
+	testkit.UseConfigEnv(t, fmt.Sprintf("XGin:\n  Host: 127.0.0.1\n  Port: %d\n  Log: false\n  Metric: false\n", port))
 
 	g := New().WithRoutes(func(e *gin.Engine) {
 		e.GET("/ping", func(c *gin.Context) { c.Status(200) })
@@ -1264,7 +1241,7 @@ func h2cClient() *http.Client {
 // servingH2C 起一个开了 h2c 的服务，/slow 会在 handler 里睡 d
 func servingH2C(t *testing.T, d time.Duration) (base string, g *XGin, entered, finished chan struct{}) {
 	t.Helper()
-	port := freePort(t)
+	port := testkit.FreePort(t)
 
 	entered, finished = make(chan struct{}), make(chan struct{})
 	g = New().WithConfig(configWith(quiet, on(port), func(c *Config) { c.UseH2C = true })).
@@ -1353,7 +1330,7 @@ func TestStop_h2c超时后同样强制断连(t *testing.T) {
 
 func TestStart_不开h2c时明文HTTP2连不上(t *testing.T) {
 	// 开关要真的是开关：没开 UseH2C 时，明文 HTTP/2 的前言不该被接受
-	port := freePort(t)
+	port := testkit.FreePort(t)
 	g := New().WithConfig(configWith(quiet, on(port))).WithRoutes(func(e *gin.Engine) {
 		e.GET("/ping", func(c *gin.Context) { c.Status(200) })
 	})

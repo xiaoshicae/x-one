@@ -304,11 +304,12 @@ func TestRollback_不看ctx的补偿也挂不住Execute(t *testing.T) {
 	withConfig(t, func(c *Config) { c.RollbackTimeout = 50 * time.Millisecond })
 	d := &data{}
 
-	hung := &step{name: "不看ctx的补偿", dep: Strong, rbDelay: time.Second}
+	// 挂 3s：挂得住的话 Execute 至少等 3s，上界 1.5s 离 50ms 的预算和 3s 都远
+	hung := &step{name: "不看ctx的补偿", dep: Strong, rbDelay: 3 * time.Second}
 	start := time.Now()
 	res := New("下单", ok("第一步"), hung, failing("扣款", Strong)).Execute(context.Background(), d)
 
-	if took := time.Since(start); took > 500*time.Millisecond {
+	if took := time.Since(start); took > 1500*time.Millisecond {
 		t.Errorf("回滚预算 50ms，Execute 却等了 %v", took)
 	}
 	if len(res.RollbackErrors) != 2 {

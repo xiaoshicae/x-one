@@ -11,11 +11,11 @@ import (
 	"github.com/xiaoshicae/x-one/e2e/harness"
 )
 
-// covLogLine GET /cov/log 打一条指定级别的业务日志
+// covLogLine GET /probe/log 打一条指定级别的业务日志
 func covLogLine(t *testing.T, p *harness.Process, level, msg string) {
 	t.Helper()
-	if r := p.Get(t, "/cov/log?level="+level+"&msg="+msg); r.Status != 200 {
-		t.Fatalf("GET /cov/log：%v", r)
+	if r := p.Get(t, "/probe/log?level="+level+"&msg="+msg); r.Status != 200 {
+		t.Fatalf("GET /probe/log：%v", r)
 	}
 }
 
@@ -191,7 +191,7 @@ func TestCoverage_日志的Level_Format_Timezone_AddSource(t *testing.T) {
 
 	t.Run("Format: text", func(t *testing.T) {
 		t.Parallel()
-		p := harness.Start(t, harness.Options{Overlay: "XLog:\n  Format: text\n"})
+		p := harness.Start(t, harness.Options{Overlay: "XLog:\n  Format: text\n", NonJSON: "XLog.Format: text"})
 		covLogLine(t, p, "warn", "cov-text")
 		deadline := time.Now().Add(waitFor)
 		for !strings.Contains(p.Stdout(), "msg=cov-text") && time.Now().Before(deadline) {
@@ -236,8 +236,8 @@ func TestCoverage_日志的Level_Format_Timezone_AddSource(t *testing.T) {
 			covLogLine(t, p, "info", "cov-source")
 		}
 		l := on.WaitLog(t, waitFor, func(l harness.Log) bool { return l.Msg() == "cov-source" })
-		if file := l.Str("source.file"); !strings.HasSuffix(file, "service/coverage.go") || l.Str("source.line") == "" {
-			t.Errorf("AddSource: true 时应记代码位置（service/coverage.go 的某一行），实际 source=%v", l.Fields["source"])
+		if file := l.Str("source.file"); !strings.HasSuffix(file, "service/probe.go") || l.Str("source.line") == "" {
+			t.Errorf("AddSource: true 时应记代码位置（service/probe.go 的某一行），实际 source=%v", l.Fields["source"])
 		}
 		l = off.WaitLog(t, waitFor, func(l harness.Log) bool { return l.Msg() == "cov-source" })
 		if _, ok := l.Get("source"); ok {

@@ -477,8 +477,8 @@ func TestShutdown_退出卡住时第二个信号立刻终止进程(t *testing.T)
 			if e.Signal != c.second {
 				t.Errorf("第二个信号应走系统默认处置、由 %v 直接终止进程，实际 %v", c.second, e)
 			}
-			// 实测 1~3ms，给到 500ms：它要么立刻死，要么就是没还回默认处置（那会等满 40s）
-			if took > 500*time.Millisecond {
+			// 实测 1~3ms，给到 2s：它要么立刻死，要么就是没还回默认处置（那会等满 40s）
+			if took > 2*time.Second {
 				t.Errorf("文档说再发一次信号进程立即终止，实际等了 %v", took)
 			}
 		})

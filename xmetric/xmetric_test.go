@@ -13,9 +13,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/xiaoshicae/x-one/internal/config"
 	"github.com/xiaoshicae/x-one/internal/hook"
 	"github.com/xiaoshicae/x-one/xlog"
+	"github.com/xiaoshicae/x-one/xonetest"
 )
 
 // install 装一套干净的指标设施，测试结束后还原全局状态
@@ -602,20 +602,6 @@ func initComponent(t *testing.T, c Config) {
 	}
 }
 
-// useConf 把一份配置装进全局配置，走的是框架真正会走的那条路
-func useConf(t *testing.T, yml string) {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "application.yml")
-	if err := os.WriteFile(p, []byte(yml), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	config.Reset()
-	if err := config.Load(p); err != nil {
-		t.Fatalf("加载配置失败：%v", err)
-	}
-	t.Cleanup(config.Reset)
-}
-
 // keepGlobals 记下会被 install 改掉的那些全局值，测试结束还原
 func keepGlobals(t *testing.T) {
 	t.Helper()
@@ -631,7 +617,7 @@ func TestInitXMetric_没配也装好一套默认指标(t *testing.T) {
 	// 指标没配就不装的话，框架内置的那些打点全落到兜底实例上，
 	// /metrics 导出来是空的——而使用者没配指标本来就该是「用默认的」
 	keepGlobals(t)
-	useConf(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
 
 	if err := initXMetric(context.Background()); err != nil {
 		t.Fatalf("没配不该报错：%v", err)
@@ -644,7 +630,7 @@ func TestInitXMetric_没配也装好一套默认指标(t *testing.T) {
 
 func TestInitXMetric_配置写错时启动失败(t *testing.T) {
 	keepGlobals(t)
-	useConf(t, "XMetric:\n  NameSpace: app\n")
+	xonetest.UseConfigYAML(t, "XMetric:\n  NameSpace: app\n")
 
 	if err := initXMetric(context.Background()); err == nil {
 		t.Fatal("字段拼错应当让启动失败")
@@ -653,7 +639,7 @@ func TestInitXMetric_配置写错时启动失败(t *testing.T) {
 
 func TestInitXMetric_配置装到了全局实例上(t *testing.T) {
 	keepGlobals(t)
-	useConf(t, "XMetric:\n  Namespace: demoapp\n  GoMetrics: false\n  ProcessMetrics: false\n  ConstLabels:\n    env: test\n")
+	xonetest.UseConfigYAML(t, "XMetric:\n  Namespace: demoapp\n  GoMetrics: false\n  ProcessMetrics: false\n  ConstLabels:\n    env: test\n")
 
 	if err := initXMetric(context.Background()); err != nil {
 		t.Fatal(err)

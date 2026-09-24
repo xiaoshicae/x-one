@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -20,9 +19,11 @@ import (
 
 	"github.com/xiaoshicae/x-one/internal/config"
 	"github.com/xiaoshicae/x-one/internal/hook"
+	"github.com/xiaoshicae/x-one/internal/testkit"
 	"github.com/xiaoshicae/x-one/internal/xclient"
 	"github.com/xiaoshicae/x-one/xerror"
 	"github.com/xiaoshicae/x-one/xmetric"
+	"github.com/xiaoshicae/x-one/xonetest"
 )
 
 func load(t *testing.T, yml string) Config {
@@ -379,25 +380,11 @@ func initComponent(t *testing.T, c Config) error {
 	return install(context.Background(), c)
 }
 
-// useConf 把一份配置装进全局配置，走的是框架真正会走的那条路
-func useConf(t *testing.T, yml string) {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "application.yml")
-	if err := os.WriteFile(p, []byte(yml), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	config.Reset()
-	if err := config.Load(p); err != nil {
-		t.Fatalf("加载配置失败：%v", err)
-	}
-	t.Cleanup(config.Reset)
-}
-
 func TestInitXCache_没写这一块就一个实例都不建(t *testing.T) {
 	// 本地缓存没有「默认给你开一个」的道理：没配就是不用。
 	// 少了这道判断，每个进程都会白白吃下一份内存
 	t.Cleanup(func() { _ = closeXCache(context.Background()) })
-	useConf(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
 
 	if err := initXCache(context.Background()); err != nil {
 		t.Fatalf("没配不该报错：%v", err)
@@ -409,7 +396,7 @@ func TestInitXCache_没写这一块就一个实例都不建(t *testing.T) {
 
 func TestInitXCache_写了空块也不建(t *testing.T) {
 	t.Cleanup(func() { _ = closeXCache(context.Background()) })
-	useConf(t, "XCache:\n")
+	xonetest.UseConfigYAML(t, "XCache:\n")
 
 	if err := initXCache(context.Background()); err != nil {
 		t.Fatalf("空块不该报错：%v", err)
@@ -422,7 +409,7 @@ func TestInitXCache_写了空块也不建(t *testing.T) {
 func TestInitXCache_配置写错时启动失败(t *testing.T) {
 	// 拼错的字段被静默忽略的话，使用者会一直以为自己配上了
 	t.Cleanup(func() { _ = closeXCache(context.Background()) })
-	useConf(t, "XCache:\n  MaxCos: 500\n")
+	xonetest.UseConfigYAML(t, "XCache:\n  MaxCos: 500\n")
 
 	if err := initXCache(context.Background()); err == nil {
 		t.Fatal("字段拼错应当让启动失败")
@@ -434,7 +421,7 @@ func TestInitXCache_配置写错时启动失败(t *testing.T) {
 
 func TestInitXCache_按配置建好再关干净(t *testing.T) {
 	t.Cleanup(func() { _ = closeXCache(context.Background()) })
-	useConf(t, "XCache:\n  Clients:\n    read:\n      MaxCost: 500\n    write:\n      MaxCost: 500\n")
+	xonetest.UseConfigYAML(t, "XCache:\n  Clients:\n    read:\n      MaxCost: 500\n    write:\n      MaxCost: 500\n")
 
 	if err := initXCache(context.Background()); err != nil {
 		t.Fatalf("应当建得起来：%v", err)
@@ -563,7 +550,7 @@ func TestInitXCache_没配时C说的是没配而不是调早了(t *testing.T) {
 	// 没配也要让注册表知道启动钩子跑过了。否则 C() 会把「没配」说成「调早了」，
 	// 使用者会去查调用时机，而真正该查的是配置文件
 	t.Cleanup(func() { _ = closeXCache(context.Background()) })
-	useConf(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
 	if err := initXCache(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -624,13 +611,6 @@ func TestConfig_不合法的值在读配置时就失败(t *testing.T) {
 	}
 }
 
-// scrape 抓一次 /metrics
-func scrape(m *xmetric.Metrics) string {
-	w := httptest.NewRecorder()
-	m.Handler.ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
-	return w.Body.String()
-}
-
 func TestNew_Metric开关传给ristretto(t *testing.T) {
 	// ristretto 默认不计数（Metrics 为 nil），不传下去的话 Metric: true 也什么都导不出来
 	for _, on := range []bool{true, false} {
@@ -675,7 +655,7 @@ func TestCacheCollector_导出的是ristretto的计数(t *testing.T) {
 	cache.Wait()
 
 	m.Registry.MustRegister(newCacheCollector("demo", nil, func() map[string]*Cache { return map[string]*Cache{"hot": cache} }))
-	out := scrape(m)
+	out := testkit.Scrape(m.Handler)
 	for _, want := range []string{
 		`demo_cache_hits_total{name="hot"} 2`,
 		`demo_cache_misses_total{name="hot"} 1`,
@@ -728,7 +708,7 @@ func TestInstall_只导出开了Metric的实例且xmetric重装后照样导出(t
 		if err := install(context.Background(), Config{Clients: map[string]ClientConfig{"on": on, "off": off}}); err != nil {
 			t.Fatal(err)
 		}
-		out := scrape(m)
+		out := testkit.Scrape(m.Handler)
 		if !strings.Contains(out, `cache_hits_total{name="on"}`) {
 			t.Errorf("第 %d 轮：开了 Metric 的实例该导出\n实际=\n%s", round, out)
 		}

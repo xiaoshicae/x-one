@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,10 +24,10 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace/noop"
 
-	"github.com/xiaoshicae/x-one/internal/config"
 	"github.com/xiaoshicae/x-one/internal/hook"
 	"github.com/xiaoshicae/x-one/xerror"
 	"github.com/xiaoshicae/x-one/xmetric"
+	"github.com/xiaoshicae/x-one/xonetest"
 	"github.com/xiaoshicae/x-one/xtrace"
 )
 
@@ -742,14 +741,18 @@ func histogramSum(t *testing.T, h *prometheus.HistogramVec) float64 {
 func TestNew_ctx能给整个逻辑请求封顶(t *testing.T) {
 	// Timeout 管的是一次尝试。开了 RetryCount 之后，最坏情况是
 	// (RetryCount+1) × Timeout 再加退避——配 300ms 实际能跑到 1.2s。
-	// 唯一能给整次逻辑请求封顶的是调用方的 ctx，这里把它钉住
-	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		time.Sleep(2 * time.Second)
+	// 唯一能给整次逻辑请求封顶的是调用方的 ctx，这里把它钉住。
+	// 这里 Timeout 给 1s：不听 ctx 的话是 4s 起步，上界 2s 离 400ms 的预算和 4s 都远
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select { // 客户端断开就收手：srv.Close 要等在途请求跑完
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
 	}))
 	defer srv.Close()
 
 	c := DefaultConfig()
-	c.Timeout = 300 * time.Millisecond
+	c.Timeout = time.Second
 	c.RetryCount = 3
 	c.RetryWaitTime, c.RetryMaxWaitTime = 10*time.Millisecond, 20*time.Millisecond
 	c.Trace, c.Metric = false, false
@@ -766,23 +769,9 @@ func TestNew_ctx能给整个逻辑请求封顶(t *testing.T) {
 	if _, err := cli.R().SetContext(ctx).Get(srv.URL); err == nil {
 		t.Fatal("该超时的")
 	}
-	if elapsed := time.Since(start); elapsed > 900*time.Millisecond {
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Errorf("ctx 给了 400ms 的预算，重试不该把它撑到 %v", elapsed.Round(10*time.Millisecond))
 	}
-}
-
-// useConf 把一份配置装进全局配置，走的是框架真正会走的那条路
-func useConf(t *testing.T, yml string) {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "application.yml")
-	if err := os.WriteFile(p, []byte(yml), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	config.Reset()
-	if err := config.Load(p); err != nil {
-		t.Fatalf("加载配置失败：%v", err)
-	}
-	t.Cleanup(config.Reset)
 }
 
 // keepGlobals 记下会被 install 改掉的那些全局值，测试结束还原
@@ -803,7 +792,7 @@ func TestInitXHttp_没配也装好一个能用的默认客户端(t *testing.T) {
 	// HTTP 客户端没配就不装的话，C() 每次退回兜底实例，
 	// 超时和重试全是另一套值——而使用者没配本来就该是「用默认的」
 	keepGlobals(t)
-	useConf(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
 
 	if err := initXHttp(context.Background()); err != nil {
 		t.Fatalf("没配不该报错：%v", err)
@@ -818,7 +807,7 @@ func TestInitXHttp_没配也装好一个能用的默认客户端(t *testing.T) {
 
 func TestInitXHttp_配置写错时启动失败(t *testing.T) {
 	keepGlobals(t)
-	useConf(t, "XHttp:\n  TimeOut: 3s\n")
+	xonetest.UseConfigYAML(t, "XHttp:\n  TimeOut: 3s\n")
 
 	if err := initXHttp(context.Background()); err == nil {
 		t.Fatal("字段拼错应当让启动失败")
@@ -832,7 +821,7 @@ func TestInitXHttp_取值非法时启动失败(t *testing.T) {
 	keepGlobals(t)
 	for _, field := range []string{"Timeout", "DialTimeout", "IdleConnTimeout", "RetryWaitTime", "RetryMaxWaitTime"} {
 		t.Run(field, func(t *testing.T) {
-			useConf(t, "XHttp:\n  "+field+": -1s\n")
+			xonetest.UseConfigYAML(t, "XHttp:\n  "+field+": -1s\n")
 			if err := initXHttp(context.Background()); err == nil {
 				t.Fatalf("%s 配成负数应当让启动失败", field)
 			} else if !strings.Contains(err.Error(), field) {
@@ -856,7 +845,7 @@ func TestValidate_KeepAlive_允许负值(t *testing.T) {
 
 func TestInitXHttp_配置装到了全局客户端上(t *testing.T) {
 	keepGlobals(t)
-	useConf(t, "XHttp:\n  Timeout: 7s\n  RetryCount: 4\n")
+	xonetest.UseConfigYAML(t, "XHttp:\n  Timeout: 7s\n  RetryCount: 4\n")
 
 	if err := initXHttp(context.Background()); err != nil {
 		t.Fatal(err)
@@ -872,7 +861,7 @@ func TestInitXHttp_配置装到了全局客户端上(t *testing.T) {
 func TestCloseXHttp_关完退回兜底实例(t *testing.T) {
 	// 摘掉之后 C() 还得能用：退出阶段里其它组件的关闭逻辑可能还要发请求
 	keepGlobals(t)
-	useConf(t, "XHttp:\n  Timeout: 7s\n")
+	xonetest.UseConfigYAML(t, "XHttp:\n  Timeout: 7s\n")
 	if err := initXHttp(context.Background()); err != nil {
 		t.Fatal(err)
 	}

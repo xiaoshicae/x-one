@@ -20,6 +20,7 @@ xone/
 │   ├── config/          配置加载：定位、profile / import、合并、占位符
 │   ├── hook/            钩子登记与按档位执行
 │   ├── xclient/         xgorm / xredis / xcache 共用的具名实例管理
+│   ├── testkit/         仓库自己的单元测试共用的小工具（量协程数、抓 /metrics……），只依赖标准库
 │   └── schemagen/       生成 config_schema.json、核对 docs/config.md（独立的工具 module）
 ├── xerror/  xutil/      零第三方依赖
 ├── xapp/                应用身份（名字、版本），只认领配置不初始化
@@ -227,6 +228,25 @@ scripts/e2e.sh --load -run ClickHouse # ClickHouse 那一组，连同裸 gin + C
 压测默认不跑（一轮十来分钟，要独占机器），`--load` 才跑。结果只在测试日志里打成表格：
 QPS、p50 / p90 / p99 / max、错误数、服务进程每请求的 CPU 微秒和峰值 RSS，以及相对裸 gin 多出来的部分。
 压测器、被测服务和 PG 在同一台机器上抢 CPU，这些数字只能拿来互相比较。
+
+除压测（`--load`）外，三个二进制（`service`、`baseline`、`covapp`）一次 `go build -race` 编完。
+每个被测进程退出时 harness 查它的输出（`harness/output.go` 的 `checkOutput`），查出问题就让那个用例失败：
+
+- **stderr 里有 `WARNING: DATA RACE`**：真进程、真并发、真信号下的数据竞争，单元测试碰不到；
+- **stdout / stderr 里有一行不是 JSON**：使用者的日志平台按行解析 JSON，哪个三方库绕开 slog 写了一行纯文本，
+  在他们那边就是一条解析失败的垃圾。放过的只有框架自己预期会写的：xlog 装好之前 slog 默认格式的文本行、
+  以 1 退出时 `MustRun` 写的最后一行错误、Go 运行时的 panic 输出、被信号杀掉时没写完的最后一截。
+  输出本来就不是 JSON 的用例（`XLog.Format: text`、`XTrace.Console`）在 `Options.NonJSON` 里写上理由。
+
+**加开关走 `Options.Overlay`，不加新的 `E2E_*` 环境变量。** Overlay 是叠在 `service/application.yml` 上的一份 profile，
+能改任何配置项（列表、map、某个具名实例的某个字段），用例里写的就是使用者会写的 YAML。
+`application.yml` 开头那张表里现有的 `E2E_*` 是历史留下的，只减不增：每加一个，
+被测服务的配置就多一处 `${VAR:默认}`、harness 就多一处要清理的环境变量，还读不出它最终改的是哪一项。
+被测服务要多一个接口给 `TestCoverage_*` 用时挂在 `/probe` 下（`service/probe.go`）。
+
+用例的时长断言：下界照实卡（没等够就是 bug），上界要给慢机器留余量——带 `-race` 的服务慢几倍，
+用例又都 `t.Parallel`。上界写成「量出来的数 × 3」或「文档推出来的数 + 一个具名的余量常量」
+（`faultSlack`、`faultUnaffected`），常量的注释里写清量出来是多少、反例是多少，二者之间要隔得开。
 
 它不在 CI 里：`test.sh` 遍历到 `e2e` 模块时，每个测试都因为 `XONE_E2E` 不为 1 而跳过，
 没有数据库的机器上照样全绿。用例照文档写的行为断言，揭示了框架的 bug 时不改断言去迁就它，

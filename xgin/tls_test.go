@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/xiaoshicae/x-one/internal/testkit"
 )
 
 // serverPKI 现造的证书：一个 CA，它签的服务端证书（127.0.0.1）和客户端证书；
@@ -91,7 +93,7 @@ func newServerPKI(t *testing.T) serverPKI {
 // servingTLS 起 https 服务，等它开始监听。hits 数 handler 被调到几次
 func servingTLS(t *testing.T, p serverPKI, mutate ...func(*Config)) (string, *atomic.Int32) {
 	t.Helper()
-	port := freePort(t)
+	port := testkit.FreePort(t)
 	c := configWith(append([]func(*Config){quiet, on(port), func(c *Config) {
 		c.CertFile, c.KeyFile = p.certFile, p.keyFile
 	}}, mutate...)...)
@@ -230,7 +232,7 @@ func TestStart_ClientCAFile读不出来时不监听(t *testing.T) {
 		"文件不存在":   filepath.Join(t.TempDir(), "nope.pem"),
 		"文件里没有证书": junk,
 	} {
-		c := configWith(quiet, on(freePort(t)), func(c *Config) {
+		c := configWith(quiet, on(testkit.FreePort(t)), func(c *Config) {
 			c.CertFile, c.KeyFile, c.ClientCAFile = p.certFile, p.keyFile, ca
 		})
 		err := startErr(t, New().WithConfig(c))

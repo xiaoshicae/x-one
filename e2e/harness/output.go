@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
+	"testing"
 )
 
 // Log 一行 JSON 日志
@@ -105,8 +107,9 @@ type output struct {
 }
 
 type outLine struct {
-	stream string
-	text   string
+	stream  string
+	text    string
+	partial bool // 进程退出时还没有换行符结尾的最后一截
 }
 
 func newOutput() *output { return &output{wake: make(chan struct{})} }
@@ -114,9 +117,9 @@ func newOutput() *output { return &output{wake: make(chan struct{})} }
 // writer 一个流的写入端。exec 为每个流单开一个协程拷贝，所以 partial 不用加锁
 func (o *output) writer(stream string) *lineWriter { return &lineWriter{o: o, stream: stream} }
 
-func (o *output) add(stream, text string) {
+func (o *output) add(stream, text string, partial bool) {
 	o.mu.Lock()
-	o.lines = append(o.lines, outLine{stream, text})
+	o.lines = append(o.lines, outLine{stream, text, partial})
 	close(o.wake)
 	o.wake = make(chan struct{})
 	o.mu.Unlock()
@@ -154,6 +157,13 @@ func (o *output) tail(n int) string {
 	return b.String()
 }
 
+// snapshot 全部行的一份拷贝
+func (o *output) snapshot() []outLine {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return append([]outLine(nil), o.lines...)
+}
+
 func (o *output) logs() []Log {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -181,7 +191,7 @@ func (w *lineWriter) Write(b []byte) (int, error) {
 		}
 		line := string(append(w.partial, b[:i]...))
 		w.partial = w.partial[:0]
-		w.o.add(w.stream, line)
+		w.o.add(w.stream, line, false)
 		b = b[i+1:]
 	}
 }
@@ -189,7 +199,117 @@ func (w *lineWriter) Write(b []byte) (int, error) {
 // flush 进程退出后把没有换行符结尾的最后一截也收进来
 func (w *lineWriter) flush() {
 	if len(w.partial) > 0 {
-		w.o.add(w.stream, string(w.partial))
+		w.o.add(w.stream, string(w.partial), true)
 		w.partial = nil
 	}
+}
+
+// 进程退出时对它的输出做的两条检查（checkOutput）：
+//
+//  1. stderr 里没有数据竞争报告。压测之外二进制都带 -race 编（见 RaceBuild），
+//     竞争检测器发现竞争时往 stderr 写 WARNING: DATA RACE，进程照常跑下去
+//  2. stdout / stderr 的每一行都是 JSON。使用者的日志平台按行解析 JSON：
+//     哪个三方库绕开 slog 往标准输出、标准错误写了一行纯文本，那一行在他们那边就是一条
+//     解析失败的垃圾，或者干脆丢了。单元测试只看得到被测包自己，这条只有真进程才查得出来
+//
+// 第 2 条放过的只有这几种，都是框架自己预期会写的：
+//
+//   - xlog 装好之前框架用 slog 的默认格式往 stderr 写的文本（2006/01/02 15:04:05 INFO starting ...）
+//   - 以 1 退出时 stderr 末尾的那段错误：MustRun 把 Run 返回的错误原样写出去（xone ... failed, err=[...]，
+//     YAML 的解码错误会跨好几行）；被测服务在 xone.Run 之前读配置失败时 log.Fatal 的那段同理
+//   - Go 运行时的 panic / fatal error 输出，从头一行起到结束（测的就是崩溃的用例要看它）
+//   - 被信号杀掉时没写完的最后一截
+//
+// xlog 关掉之后框架写 stderr 的兜底日志本来就是 JSON，不用放过。
+// 输出本来就不是 JSON 的用例（XLog.Format: text、stdout 的 Span 导出）给 Options.NonJSON 写上理由
+
+// raceReport 竞争检测器报告的开头；raceDelim 是它包在每份报告前后的分隔线
+const (
+	raceReport = "WARNING: DATA RACE"
+	raceDelim  = "=================="
+)
+
+// preXLogLine xlog 装好之前 slog 默认 logger 的一行：log 包的时间前缀加级别
+var preXLogLine = regexp.MustCompile(`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}(\.\d+)? (DEBUG|INFO|WARN|ERROR) `)
+
+// exitError 退出前写到 stderr 的那段错误的第一行：MustRun 写的 xerror（xone ...），或者 log.Fatal 带的时间前缀
+var exitError = regexp.MustCompile(`^(xone |\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} )`)
+
+// runtimeCrash Go 运行时崩溃输出的第一行
+var runtimeCrash = regexp.MustCompile(`^(panic: |fatal error: |runtime: |SIG[A-Z]+: |goroutine \d+ \[)`)
+
+func (p *Process) checkOutput(t testing.TB) {
+	t.Helper()
+	lines := p.out.snapshot()
+
+	var races []string
+	inRace := false
+	for _, l := range lines {
+		if l.stream != "stderr" {
+			continue
+		}
+		if strings.Contains(l.text, raceReport) {
+			inRace = true
+		}
+		if inRace {
+			races = append(races, l.text)
+			if len(races) > 200 {
+				races = append(races, "...")
+				break
+			}
+		}
+	}
+	if len(races) > 0 {
+		t.Errorf("%s hit a data race (built with -race):\n%s", p, strings.Join(races, "\n"))
+	}
+
+	if p.nonJSON != "" {
+		return
+	}
+	fatalFrom := len(lines) // 以 1 退出时，从这一行起 stderr 上的是退出前写的那段错误
+	if p.exit.Code == 1 {
+		for i := len(lines) - 1; i >= 0; i-- {
+			l := lines[i]
+			if l.stream != "stderr" {
+				continue
+			}
+			if _, ok := parseLog(l.stream, l.text); ok {
+				break
+			}
+			if exitError.MatchString(l.text) {
+				fatalFrom = i
+			}
+		}
+	}
+	var bad []string
+	crashed := false
+	for i, l := range lines {
+		if l.stream == "stderr" && (crashed || runtimeCrash.MatchString(l.text) || strings.Contains(l.text, raceReport) || l.text == raceDelim) {
+			crashed = true // 运行时崩溃、竞争报告：从这一行起的 stderr 都是它的
+			continue
+		}
+		if _, ok := parseLog(l.stream, l.text); ok {
+			continue
+		}
+		switch {
+		case l.stream == "stderr" && preXLogLine.MatchString(l.text):
+		case l.stream == "stderr" && i >= fatalFrom:
+		case l.partial && p.exit.Signal != nil:
+		default:
+			bad = append(bad, fmt.Sprintf("[%s] %s", l.stream, l.text))
+		}
+	}
+	if len(bad) > 0 {
+		t.Errorf("%s wrote %d non-JSON line(s): every line on stdout / stderr must be a JSON log "+
+			"(a third-party library bypassing slog?); set Options.NonJSON with a reason if this process is meant to:\n%s",
+			p, len(bad), strings.Join(bad, "\n"))
+	}
+}
+
+// String 名字加进程号，给错误消息用
+func (p *Process) String() string {
+	if p.cmd == nil || p.cmd.Process == nil {
+		return p.name
+	}
+	return fmt.Sprintf("%s (pid %d)", p.name, p.cmd.Process.Pid)
 }

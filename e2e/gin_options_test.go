@@ -132,7 +132,7 @@ func firstLine(s string) string {
 	return l
 }
 
-// covUpload POST /cov/upload，上传 size 字节的随机内容，回服务端看到的 on_disk 和 sha256 是否对得上
+// covUpload POST /probe/upload，上传 size 字节的随机内容，回服务端看到的 on_disk 和 sha256 是否对得上
 func covUpload(t *testing.T, p *harness.Process, size int) (onDisk bool) {
 	t.Helper()
 	data := make([]byte, size)
@@ -145,7 +145,7 @@ func covUpload(t *testing.T, p *harness.Process, size int) (onDisk bool) {
 	}
 	_, _ = fw.Write(data)
 	_ = w.Close()
-	r := p.Do(t, http.MethodPost, "/cov/upload", buf.Bytes(), "Content-Type", w.FormDataContentType())
+	r := p.Do(t, http.MethodPost, "/probe/upload", buf.Bytes(), "Content-Type", w.FormDataContentType())
 	if r.Status != http.StatusOK {
 		t.Fatalf("docs/config.md XGin.MaxMultipartMemory：不是请求体上限，超出的部分落盘、不会被拒绝；上传 %d 字节实际 %v", size, r)
 	}
@@ -164,7 +164,7 @@ func covUpload(t *testing.T, p *harness.Process, size int) (onDisk bool) {
 
 // docs/config.md XGin.MaxMultipartMemory：「字节，默认 8MB。不是『请求体上限』，是『超过多少才落盘』：
 // 超出的部分写进临时文件，不会被拒绝」。
-// 服务端从 FileHeader.Open 拿到 *os.File 就是落了盘（mime/multipart 的写法），见 service/coverage.go
+// 服务端从 FileHeader.Open 拿到 *os.File 就是落了盘（mime/multipart 的写法），见 service/probe.go
 func TestCoverage_MaxMultipartMemory是落盘阈值不是请求体上限(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
@@ -321,24 +321,24 @@ func TestCoverage_LogSkipPaths与自定义MetricPath(t *testing.T) {
 	t.Parallel()
 
 	p := harness.Start(t, harness.Options{Overlay: `XGin:
-  LogSkipPaths: ["/ping", "/cov/skip/"]
+  LogSkipPaths: ["/ping", "/probe/skip/"]
   MetricPath: /internal/metrics
 `})
-	for _, path := range []string{"/ping", "/cov/skip/a", "/cov/skip/a/b", "/cov/skipx", "/ping/extra", "/internal/metrics", "/metrics"} {
+	for _, path := range []string{"/ping", "/probe/skip/a", "/probe/skip/a/b", "/probe/skipx", "/ping/extra", "/internal/metrics", "/metrics"} {
 		p.Get(t, path)
 	}
 	// 界碑：最后一个请求的访问日志到了，前面的要打早就打了
-	sentinel := p.Get(t, "/cov/log?msg=sentinel")
+	sentinel := p.Get(t, "/probe/log?msg=sentinel")
 	accessLog(t, p, traceIDOf(t, sentinel))
 
-	for _, path := range []string{"/ping", "/cov/skip/a", "/cov/skip/a/b", "/internal/metrics"} {
+	for _, path := range []string{"/ping", "/probe/skip/a", "/probe/skip/a/b", "/internal/metrics"} {
 		if n := len(covAccessLogs(p, path)); n != 0 {
 			t.Errorf("%s 在 LogSkipPaths 里（或是自定义的 MetricPath），不该有访问日志，实际 %d 条", path, n)
 		}
 	}
-	for _, path := range []string{"/cov/skipx", "/ping/extra", "/metrics"} {
+	for _, path := range []string{"/probe/skipx", "/ping/extra", "/metrics"} {
 		if n := len(covAccessLogs(p, path)); n != 1 {
-			t.Errorf("%s 不匹配任何一条（/ping 精确匹配、/cov/skip/ 按前缀），应有 1 条访问日志，实际 %d 条", path, n)
+			t.Errorf("%s 不匹配任何一条（/ping 精确匹配、/probe/skip/ 按前缀），应有 1 条访问日志，实际 %d 条", path, n)
 		}
 	}
 
@@ -374,7 +374,7 @@ func TestCoverage_ZHTranslations打开后校验报错是中文(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			p := harness.Start(t, harness.Options{Overlay: c.overlay})
-			r := p.PostJSON(t, "/cov/zh", map[string]any{"age": 0})
+			r := p.PostJSON(t, "/probe/zh", map[string]any{"age": 0})
 			if r.Status != http.StatusBadRequest {
 				t.Fatalf("缺必填字段应是 400，实际 %v", r)
 			}

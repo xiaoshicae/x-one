@@ -27,38 +27,38 @@ import (
 	"github.com/xiaoshicae/x-one/xredis"
 )
 
-// coverageRoutes 给 e2e/coverage_*_test.go 用的接口，都挂在 /cov 下面（Swagger UI 除外）：
+// probeRoutes 给 TestCoverage_* 用例（e2e/*_options_test.go 等）用的接口，都挂在 /probe 下面（Swagger UI 除外）：
 //
 //	GET  /swagger/*any（或 XGinSwagger.URLPrefix 下）  xginswagger 的 UI 和 doc.json
-//	GET  /cov/config                      main 里读到的 Service 块、启动钩子里读到的 Cov 块
-//	GET  /cov/log?level=warn&msg=xxx      按给定级别打一条业务日志
-//	GET  /cov/cache?name=&op=set|get&key=&ttl=  具名的本地缓存实例上 Set（等它生效）/ Get
-//	GET  /cov/cache/fill?name=&n=N        往实例里写 N 个不同的键（cost 1），再数还读得到几个
-//	GET  /cov/redis?name=&op=set|get&key=&val=  具名的 Redis 实例上 SET / GET，回耗时
-//	GET  /cov/fwd?url=http://host/path    经 xhttp 调任意 URL，测按域名透传的规则
-//	POST /cov/flow                        xflow：第二步的 Rollback 不看 ctx 地挂住，第三步失败
-//	POST /cov/zh                          必填字段校验失败时回 trans.ToZH 之后的报错
-//	POST /cov/upload                      multipart 上传，回这个文件是在内存里还是落了盘
-//	GET  /cov/skip/*any                   LogSkipPaths 前缀匹配用
-func coverageRoutes(e *gin.Engine) {
+//	GET  /probe/config                      main 里读到的 Service 块、启动钩子里读到的 Cov 块
+//	GET  /probe/log?level=warn&msg=xxx      按给定级别打一条业务日志
+//	GET  /probe/cache?name=&op=set|get&key=&ttl=  具名的本地缓存实例上 Set（等它生效）/ Get
+//	GET  /probe/cache/fill?name=&n=N        往实例里写 N 个不同的键（cost 1），再数还读得到几个
+//	GET  /probe/redis?name=&op=set|get&key=&val=  具名的 Redis 实例上 SET / GET，回耗时
+//	GET  /probe/fwd?url=http://host/path    经 xhttp 调任意 URL，测按域名透传的规则
+//	POST /probe/flow                        xflow：第二步的 Rollback 不看 ctx 地挂住，第三步失败
+//	POST /probe/zh                          必填字段校验失败时回 trans.ToZH 之后的报错
+//	POST /probe/upload                      multipart 上传，回这个文件是在内存里还是落了盘
+//	GET  /probe/skip/*any                   LogSkipPaths 前缀匹配用
+func probeRoutes(e *gin.Engine) {
 	apidoc.Register()
 	xginswagger.Register(e, apidoc.SwaggerInfo)
 
-	g := e.Group("/cov")
-	g.GET("/config", covConfig)
-	g.GET("/log", covLog)
-	g.GET("/cache", covCache)
-	g.GET("/cache/fill", covCacheFill)
-	g.GET("/redis", covRedis)
-	g.GET("/fwd", covForward)
-	g.POST("/flow", covFlow)
-	g.POST("/zh", covZH)
-	g.POST("/upload", covUpload)
+	g := e.Group("/probe")
+	g.GET("/config", probeConfig)
+	g.GET("/log", probeLog)
+	g.GET("/cache", probeCache)
+	g.GET("/cache/fill", probeCacheFill)
+	g.GET("/redis", probeRedis)
+	g.GET("/fwd", probeForward)
+	g.POST("/flow", probeFlow)
+	g.POST("/zh", probeZH)
+	g.POST("/upload", probeUpload)
 	g.GET("/skip/*any", func(c *gin.Context) { c.String(http.StatusOK, "skipped") })
 }
 
-// covConfig main 里（xone.Run 之前）读到的 Service 块，和启动钩子里读到的 Cov 块
-func covConfig(c *gin.Context) {
+// probeConfig main 里（xone.Run 之前）读到的 Service 块，和启动钩子里读到的 Cov 块
+func probeConfig(c *gin.Context) {
 	s := conf.C()
 	c.JSON(http.StatusOK, gin.H{
 		"service": gin.H{
@@ -70,8 +70,8 @@ func covConfig(c *gin.Context) {
 	})
 }
 
-// covLog 按 level 打一条业务日志，msg 原样当消息
-func covLog(c *gin.Context) {
+// probeLog 按 level 打一条业务日志，msg 原样当消息
+func probeLog(c *gin.Context) {
 	var lv slog.Level
 	if err := lv.UnmarshalText([]byte(c.DefaultQuery("level", "info"))); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -89,9 +89,9 @@ func cacheName(c *gin.Context) []string {
 	return nil
 }
 
-// covCache op=set：用这个实例的 DefaultTTL（给了 ttl 就用它）写一个键并 Wait；op=get：读回来。
+// probeCache op=set：用这个实例的 DefaultTTL（给了 ttl 就用它）写一个键并 Wait；op=get：读回来。
 // 名字写错时 xcache.C 会 panic，交给恢复中间件回 500
-func covCache(c *gin.Context) {
+func probeCache(c *gin.Context) {
 	name := cacheName(c)
 	cache := xcache.C(name...)
 	key := c.Query("key")
@@ -117,9 +117,9 @@ func covCache(c *gin.Context) {
 	}
 }
 
-// covCacheFill 往实例里写 n 个不同的键再逐个读回，回读得到几个。
+// probeCacheFill 往实例里写 n 个不同的键再逐个读回，回读得到几个。
 // 默认实例走包级的 xcache.Set（本包写入时 cost 固定为 1），具名实例自己给 cost 1
-func covCacheFill(c *gin.Context) {
+func probeCacheFill(c *gin.Context) {
 	name := cacheName(c)
 	cache := xcache.C(name...)
 	n, err := strconv.Atoi(c.Query("n"))
@@ -146,8 +146,8 @@ func covCacheFill(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"written": n, "stored": stored, "max_cost": cache.MaxCost()})
 }
 
-// covRedis 具名的 Redis 实例上 SET / GET 一个键（键名自动加 KeyPrefix），回耗时和错误
-func covRedis(c *gin.Context) {
+// probeRedis 具名的 Redis 实例上 SET / GET 一个键（键名自动加 KeyPrefix），回耗时和错误
+func probeRedis(c *gin.Context) {
 	ctx := c.Request.Context()
 	var name []string
 	if n := c.Query("name"); n != "" {
@@ -181,8 +181,8 @@ func covRedis(c *gin.Context) {
 	c.JSON(http.StatusOK, body)
 }
 
-// covForward 经 xhttp GET 任意 URL，把下游的状态码转回来
-func covForward(c *gin.Context) {
+// probeForward 经 xhttp GET 任意 URL，把下游的状态码转回来
+func probeForward(c *gin.Context) {
 	resp, err := xhttp.R(c.Request.Context()).Get(c.Query("url"))
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
@@ -193,20 +193,20 @@ func covForward(c *gin.Context) {
 
 // hangFlow 三步：first 成功（回滚很快）、hang 成功（回滚不看 ctx 地睡 HangMS）、fail 失败。
 // 回滚逆序：先 hang（挂住，被 RollbackTimeout 放弃），再 first（预算已经用完，记成「没执行」）
-var hangFlow = xflow.New[*hangReq]("cov_hang_rollback", covStep{"first", false}, covStep{"hang", true}, covStep{"fail", false})
+var hangFlow = xflow.New[*hangReq]("cov_hang_rollback", probeStep{"first", false}, probeStep{"hang", true}, probeStep{"fail", false})
 
 type hangReq struct {
 	HangMS int `json:"hang_ms"`
 }
 
-type covStep struct {
+type probeStep struct {
 	name string
 	hang bool
 }
 
-func (s covStep) Name() string { return s.name }
+func (s probeStep) Name() string { return s.name }
 
-func (s covStep) Process(context.Context, *hangReq) error {
+func (s probeStep) Process(context.Context, *hangReq) error {
 	if s.name == "fail" {
 		return errors.New("injected failure at step fail")
 	}
@@ -214,15 +214,15 @@ func (s covStep) Process(context.Context, *hangReq) error {
 }
 
 // Rollback hang 那一步故意不看 ctx：文档说这份预算对这样的 Rollback 同样有效
-func (s covStep) Rollback(_ context.Context, r *hangReq) error {
+func (s probeStep) Rollback(_ context.Context, r *hangReq) error {
 	if s.hang {
 		time.Sleep(time.Duration(r.HangMS) * time.Millisecond)
 	}
 	return nil
 }
 
-// covFlow 跑 hangFlow，回耗时、rolled、每条回滚错误
-func covFlow(c *gin.Context) {
+// probeFlow 跑 hangFlow，回耗时、rolled、每条回滚错误
+func probeFlow(c *gin.Context) {
 	var r hangReq
 	if err := c.ShouldBindJSON(&r); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -247,8 +247,8 @@ type zhReq struct {
 	Age  int    `json:"age" binding:"gte=1"`
 }
 
-// covZH 校验失败时回 trans.ToZH 之后的报错：没打开 ZHTranslations 时 ToZH 原样返回
-func covZH(c *gin.Context) {
+// probeZH 校验失败时回 trans.ToZH 之后的报错：没打开 ZHTranslations 时 ToZH 原样返回
+func probeZH(c *gin.Context) {
 	var r zhReq
 	if err := c.ShouldBindJSON(&r); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": trans.ToZH(err).Error()})
@@ -257,9 +257,9 @@ func covZH(c *gin.Context) {
 	c.JSON(http.StatusOK, r)
 }
 
-// covUpload 收一个 multipart 上传（字段 file），回大小、sha256，以及它在内存里还是落了盘：
+// probeUpload 收一个 multipart 上传（字段 file），回大小、sha256，以及它在内存里还是落了盘：
 // mime/multipart 超过 maxMemory 的部分写进临时文件，这时 FileHeader.Open 返回的是 *os.File
-func covUpload(c *gin.Context) {
+func probeUpload(c *gin.Context) {
 	fh, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

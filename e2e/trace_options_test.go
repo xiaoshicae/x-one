@@ -68,9 +68,9 @@ func TestCoverage_ForwardHeaderRules只把头发给匹配的域名且只收可�
 `
 	send := func(t *testing.T, p *harness.Process, host string) {
 		t.Helper()
-		r := p.Get(t, "/cov/fwd?url=http://"+host+"/echo", "X-Request-Id", "rid-"+host, "X-Internal-Token", "tok-"+host)
+		r := p.Get(t, "/probe/fwd?url=http://"+host+"/echo", "X-Request-Id", "rid-"+host, "X-Internal-Token", "tok-"+host)
 		if r.Status != http.StatusOK {
-			t.Fatalf("GET /cov/fwd 到 %s：%v", host, r)
+			t.Fatalf("GET /probe/fwd 到 %s：%v", host, r)
 		}
 	}
 
@@ -207,8 +207,12 @@ func TestCoverage_Console打开后Span打到标准输出(t *testing.T) {
 	for _, on := range []bool{false, true} {
 		t.Run(fmt.Sprintf("Console=%v", on), func(t *testing.T) {
 			t.Parallel()
-			p := harness.Start(t, harness.Options{Overlay: fmt.Sprintf("XTrace:\n  Console: %v\n", on)})
-			tid := traceIDOf(t, p.Get(t, "/cov/log?msg=console"))
+			o := harness.Options{Overlay: fmt.Sprintf("XTrace:\n  Console: %v\n", on)}
+			if on {
+				o.NonJSON = "XTrace.Console: true pretty-prints spans to stdout"
+			}
+			p := harness.Start(t, o)
+			tid := traceIDOf(t, p.Get(t, "/probe/log?msg=console"))
 			accessLog(t, p, tid)
 			want := `"TraceID": "` + tid + `"`
 			if on {
@@ -217,8 +221,8 @@ func TestCoverage_Console打开后Span打到标准输出(t *testing.T) {
 					time.Sleep(20 * time.Millisecond)
 				}
 				out := p.Stdout()
-				if !strings.Contains(out, want) || !strings.Contains(out, `"Name": "GET /cov/log"`) {
-					t.Errorf("Console: true 时服务端 Span（GET /cov/log，TraceID %s）应打到标准输出，实际没有", tid)
+				if !strings.Contains(out, want) || !strings.Contains(out, `"Name": "GET /probe/log"`) {
+					t.Errorf("Console: true 时服务端 Span（GET /probe/log，TraceID %s）应打到标准输出，实际没有", tid)
 				}
 			} else if strings.Contains(p.Stdout(), `"SpanContext"`) {
 				t.Errorf("Console 默认关，标准输出里不该有 Span")

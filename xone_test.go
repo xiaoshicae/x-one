@@ -826,6 +826,10 @@ func TestShutdown_初始化失败时的关闭也有预算(t *testing.T) {
 	}
 }
 
+// stopSlack 停止预算之外给调度留的余量。它必须小于预算本身：
+// 「超出预算」的 bug 多半是多拿了一整份预算，余量比预算小才分得出来
+const stopSlack = 400 * time.Millisecond
+
 // stuckComp 一个关不掉的组件：停止钩子不看 ctx，永远不返回
 func stuckComp(name string) pair {
 	return pair{
@@ -857,7 +861,7 @@ func TestShutdown_卡住的钩子吃不掉排在后面的那一份(t *testing.T)
 		stop:  func(context.Context) error { return nil },
 	}
 
-	budget := 200 * time.Millisecond
+	budget := 800 * time.Millisecond
 	start := time.Now()
 	comps(t, stuckComp("卡住的甲"), stuckComp("卡住的乙"), flushComp(r))
 	err := Run(srv, WithLogger(quietLogger()), WithStopTimeout(budget))
@@ -872,7 +876,7 @@ func TestShutdown_卡住的钩子吃不掉排在后面的那一份(t *testing.T)
 	if err != nil && strings.Contains(err.Error(), "日志.close") {
 		t.Errorf("按时做完的钩子不该被报成超时，got=%v", err)
 	}
-	if limit := budget + 250*time.Millisecond; elapsed > limit {
+	if limit := budget + stopSlack; elapsed > limit {
 		t.Errorf("退出耗时超出了停止预算，elapsed=%v limit=%v", elapsed, limit)
 	}
 }
@@ -890,7 +894,7 @@ func TestShutdown_退出总耗时不超过停止预算(t *testing.T) {
 	}
 
 	const signalAt = 50 * time.Millisecond
-	budget := 400 * time.Millisecond
+	budget := 800 * time.Millisecond
 	go func() { time.Sleep(signalAt); syscallSelfInterrupt(t) }()
 	start := time.Now()
 	comps(t, stuckComp("关不掉的"), flushComp(r))
@@ -904,7 +908,7 @@ func TestShutdown_退出总耗时不超过停止预算(t *testing.T) {
 		t.Errorf("关不掉的组件该被如实报告，got=%v", err)
 	}
 	// 从收到信号算起不超过一份预算（从前服务不肯退出时组件另拿一份，是两份）
-	if limit := signalAt + budget + 250*time.Millisecond; elapsed > limit {
+	if limit := signalAt + budget + stopSlack; elapsed > limit {
 		t.Errorf("退出耗时超出了停止预算，elapsed=%v limit=%v", elapsed, limit)
 	}
 }

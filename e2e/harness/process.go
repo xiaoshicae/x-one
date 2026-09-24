@@ -71,6 +71,10 @@ type Options struct {
 
 	// ReadyTimeout 等 /ping 的上限，默认 30s
 	ReadyTimeout time.Duration
+
+	// NonJSON 非空时，进程退出后不检查它的每一行输出都是 JSON（见 checkOutput），写上为什么：
+	// 比如 "XLog.Format: text"。数据竞争照查
+	NonJSON string
 }
 
 // Process 一个跑着的服务进程
@@ -91,6 +95,7 @@ type Process struct {
 	SpanFile string
 
 	logDir  string
+	nonJSON string
 	cmd     *exec.Cmd
 	out     *output
 	flush   []*lineWriter
@@ -181,9 +186,47 @@ func StartBaseline(t testing.TB, o Options) *Process {
 	return launch(t, "baseline", BaselineBinary(t), o.Args, t.TempDir(), o)
 }
 
+// StartCovApp 起 covapp，参数原样交给它，不等就绪（它不监听）。Options 里只有 Env 对它有意义
+func StartCovApp(t testing.TB, o Options, args ...string) *Process {
+	t.Helper()
+	o.NoWait = true
+	return launch(t, "covapp", CovAppBinary(t), args, t.TempDir(), o)
+}
+
+// StartArgs 起 e2e 服务，命令行参数原样是 args：不像 Start 那样自己加 --config。
+// 测 XONE_CONFIG、约定路径这些「没给 --config」时的找法用它。工作目录是 Process.Dir
+func StartArgs(t testing.TB, o Options, args ...string) *Process {
+	t.Helper()
+	return launch(t, "service", ServiceBinary(t), args, t.TempDir(), o)
+}
+
+// WaitReadyWith 用 c 反复 GET url 直到 200，timeout 内没等到、或者进程先退出了就 t.Fatal。
+// 给 HTTPS、h2c 这类 Start 自己的 http:// 就绪探测够不着的服务用（启动时传 Options.NoWait）
+func (p *Process) WaitReadyWith(t testing.TB, c *http.Client, url string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		resp, err := c.Get(url)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		select {
+		case <-p.done:
+			t.Fatalf("%s exited before it was ready: %v\n%s", p.name, p.exit, p.out.tail(80))
+		case <-time.After(20 * time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s not ready at %s within %v (last error: %v)\n%s", p.name, url, timeout, err, p.out.tail(80))
+		}
+	}
+}
+
 func launch(t testing.TB, name, bin string, args []string, dir string, o Options) *Process {
 	t.Helper()
-	p := &Process{name: name, Dir: dir, Port: o.Port, Table: o.Table, KeyPrefix: o.KeyPrefix, CH: o.ClickHouse}
+	p := &Process{name: name, Dir: dir, Port: o.Port, Table: o.Table, KeyPrefix: o.KeyPrefix, CH: o.ClickHouse, nonJSON: o.NonJSON}
 	if p.Port == 0 {
 		p.Port = FreePort(t)
 	}
@@ -223,6 +266,11 @@ func launch(t testing.TB, name, bin string, args []string, dir string, o Options
 		p.logDir = dir
 		vars["E2E_LOG_FILE"], vars["E2E_LOG_DIR"] = "true", dir
 	}
+	if RaceBuild() {
+		// 竞争检测器默认在进程退出前睡 1s（等别的协程把报告写完），
+		// 每个测退出时长的用例都会凭空多出这一秒
+		vars["GORACE"] = "atexit_sleep_ms=0"
+	}
 	for k, v := range o.Env {
 		vars[k] = v
 	}
@@ -260,6 +308,10 @@ func launch(t testing.TB, name, bin string, args []string, dir string, o Options
 		if !p.Exited() {
 			p.Kill()
 			p.Wait(10 * time.Second)
+		}
+		// 裸 gin 的对照服务不是框架，它的输出不归这两条检查管
+		if p.Exited() && name != "baseline" {
+			p.checkOutput(t)
 		}
 		p.client.CloseIdleConnections()
 		if t.Failed() {

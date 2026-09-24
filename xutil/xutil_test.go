@@ -106,9 +106,17 @@ func TestRetry_耗尽后返回最后一次的错误(t *testing.T) {
 }
 
 func TestRetry_每次单独限时(t *testing.T) {
-	// 一次卡住不该把整轮预算吃光
+	// 一次卡住不该把整轮预算吃光。
+	// 退避换成 0、interval 给大：整轮预算里留给退避的那一段（1s+2s）真的不花，
+	// 成了每次尝试的调度余量。否则预算只比 3×timeout 多 3ms，机器一忙，
+	// 前两次各晚醒几毫秒就把第三次挤掉——那是调度的问题，不是这条承诺的问题
+	withJitter(t, func(time.Duration) time.Duration { return 0 })
+	const timeout = 20 * time.Millisecond
 	var deadlines int
-	err := Retry(context.Background(), 3, 20*time.Millisecond, time.Millisecond, func(ctx context.Context) error {
+	err := Retry(context.Background(), 3, timeout, time.Second, func(ctx context.Context) error {
+		if d, ok := ctx.Deadline(); !ok || time.Until(d) > timeout {
+			t.Errorf("每次尝试的截止时间该是自己的 timeout，而不是整轮预算：还剩 %v", time.Until(d))
+		}
 		<-ctx.Done()
 		deadlines++
 		return ctx.Err()
@@ -123,14 +131,16 @@ func TestRetry_每次单独限时(t *testing.T) {
 
 func TestRetry_总预算兜住整轮(t *testing.T) {
 	// 带总预算是为了让启动期收到的退出信号能及时生效：
-	// 不可中断的重试会让进程必须等满整轮才肯退出
+	// 不可中断的重试会让进程必须等满整轮才肯退出。
+	// 退避换成一小时：没有总预算兜着，这一轮要等四个小时；有的话约 90ms
+	// （5×10ms + 4×10ms）。上界给 10s，离两头都远，慢机器上也不会误报
+	withJitter(t, func(time.Duration) time.Duration { return time.Hour })
 	start := time.Now()
 	Retry(context.Background(), 5, 10*time.Millisecond, 10*time.Millisecond, func(ctx context.Context) error {
 		<-ctx.Done()
 		return ctx.Err()
 	})
-	// 预算 = 5×10ms + 4×10ms = 90ms，宽松一点留出调度余量
-	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
 		t.Errorf("整轮应在总预算内结束，用了 %v", elapsed)
 	}
 }
@@ -146,6 +156,8 @@ func TestRetry_次数小于一也至少跑一次(t *testing.T) {
 func TestRetry_父ctx取消时立即中止(t *testing.T) {
 	// 启动期的建连重试靠这一条：收到退出信号时，进程不该被迫等满整轮。
 	// 三次尝试 × 每次 5s，不中断就是 10 秒起步，而信号已经来了
+	// 退避换成一小时：取消之后要是还在等退避，这里就挂一小时；上界 10s 离两头都远
+	withJitter(t, func(time.Duration) time.Duration { return time.Hour })
 	ctx, cancel := context.WithCancel(context.Background())
 	calls := 0
 	start := time.Now()
@@ -162,7 +174,7 @@ func TestRetry_父ctx取消时立即中止(t *testing.T) {
 	if calls != 1 {
 		t.Errorf("取消之后不该再尝试，got=%d 次", calls)
 	}
-	if elapsed := time.Since(start); elapsed > time.Second {
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
 		t.Errorf("取消之后不该还在等重试间隔，耗时=%v", elapsed)
 	}
 }
@@ -171,9 +183,7 @@ func TestRetry_两次尝试之间被取消时如实报告取消(t *testing.T) {
 	// 取消发生在退避期间时，报出去的若只是上一次的业务错误，调用方看到的是
 	// 「连不上」，而真实原因是「收到退出信号不再试了」——启动路径据此判断
 	// 这是故障还是按要求退出。上一次的错误也不能丢：它是之前一直失败的原因
-	old := jitter
-	jitter = func(time.Duration) time.Duration { return time.Hour } // 必然还在等退避
-	t.Cleanup(func() { jitter = old })
+	withJitter(t, func(time.Duration) time.Duration { return time.Hour }) // 必然还在等退避
 
 	ctx, cancel := context.WithCancel(context.Background())
 	last := errors.New("连不上")
@@ -193,9 +203,7 @@ func TestRetry_总预算耗尽时报最后一次的错误(t *testing.T) {
 	// 预算耗尽不是取消：调用方没有叫停，只是一直没连上。这时照文档返回
 	// 最后一次的业务错误，不能混进一个 context 的错误让人以为被取消了
 	// 把退避换成远超预算的等待，于是预算必然在两次尝试之间耗尽
-	old := jitter
-	jitter = func(time.Duration) time.Duration { return time.Hour }
-	t.Cleanup(func() { jitter = old })
+	withJitter(t, func(time.Duration) time.Duration { return time.Hour })
 
 	last := errors.New("连不上")
 	err := Retry(context.Background(), 3, 10*time.Millisecond, time.Millisecond, func(context.Context) error {
@@ -319,9 +327,7 @@ func TestRetry_退避之后每次尝试都跑得到(t *testing.T) {
 func recordWaits(t *testing.T) *[]time.Duration {
 	t.Helper()
 	var waits []time.Duration
-	old := jitter
-	jitter = func(d time.Duration) time.Duration { waits = append(waits, d); return 0 }
-	t.Cleanup(func() { jitter = old })
+	withJitter(t, func(d time.Duration) time.Duration { waits = append(waits, d); return 0 })
 	return &waits
 }
 
@@ -405,4 +411,13 @@ func TestPermanent_透传文本和错误链(t *testing.T) {
 	if Permanent(nil) != nil {
 		t.Error("Permanent(nil) 该是 nil，否则 fn 成功了也会被当成失败")
 	}
+}
+
+// withJitter 在这个测试里把退避的抖动换成 f，结束时还原。
+// 时长相关的断言靠它把等待从随机数和调度里拿出来
+func withJitter(t *testing.T, f func(time.Duration) time.Duration) {
+	t.Helper()
+	old := jitter
+	jitter = f
+	t.Cleanup(func() { jitter = old })
 }

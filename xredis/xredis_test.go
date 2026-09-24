@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -20,9 +19,11 @@ import (
 
 	"github.com/xiaoshicae/x-one/internal/config"
 	"github.com/xiaoshicae/x-one/internal/hook"
+	"github.com/xiaoshicae/x-one/internal/testkit"
 	"github.com/xiaoshicae/x-one/internal/xclient"
 	"github.com/xiaoshicae/x-one/xerror"
 	"github.com/xiaoshicae/x-one/xmetric"
+	"github.com/xiaoshicae/x-one/xonetest"
 )
 
 func liveCfg(f *fakeRedis) ClientConfig {
@@ -81,7 +82,7 @@ func TestNew_连不上时不漏连接池(t *testing.T) {
 	c.DialTimeout, c.ReadTimeout = 50*time.Millisecond, 50*time.Millisecond
 	c.Trace = false
 
-	before := stabilize()
+	before := testkit.Stabilize()
 	for i := 0; i < 5; i++ {
 		client, closer, err := New(context.Background(), c)
 		if err == nil {
@@ -92,7 +93,7 @@ func TestNew_连不上时不漏连接池(t *testing.T) {
 			t.Error("失败时不该返回半成品")
 		}
 	}
-	if after := settleTo(before); after > before+1 {
+	if after := testkit.SettleTo(before); after > before+1 {
 		t.Errorf("建连失败 5 次后协程数从 %d 涨到 %d，说明 client 没被关掉", before, after)
 	}
 }
@@ -169,6 +170,11 @@ func TestNew_退出信号到达时当场放弃建连(t *testing.T) {
 	f := newFakeRedis(t)
 	f.setFailPing(true)
 	c := liveCfg(f)
+	// 重试间隔调成一小时：走整轮就是挂住，当场放弃是毫秒级，上界 5s 离两头都远。
+	// TestMain 里的 10ms 拿来当上界的话，机器一忙就误报
+	old := pingInterval
+	pingInterval = time.Hour
+	t.Cleanup(func() { pingInterval = old })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // 模拟建连之前就收到了退出信号
@@ -178,7 +184,7 @@ func TestNew_退出信号到达时当场放弃建连(t *testing.T) {
 	if err == nil {
 		t.Fatal("ctx 已取消时不该建连成功")
 	}
-	if elapsed := time.Since(start); elapsed > pingInterval {
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Errorf("应当当场放弃而不是走完整轮重试，耗时=%v", elapsed)
 	}
 }
@@ -470,24 +476,10 @@ func initComponent(t *testing.T, c Config) error {
 	return install(context.Background(), c)
 }
 
-// useConf 把一份配置装进全局配置，走的是框架真正会走的那条路
-func useConf(t *testing.T, yml string) {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "application.yml")
-	if err := os.WriteFile(p, []byte(yml), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	config.Reset()
-	if err := config.Load(p); err != nil {
-		t.Fatalf("加载配置失败：%v", err)
-	}
-	t.Cleanup(config.Reset)
-}
-
 func TestInitXRedis_没写这一块就一个连接都不建(t *testing.T) {
 	// xredis 是可选依赖：没配不该让服务起不来，更不该去连 localhost:6379
 	t.Cleanup(func() { _ = closeXRedis(context.Background()) })
-	useConf(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
 
 	if err := initXRedis(context.Background()); err != nil {
 		t.Fatalf("没配不该报错：%v", err)
@@ -499,7 +491,7 @@ func TestInitXRedis_没写这一块就一个连接都不建(t *testing.T) {
 
 func TestInitXRedis_写了空块也不建(t *testing.T) {
 	t.Cleanup(func() { _ = closeXRedis(context.Background()) })
-	useConf(t, "XRedis:\n")
+	xonetest.UseConfigYAML(t, "XRedis:\n")
 
 	if err := initXRedis(context.Background()); err != nil {
 		t.Fatalf("空块不该报错：%v", err)
@@ -511,7 +503,7 @@ func TestInitXRedis_写了空块也不建(t *testing.T) {
 
 func TestInitXRedis_配置写错时启动失败(t *testing.T) {
 	t.Cleanup(func() { _ = closeXRedis(context.Background()) })
-	useConf(t, "XRedis:\n  Addrs: \"127.0.0.1:6379\"\n")
+	xonetest.UseConfigYAML(t, "XRedis:\n  Addrs: \"127.0.0.1:6379\"\n")
 
 	if err := initXRedis(context.Background()); err == nil {
 		t.Fatal("字段拼错应当让启动失败，否则使用者会一直以为自己配上了")
@@ -524,7 +516,7 @@ func TestInitXRedis_配置写错时启动失败(t *testing.T) {
 func TestInitXRedis_按配置建好再关干净(t *testing.T) {
 	t.Cleanup(func() { _ = closeXRedis(context.Background()) })
 	f := newFakeRedis(t)
-	useConf(t, "XRedis:\n  Clients:\n    cache:\n      Addr: \""+f.addr()+"\"\n    session:\n      Addr: \""+f.addr()+"\"\n")
+	xonetest.UseConfigYAML(t, "XRedis:\n  Clients:\n    cache:\n      Addr: \""+f.addr()+"\"\n    session:\n      Addr: \""+f.addr()+"\"\n")
 
 	if err := initXRedis(context.Background()); err != nil {
 		t.Fatalf("应当建得起来：%v", err)
@@ -555,7 +547,7 @@ func TestInitXRedis_写了空块不会让启动失败(t *testing.T) {
 	// 留下的就是这个形状。它曾经让 Run 报「XRedis 这个 key 没人读，
 	// 检查拼写、或者有没有 import 对应的包」——两条都不成立
 	t.Cleanup(func() { _ = closeXRedis(context.Background()) })
-	useConf(t, "XRedis:\n")
+	xonetest.UseConfigYAML(t, "XRedis:\n")
 
 	if err := initXRedis(context.Background()); err != nil {
 		t.Fatalf("空块不该报错：%v", err)
@@ -597,13 +589,6 @@ func TestInstall_错误只包一层且op如实(t *testing.T) {
 	}
 }
 
-// scrape 抓一次 /metrics
-func scrape(m *xmetric.Metrics) string {
-	w := httptest.NewRecorder()
-	m.Handler.ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
-	return w.Body.String()
-}
-
 func TestInstall_只导出开了Metric的实例且xmetric重装后照样导出(t *testing.T) {
 	// collector 是进程级的一个，抓取时遍历全部实例：不看实例自己的开关，
 	// Metric: false 就是一句空话。第二轮是同一进程里再走一遍生命周期——
@@ -621,7 +606,7 @@ func TestInstall_只导出开了Metric的实例且xmetric重装后照样导出(t
 		if err := install(context.Background(), Config{Clients: map[string]ClientConfig{"on": on, "off": off}}); err != nil {
 			t.Fatal(err)
 		}
-		out := scrape(m)
+		out := testkit.Scrape(m.Handler)
 		if !strings.Contains(out, `redis_pool_connections{name="on"}`) {
 			t.Errorf("第 %d 轮：开了 Metric 的实例该导出\n实际=\n%s", round, out)
 		}
@@ -639,7 +624,7 @@ func TestInitXRedis_没配时C说的是没配而不是调早了(t *testing.T) {
 	// 没配也要让注册表知道启动钩子跑过了。否则 C() 会把「没配」说成「调早了」，
 	// 使用者会去查调用时机，而真正该查的是配置文件
 	t.Cleanup(func() { _ = closeXRedis(context.Background()) })
-	useConf(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
 	if err := initXRedis(context.Background()); err != nil {
 		t.Fatal(err)
 	}

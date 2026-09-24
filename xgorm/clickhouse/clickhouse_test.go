@@ -323,7 +323,8 @@ func TestNew_首次建连受ctx管也会重试(t *testing.T) {
 	// 却不回话的地址，ctx 早已取消也要等满 dial_timeout，然后直接失败——
 	// xgorm 的建连重试一次都没轮上
 	addr, accepts := withSilentServer(t)
-	c := cfg("clickhouse://u:p@"+addr+"/db", time.Second)
+	// dial_timeout 给 5s：没接上 ctx 的话要等满它，上界 2s 离两头都远
+	c := cfg("clickhouse://u:p@"+addr+"/db", 5*time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -331,7 +332,7 @@ func TestNew_首次建连受ctx管也会重试(t *testing.T) {
 	if _, _, err := xgorm.New(ctx, c); err == nil {
 		t.Fatal("ctx 已取消时不该建连成功")
 	}
-	if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Errorf("ctx 已取消就该当场放弃，实际等了 %v", elapsed)
 	}
 

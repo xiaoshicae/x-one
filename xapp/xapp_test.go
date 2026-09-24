@@ -8,6 +8,7 @@ import (
 
 	"github.com/xiaoshicae/x-one/internal/config"
 	"github.com/xiaoshicae/x-one/internal/hook"
+	"github.com/xiaoshicae/x-one/xonetest"
 )
 
 func TestRegister_只读配置不建任何东西(t *testing.T) {
@@ -44,20 +45,6 @@ func TestNameVersion(t *testing.T) {
 	}
 }
 
-// useConf 把一份配置装进全局配置，走的是框架真正会走的那条路
-func useConf(t *testing.T, yml string) {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "application.yml")
-	if err := os.WriteFile(p, []byte(yml), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	config.Reset()
-	if err := config.Load(p); err != nil {
-		t.Fatalf("加载配置失败：%v", err)
-	}
-	t.Cleanup(config.Reset)
-}
-
 func keepCfg(t *testing.T) {
 	t.Helper()
 	old := cfg
@@ -69,7 +56,7 @@ func TestLoadConfig_读的是_App_这一块(t *testing.T) {
 	// 这一块没读到的话，面板上整个服务就是匿名的
 	keepCfg(t)
 	cfg = DefaultConfig()
-	useConf(t, "App:\n  Name: xone.demo.app\n  Version: v1.2.0\n")
+	xonetest.UseConfigYAML(t, "App:\n  Name: xone.demo.app\n  Version: v1.2.0\n")
 
 	if err := loadConfig(context.Background()); err != nil {
 		t.Fatal(err)
@@ -82,7 +69,7 @@ func TestLoadConfig_读的是_App_这一块(t *testing.T) {
 func TestLoadConfig_没配就保持空值(t *testing.T) {
 	keepCfg(t)
 	cfg = DefaultConfig()
-	useConf(t, "XLog:\n  Level: info\n")
+	xonetest.UseConfigYAML(t, "XLog:\n  Level: info\n")
 
 	if err := loadConfig(context.Background()); err != nil {
 		t.Fatalf("没配不该报错：%v", err)
@@ -94,7 +81,7 @@ func TestLoadConfig_没配就保持空值(t *testing.T) {
 
 func TestLoadConfig_配置写错时启动失败(t *testing.T) {
 	keepCfg(t)
-	useConf(t, "App:\n  Nmae: demo\n")
+	xonetest.UseConfigYAML(t, "App:\n  Nmae: demo\n")
 
 	if err := loadConfig(context.Background()); err == nil {
 		t.Fatal("字段拼错应当让启动失败，否则服务名会一直是空的而没人知道")
@@ -106,7 +93,7 @@ func TestLoadConfig_不带上前一次的值(t *testing.T) {
 	// 而不是沿用上一次的服务名
 	keepCfg(t)
 	cfg = Config{Name: "last.run", Version: "v0"}
-	useConf(t, "App:\n  Version: v1.2.0\n")
+	xonetest.UseConfigYAML(t, "App:\n  Version: v1.2.0\n")
 
 	if err := loadConfig(context.Background()); err != nil {
 		t.Fatal(err)
@@ -119,7 +106,7 @@ func TestLoadConfig_不带上前一次的值(t *testing.T) {
 func TestLoadConfig_解码失败时不动现有的值(t *testing.T) {
 	keepCfg(t)
 	cfg = Config{Name: "kept"}
-	useConf(t, "App:\n  Name: half\n  Version: [1, 2]\n")
+	xonetest.UseConfigYAML(t, "App:\n  Name: half\n  Version: [1, 2]\n")
 
 	if err := loadConfig(context.Background()); err == nil {
 		t.Fatal("类型不对应当报错")

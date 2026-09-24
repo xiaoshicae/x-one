@@ -71,7 +71,7 @@ func TestRegister_登记了启停钩子(t *testing.T) {
 	// 而不是直接调 initXKV / closeXKV
 	path := filepath.Join(t.TempDir(), "kv.json")
 	t.Run("起停一轮", func(t *testing.T) {
-		useConf(t, "XKV:\n  Path: \""+path+"\"\n  FlushInterval: 1h\n")
+		xonetest.UseConfigYAML(t, "XKV:\n  Path: \""+path+"\"\n  FlushInterval: 1h\n")
 		xonetest.StartHooks(t) // 子测试结束时跑停止钩子
 		if C() == nil {
 			t.Fatal("启动钩子没登记，C() 取不到")
@@ -95,7 +95,7 @@ func TestInitXKV_走一遍框架真正会走的路(t *testing.T) {
 	// 使用者照抄的就是这几行，它们必须真的串得起来
 	dir := t.TempDir()
 	path := filepath.Join(dir, "kv.json")
-	useConf(t, "XKV:\n  Path: \""+path+"\"\n  FlushInterval: 50ms\n")
+	xonetest.UseConfigYAML(t, "XKV:\n  Path: \""+path+"\"\n  FlushInterval: 50ms\n")
 
 	if err := initXKV(context.Background()); err != nil {
 		t.Fatalf("初始化失败：%v", err)
@@ -124,7 +124,7 @@ func TestInitXKV_走一遍框架真正会走的路(t *testing.T) {
 }
 
 func TestInitXKV_配置写错时启动失败(t *testing.T) {
-	useConf(t, "XKV:\n  Paht: /tmp/kv.json\n")
+	xonetest.UseConfigYAML(t, "XKV:\n  Paht: /tmp/kv.json\n")
 	if err := initXKV(context.Background()); err == nil {
 		t.Fatal("字段拼错应当让启动失败")
 	}
@@ -140,7 +140,7 @@ func TestNew_刷盘间隔不大于0时建不起来(t *testing.T) {
 }
 
 func TestInitXKV_刷盘间隔配成0时启动失败(t *testing.T) {
-	useConf(t, "XKV:\n  FlushInterval: 0s\n")
+	xonetest.UseConfigYAML(t, "XKV:\n  FlushInterval: 0s\n")
 	if err := initXKV(context.Background()); err == nil {
 		t.Fatal("FlushInterval 为 0 应当让启动失败")
 	}
@@ -175,10 +175,4 @@ func TestStore_一次刷盘失败不丢数据(t *testing.T) {
 	if got, _ := again.Get("k"); got != "v" {
 		t.Errorf("刷盘失败过一次的改动丢了，got=%q", got)
 	}
-}
-
-// useConf 把一份配置装进全局配置
-func useConf(t *testing.T, yml string) {
-	t.Helper()
-	xonetest.UseConfigYAML(t, yml)
 }

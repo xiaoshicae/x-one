@@ -9,7 +9,7 @@ import (
 	"github.com/xiaoshicae/x-one/e2e/harness"
 )
 
-// covFlowResult POST /cov/flow 的响应，见 service/coverage.go 的 hangFlow
+// covFlowResult POST /probe/flow 的响应，见 service/probe.go 的 hangFlow
 type covFlowResult struct {
 	Success        bool     `json:"success"`
 	Rolled         bool     `json:"rolled"`
@@ -20,9 +20,9 @@ type covFlowResult struct {
 
 func covFlow(t *testing.T, p *harness.Process, hangMS int) covFlowResult {
 	t.Helper()
-	r := p.PostJSON(t, "/cov/flow", map[string]int{"hang_ms": hangMS})
+	r := p.PostJSON(t, "/probe/flow", map[string]int{"hang_ms": hangMS})
 	if r.Status != http.StatusOK {
-		t.Fatalf("POST /cov/flow：%v", r)
+		t.Fatalf("POST /probe/flow：%v", r)
 	}
 	var res covFlowResult
 	r.JSON(t, &res)
@@ -92,7 +92,7 @@ func TestCoverage_xflow的Monitor开着记步骤和流程日志_关掉一条都�
 				overlay += "  Monitor: false\n"
 			}
 			p := harness.Start(t, harness.Options{Overlay: overlay})
-			r := p.PostJSON(t, "/cov/flow", map[string]int{"hang_ms": 1500})
+			r := p.PostJSON(t, "/probe/flow", map[string]int{"hang_ms": 1500})
 			accessLog(t, p, traceIDOf(t, r)) // 界碑：Execute 返回之后才有访问日志，监控日志要打早就打了
 			logs := p.FindLogs(isFlowLog)
 			if !on {

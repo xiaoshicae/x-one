@@ -6,20 +6,20 @@ package e2e
 //
 // 和 functional_* 一样，每条断言对照 README.md / docs/config.md 里写下的一句话，
 // 失败信息写成「文档说 X，实际 Y」；量出来的数字用 t.Logf 打出来，行首带「数字：」。
-// 被测服务里给它们用的接口都挂在 /cov 下面，见 service/coverage.go。
+// 被测服务里给它们用的接口都挂在 /probe 下面，见 service/probe.go。
 //
 // 文件划分：
 //
-//	coverage_helpers_test.go   本文件：共用的小工具
-//	coverage_swagger_test.go   xginswagger
-//	coverage_gin_test.go       xgin：TrustedProxies、ReadHeaderTimeout、MaxMultipartMemory、TLS、h2c、
-//	                           LogSkipPaths、MetricPath、ZHTranslations、404 / 405
-//	coverage_trace_test.go     xtrace：ForwardHeaderRules、SampleRatio、Console、service.name
-//	coverage_log_test.go       xlog：文件轮转与清理、Perm、Level、Format、Timezone、AddSource
-//	coverage_metric_test.go    xmetric：Namespace、ConstLabels；xapp
-//	coverage_client_test.go    xcache、xredis 多实例与重试、xhttp 不串 cookie
-//	coverage_flow_test.go      xflow：挂住的回滚、Monitor 开关
-//	coverage_config_test.go    profile、Import、占位符、--config / XONE_CONFIG、WithConfigPath
+//	options_helpers_test.go   本文件：共用的小工具
+//	swagger_ui_test.go        xginswagger
+//	gin_options_test.go       xgin：TrustedProxies、ReadHeaderTimeout、MaxMultipartMemory、TLS、h2c、
+//	                          LogSkipPaths、MetricPath、ZHTranslations、404 / 405
+//	trace_options_test.go     xtrace：ForwardHeaderRules、SampleRatio、Console、service.name
+//	log_options_test.go       xlog：文件轮转与清理、Perm、Level、Format、Timezone、AddSource
+//	metric_options_test.go    xmetric：Namespace、ConstLabels；xapp
+//	client_options_test.go    xcache、xredis 多实例与重试、xhttp 不串 cookie
+//	flow_options_test.go      xflow：挂住的回滚、Monitor 开关
+//	config_loading_test.go    profile、Import、占位符、--config / XONE_CONFIG、WithConfigPath
 
 import (
 	"crypto/tls"

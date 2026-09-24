@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/xiaoshicae/x-one/xerror"
+	"github.com/xiaoshicae/x-one/xonetest"
 )
 
 func TestNew_配置说不通时启动就失败(t *testing.T) {
@@ -89,7 +90,7 @@ func TestInitXMetric_配置里写空列表启动失败(t *testing.T) {
 	// 列表字段整体替换：写 [] 的人多半以为是「用默认」，实际被 Prometheus
 	// 悄悄换成了它自己的 DefBuckets
 	keepGlobals(t)
-	useConf(t, "XMetric:\n  HTTPDurationBuckets: []\n")
+	xonetest.UseConfigYAML(t, "XMetric:\n  HTTPDurationBuckets: []\n")
 
 	err := initXMetric(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "HTTPDurationBuckets") {

@@ -37,7 +37,8 @@ func TestNew_Redis挂了时一次建连只拨一次号(t *testing.T) {
 			continue
 		}
 		t.Logf("拒绝连接时第 %d 条命令用了 %v：%v", i+1, took, err)
-		if took > 100*time.Millisecond {
+		// 上界取 go-redis 默认行为（400ms）的一半多一点：实测当场返回（1ms 量级），慢机器上也留足余量
+		if took > 250*time.Millisecond {
 			t.Errorf("一次建连只该拨一次号：拒绝连接时应当场返回，实际 %v（go-redis 默认重拨 5 次、每次间隔 100ms 就是 400ms）", took)
 		}
 		return
@@ -72,11 +73,12 @@ func TestNew_命令不听ctx的取消只听截止时间(t *testing.T) {
 
 func TestNew_启动时收到退出信号不等读超时(t *testing.T) {
 	// 对端收下连接不回话，Ping 卡在读上。go-redis 只认 ctx 的截止时间，
-	// 直接在当前协程里 Ping 的话，取消要等这次读撞上 ReadTimeout（这里 3s）才生效
+	// 直接在当前协程里 Ping 的话，取消要等这次读撞上 ReadTimeout（这里 5s）才生效。
+	// 上界 1.5s：离 100ms 的取消点和 5s 的读超时都远，慢机器上不会误报
 	f := newFakeRedis(t)
 	f.setStall("ping")
 	c := liveCfg(f)
-	c.ReadTimeout, c.MinIdleConns = 3*time.Second, 0
+	c.ReadTimeout, c.MinIdleConns = 5*time.Second, 0
 
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(100*time.Millisecond, cancel)
@@ -87,7 +89,7 @@ func TestNew_启动时收到退出信号不等读超时(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("取消了就该如实报取消，实际 %v", err)
 	}
-	if took > 300*time.Millisecond {
+	if took > 1500*time.Millisecond {
 		t.Errorf("退出信号到了应当场放弃，实际 %v 才返回（ReadTimeout=%v）", took, c.ReadTimeout)
 	}
 	// 丢下的那次 Ping 不漏：New 关掉 client，卡着的连接跟着断开

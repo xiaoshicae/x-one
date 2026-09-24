@@ -89,7 +89,7 @@ func TestCoverage_Namespace或ConstLabels写错时启动失败(t *testing.T) {
 
 // docs/config.md App：「指标不读这一块，/metrics 上没有应用名和版本：要在指标上区分应用，用 XMetric.ConstLabels」。
 // 文档从前写「指标的默认标题取自 App」，指标上并没有这回事（xmetric 不 import xapp），改的是文档。
-// 链路那一半见 TestCoverage_service_name取自App且被OTEL环境变量压过，接口文档那一半见 coverage_swagger_test.go；
+// 链路那一半见 TestCoverage_service_name取自App且被OTEL环境变量压过，接口文档那一半见 swagger_ui_test.go；
 // ConstLabels 附加到所有指标上见 TestCoverage_Namespace和ConstLabels出现在真实的metrics上
 func TestCoverage_指标不带App的名字(t *testing.T) {
 	harness.Require(t)

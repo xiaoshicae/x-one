@@ -495,3 +495,41 @@ func StartTLSRedis(t testing.TB, certs *TLSCerts) *TLSRedis {
 	}
 	return &TLSRedis{Addr: start("no"), MTLSAddr: start("yes")}
 }
+
+// SelfSignedCert 在 dir 里生成一张给 127.0.0.1 / localhost 的自签名证书，
+// 返回证书、私钥文件的路径，和只信这张证书的 CertPool
+func SelfSignedCert(t testing.TB, dir string) (certFile, keyFile string, pool *x509.CertPool) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		Subject:      pkix.Name{CommonName: "xone e2e"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		DNSNames:     []string{"localhost"},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatalf("marshal key: %v", err)
+	}
+	certFile, keyFile = filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
+	writeFile(t, certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+	writeFile(t, keyFile, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse certificate: %v", err)
+	}
+	pool = x509.NewCertPool()
+	pool.AddCert(cert)
+	return certFile, keyFile, pool
+}

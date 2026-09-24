@@ -78,7 +78,7 @@ func main() {
 	// 它被遮只能是名单那一条在起作用——默认名单里的头名字都带着敏感词，单看它们分不出是哪一条遮的
 	middleware.AddSensitiveHeaders("X-Tenant-Id")
 
-	g := xgin.New().WithRoutes(routes, coverageRoutes) // coverageRoutes 见 coverage.go
+	g := xgin.New().WithRoutes(routes, probeRoutes) // probeRoutes 见 probe.go
 	var r xone.Runnable = g
 	if c.Drain > 0 {
 		r = drainer{XGin: g, d: c.Drain} // 服务停下之后再收一次尾，见 drain.go

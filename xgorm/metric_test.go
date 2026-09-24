@@ -13,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"gorm.io/gorm"
 
+	"github.com/xiaoshicae/x-one/internal/testkit"
 	"github.com/xiaoshicae/x-one/xmetric"
 )
 
@@ -155,13 +156,6 @@ func (okDialector) Initialize(db *gorm.DB) (err error) {
 	return err
 }
 
-// scrape 抓一次 /metrics
-func scrape(m *xmetric.Metrics) string {
-	w := httptest.NewRecorder()
-	m.Handler.ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
-	return w.Body.String()
-}
-
 func TestInstall_只导出开了Metric的实例且xmetric重装后照样导出(t *testing.T) {
 	// collector 是进程级的一个，抓取时遍历全部实例：不看实例自己的开关，
 	// Metric: false 就是一句空话。第二轮是同一进程里再走一遍生命周期——
@@ -181,7 +175,7 @@ func TestInstall_只导出开了Metric的实例且xmetric重装后照样导出(t
 		if err := install(context.Background(), Config{Clients: map[string]ClientConfig{"on": on, "off": off}}); err != nil {
 			t.Fatal(err)
 		}
-		out := scrape(m)
+		out := testkit.Scrape(m.Handler)
 		if !strings.Contains(out, `db_pool_open{name="on"}`) {
 			t.Errorf("第 %d 轮：开了 Metric 的实例该导出\n实际=\n%s", round, out)
 		}

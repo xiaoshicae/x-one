@@ -13,6 +13,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/xiaoshicae/x-one/internal/testkit"
 	"github.com/xiaoshicae/x-one/xmetric"
 )
 
@@ -28,13 +29,6 @@ func withMetrics(t *testing.T) *xmetric.Metrics {
 	return m
 }
 
-func scrape(t *testing.T, m *xmetric.Metrics) string {
-	t.Helper()
-	w := httptest.NewRecorder()
-	m.Handler.ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
-	return w.Body.String()
-}
-
 func TestMetric_记录状态码与耗时(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(503)
@@ -46,7 +40,7 @@ func TestMetric_记录状态码与耗时(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := scrape(t, m)
+	out := testkit.Scrape(m.Handler)
 	if !strings.Contains(out, `status="503"`) || !strings.Contains(out, `method="GET"`) {
 		t.Errorf("应按方法和状态码分标签\n实际=\n%s", out)
 	}
@@ -67,7 +61,7 @@ func TestMetric_网络错误记状态码0(t *testing.T) {
 	client, m := newQuiet(t, DefaultConfig())
 	client.R().SetContext(context.Background()).Get(srv.URL)
 
-	if out := scrape(t, m); !strings.Contains(out, `status="0"`) {
+	if out := testkit.Scrape(m.Handler); !strings.Contains(out, `status="0"`) {
 		t.Errorf("网络错误应记状态码 0\n实际=\n%s", out)
 	}
 }
@@ -91,7 +85,7 @@ func TestMetric_重试只记一次(t *testing.T) {
 	if got := hits.Load(); got != 3 {
 		t.Fatalf("应当真的重试了，got=%d 次请求", got)
 	}
-	out := scrape(t, m)
+	out := testkit.Scrape(m.Handler)
 	if !strings.Contains(out, `status="0"} 1`) {
 		t.Errorf("重试 3 次也只该记 1 个样本\n实际=\n%s", out)
 	}
@@ -122,7 +116,7 @@ func TestMetric_用xmetric的桶与标签(t *testing.T) {
 	client.SetLogger(discardLogger{})
 	client.R().SetContext(context.Background()).Get(srv.URL)
 
-	out := scrape(t, m)
+	out := testkit.Scrape(m.Handler)
 	if !strings.Contains(out, `demo_http_client_request_duration_seconds_bucket{env="prod"`) {
 		t.Errorf("应带上前缀和常量标签\n实际=\n%s", out)
 	}
@@ -148,7 +142,7 @@ func TestMetric_重复注册复用已有实例(t *testing.T) {
 		}
 	}
 
-	if out := scrape(t, m); !strings.Contains(out, `status="204"} 2`) {
+	if out := testkit.Scrape(m.Handler); !strings.Contains(out, `status="204"} 2`) {
 		t.Errorf("两个 client 的请求应记在同一条序列上\n实际=\n%s", out)
 	}
 }
@@ -190,7 +184,7 @@ func TestMetric_method标签收敛到固定集合(t *testing.T) {
 		}
 	}
 
-	out := scrape(t, m)
+	out := testkit.Scrape(m.Handler)
 	for _, bad := range []string{`method="CUSTOM1"`, `method="CUSTOM2"`, `method="get"`} {
 		if strings.Contains(out, bad) {
 			t.Errorf("不认识的方法不该原样进标签：%s\n实际=\n%s", bad, out)

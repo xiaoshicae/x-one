@@ -10,7 +10,7 @@ import (
 	"github.com/xiaoshicae/x-one/e2e/harness"
 )
 
-// covSeen GET /cov/config：main 里（xone.Run 之前）读到的 Service 块，启动钩子里读到的 Cov 块
+// covSeen GET /probe/config：main 里（xone.Run 之前）读到的 Service 块，启动钩子里读到的 Cov 块
 type covSeen struct {
 	Service struct {
 		Downstream string `json:"downstream"`
@@ -26,7 +26,7 @@ type covSeen struct {
 func covReadConfig(t *testing.T, p *harness.Process) covSeen {
 	t.Helper()
 	var s covSeen
-	p.Get(t, "/cov/config").JSON(t, &s)
+	p.Get(t, "/probe/config").JSON(t, &s)
 	return s
 }
 

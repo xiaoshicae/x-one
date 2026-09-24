@@ -10,6 +10,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/xiaoshicae/x-one/internal/config"
+	"github.com/xiaoshicae/x-one/xonetest"
 )
 
 type item struct {
@@ -82,7 +83,7 @@ func clients(t *testing.T, src string) (map[string]client, error) {
 			body += "  " + line
 		}
 	}
-	useConf(t, body)
+	xonetest.UseConfigYAML(t, body)
 	return UnmarshalClients("XMod", defClient)
 }
 
@@ -203,24 +204,10 @@ func (c *modCfg) Validate() error {
 	return nil
 }
 
-// useConf 把一份配置装进全局配置
-func useConf(t *testing.T, yml string) {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "application.yml")
-	if err := os.WriteFile(p, []byte(yml), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	config.Reset()
-	if err := config.Load(p); err != nil {
-		t.Fatalf("加载配置失败：%v", err)
-	}
-	t.Cleanup(config.Reset)
-}
-
 func TestUnmarshal_文件里没写的字段保持默认值(t *testing.T) {
 	// 「默认值预填在结构体里」是整个配置模型的地基：少了它，
 	// 每个字段都得用指针类型来区分「没配」和「配成零值」
-	useConf(t, "XMod:\n  Retry: 3\n")
+	xonetest.UseConfigYAML(t, "XMod:\n  Retry: 3\n")
 
 	c := modCfg{Addr: "127.0.0.1", Retry: 1}
 	if err := Unmarshal("XMod", &c); err != nil {
@@ -235,7 +222,7 @@ func TestUnmarshal_文件里没写的字段保持默认值(t *testing.T) {
 }
 
 func TestUnmarshal_整块没配时原样不动(t *testing.T) {
-	useConf(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
 
 	c := modCfg{Addr: "127.0.0.1"}
 	if err := Unmarshal("XMod", &c); err != nil {
@@ -247,7 +234,7 @@ func TestUnmarshal_整块没配时原样不动(t *testing.T) {
 }
 
 func TestUnmarshal_未知字段是错误(t *testing.T) {
-	useConf(t, "XMod:\n  Adr: 127.0.0.1\n")
+	xonetest.UseConfigYAML(t, "XMod:\n  Adr: 127.0.0.1\n")
 
 	c := modCfg{}
 	if err := Unmarshal("XMod", &c); err == nil {
@@ -258,7 +245,7 @@ func TestUnmarshal_未知字段是错误(t *testing.T) {
 func TestUnmarshal_会调一次_Validate(t *testing.T) {
 	// 有些配错不会让初始化失败，只是让某个行为永远走不到，
 	// 那种只能靠 Validate 拦
-	useConf(t, "XMod:\n  Retry: 1\n")
+	xonetest.UseConfigYAML(t, "XMod:\n  Retry: 1\n")
 
 	c := modCfg{badFlag: true}
 	err := Unmarshal("XMod", &c)
@@ -297,7 +284,7 @@ func TestUnmarshal_还没加载时先加载(t *testing.T) {
 }
 
 func TestHas_区分没配和配了(t *testing.T) {
-	useConf(t, "XMod:\n  Retry: 1\nXOther:\n")
+	xonetest.UseConfigYAML(t, "XMod:\n  Retry: 1\nXOther:\n")
 
 	if !Has("XMod") {
 		t.Error("写了的块应当报告有")
@@ -320,7 +307,7 @@ func TestHas_还没加载时先加载(t *testing.T) {
 func TestHas_问过就算认领(t *testing.T) {
 	// 跳过的那一块不该落在「没人认领」的名单里：可选组件正是靠 Has
 	// 决定跳过的，把它算成没人要会让启动直接失败
-	useConf(t, "XMod:\n")
+	xonetest.UseConfigYAML(t, "XMod:\n")
 
 	if Has("XMod") {
 		t.Fatal("空块应当报告没配")
@@ -354,7 +341,7 @@ func TestUnmarshalClients_实例里拼错时报出配置文件和那一行(t *te
 }
 
 func TestUnmarshalClients_整块没配时返回nil且算认领(t *testing.T) {
-	useConf(t, "XMod:\n")
+	xonetest.UseConfigYAML(t, "XMod:\n")
 	got, err := UnmarshalClients("XMod", defClient)
 	if err != nil || got != nil {
 		t.Fatalf("没配这一块该是 nil、不报错，got=%v err=%v", got, err)
@@ -377,7 +364,7 @@ func (c *checked) Validate() error {
 }
 
 func TestUnmarshalClients_每个实例都调一次Validate(t *testing.T) {
-	useConf(t, "XMod:\n  Clients:\n    a: {Max: 1}\n    b: {Max: 0}\n")
+	xonetest.UseConfigYAML(t, "XMod:\n  Clients:\n    a: {Max: 1}\n    b: {Max: 0}\n")
 	_, err := UnmarshalClients("XMod", func() checked { return checked{Max: 1} })
 	// 还要带上这个实例在哪个文件第几行：Validate 自己只说得出字段名
 	if err == nil || !strings.Contains(err.Error(), "Clients.b: ") || !strings.Contains(err.Error(), "application.yml:4: Max must be > 0") {

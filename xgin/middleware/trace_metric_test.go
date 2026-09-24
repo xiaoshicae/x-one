@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/xiaoshicae/x-one/internal/testkit"
 	"github.com/xiaoshicae/x-one/xgin/internal/peer"
 	"github.com/xiaoshicae/x-one/xmetric"
 )
@@ -214,20 +215,13 @@ func withMetrics(t *testing.T) *xmetric.Metrics {
 	return m
 }
 
-func scrape(t *testing.T, m *xmetric.Metrics) string {
-	t.Helper()
-	w := httptest.NewRecorder()
-	m.Handler.ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
-	return w.Body.String()
-}
-
 func TestMetric_记请求数与耗时(t *testing.T) {
 	m := withMetrics(t)
 	serve(t, get("/hello/42"), []gin.HandlerFunc{Metric()}, func(c *gin.Context) {
 		c.Status(201)
 	})
 
-	out := scrape(t, m)
+	out := testkit.Scrape(m.Handler)
 	if !strings.Contains(out, `http_requests_total{method="GET",route="/hello/:id",status="201"} 1`) {
 		t.Errorf("应按方法、路由、状态码记请求数\n实际=\n%s", out)
 	}
@@ -243,7 +237,7 @@ func TestMetric_路由用模板(t *testing.T) {
 		serve(t, get(p), []gin.HandlerFunc{Metric()}, func(c *gin.Context) { c.Status(200) })
 	}
 
-	out := scrape(t, m)
+	out := testkit.Scrape(m.Handler)
 	if !strings.Contains(out, `route="/hello/:id",status="200"} 3`) {
 		t.Errorf("三个请求应聚合成一条序列\n实际=\n%s", out)
 	}
@@ -258,7 +252,7 @@ func TestMetric_未匹配路由用固定值(t *testing.T) {
 	e.Use(Metric())
 	e.ServeHTTP(httptest.NewRecorder(), get("/nope/12345"))
 
-	out := scrape(t, m)
+	out := testkit.Scrape(m.Handler)
 	if !strings.Contains(out, `route="unmatched"`) {
 		t.Errorf("未匹配路由应记成固定值\n实际=\n%s", out)
 	}
@@ -272,7 +266,7 @@ func TestMetric_panic穿过时仍计入(t *testing.T) {
 		serve(t, get("/hello"), []gin.HandlerFunc{Metric()}, func(c *gin.Context) { panic("炸了") })
 	}()
 
-	if out := scrape(t, m); !strings.Contains(out, "http_requests_total") {
+	if out := testkit.Scrape(m.Handler); !strings.Contains(out, "http_requests_total") {
 		t.Errorf("panic 的请求也该计入\n实际=\n%s", out)
 	}
 }
@@ -292,7 +286,7 @@ func TestMetric_自定义方法收敛成OTHER(t *testing.T) {
 		serve(t, httptest.NewRequest(method, "/hello", nil), []gin.HandlerFunc{Metric()},
 			func(c *gin.Context) { c.Status(200) })
 	}
-	out := scrape(t, m)
+	out := testkit.Scrape(m.Handler)
 	if !strings.Contains(out, `method="OTHER"`) {
 		t.Errorf("自定义方法该收敛成 OTHER\n实际=\n%s", out)
 	}
@@ -346,7 +340,7 @@ func TestMetric_ErrAbortHandler中止的请求记成499(t *testing.T) {
 	m := withMetrics(t)
 	serveAborted(t, Metric())
 
-	if out := scrape(t, m); !strings.Contains(out, `status="499"`) {
+	if out := testkit.Scrape(m.Handler); !strings.Contains(out, `status="499"`) {
 		t.Errorf("中止的请求该记成 499\n实际=\n%s", out)
 	}
 }

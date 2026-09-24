@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xiaoshicae/x-one/xonetest"
 	"github.com/xiaoshicae/x-one/xtls"
 )
 
@@ -195,7 +196,7 @@ func TestInit_TLS块从配置文件读(t *testing.T) {
 	withMetrics(t)
 	p := newPKI(t)
 	srv, _ := tlsServer(t, &tls.Config{Certificates: []tls.Certificate{p.server}})
-	useConf(t, "XHttp:\n  TLS:\n    Enable: true\n    CAFile: "+strconv.Quote(p.caFile)+"\n")
+	xonetest.UseConfigYAML(t, "XHttp:\n  TLS:\n    Enable: true\n    CAFile: "+strconv.Quote(p.caFile)+"\n")
 	if err := initXHttp(context.Background()); err != nil {
 		t.Fatal(err)
 	}

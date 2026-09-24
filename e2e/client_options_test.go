@@ -14,20 +14,20 @@ import (
 	"github.com/xiaoshicae/x-one/e2e/harness"
 )
 
-// covCacheGet GET /cov/cache?op=get
+// covCacheGet GET /probe/cache?op=get
 func covCacheGet(t *testing.T, p *harness.Process, name, key string) bool {
 	t.Helper()
-	r := p.Get(t, "/cov/cache?op=get&name="+name+"&key="+key)
+	r := p.Get(t, "/probe/cache?op=get&name="+name+"&key="+key)
 	if r.Status != http.StatusOK {
-		t.Fatalf("GET /cov/cache get %s/%s：%v", name, key, r)
+		t.Fatalf("GET /probe/cache get %s/%s：%v", name, key, r)
 	}
 	return r.Map(t)["found"] == true
 }
 
 func covCacheSet(t *testing.T, p *harness.Process, name, key, ttl string) {
 	t.Helper()
-	if r := p.Get(t, "/cov/cache?op=set&name="+name+"&key="+key+"&val=v&ttl="+ttl); r.Status != http.StatusOK || r.Map(t)["accepted"] != true {
-		t.Fatalf("GET /cov/cache set %s/%s：%v", name, key, r)
+	if r := p.Get(t, "/probe/cache?op=set&name="+name+"&key="+key+"&val=v&ttl="+ttl); r.Status != http.StatusOK || r.Map(t)["accepted"] != true {
+		t.Fatalf("GET /probe/cache set %s/%s：%v", name, key, r)
 	}
 }
 
@@ -57,7 +57,7 @@ func TestCoverage_本地缓存多实例各自的容量和过期时间(t *testing
 		if covCacheGet(t, p, "short", "iso") || covCacheGet(t, p, "", "iso") {
 			t.Errorf("写进 forever 的键不该出现在 short / default 里")
 		}
-		if r := p.Get(t, "/cov/cache?op=get&name=nope&key=x"); r.Status != http.StatusInternalServerError {
+		if r := p.Get(t, "/probe/cache?op=get&name=nope&key=x"); r.Status != http.StatusInternalServerError {
 			t.Errorf("C(\"nope\") 名字写错时应 panic（恢复中间件回 500），实际 %v", r)
 		}
 	})
@@ -73,7 +73,9 @@ func TestCoverage_本地缓存多实例各自的容量和过期时间(t *testing
 			time.Sleep(20 * time.Millisecond)
 		}
 		gone := time.Since(start)
-		if gone < 800*time.Millisecond || gone > 1500*time.Millisecond {
+		// 下界照旧卡紧（没到 1s 就不见了是真 bug）；上界给 2s：实测约 1s，并行 + -race 的机器上
+		// 轮询慢几倍也不到 2s，而配错的样子是 30s（default 的 TTL）或永不过期（轮询到 5s 为止）
+		if gone < 800*time.Millisecond || gone > 2*time.Second {
 			t.Errorf("short 的 DefaultTTL 是 1s，键应在 1s 左右过期，实际 %v", gone)
 		}
 		if !covCacheGet(t, p, "forever", "ttl") {
@@ -84,7 +86,7 @@ func TestCoverage_本地缓存多实例各自的容量和过期时间(t *testing
 
 	t.Run("MaxCost 等价于条目数", func(t *testing.T) {
 		// 默认实例走包级 xcache.Set（cost 1），往 MaxCost: 200 里写 1000 个不同的键
-		r := p.Get(t, "/cov/cache/fill?n=1000")
+		r := p.Get(t, "/probe/cache/fill?n=1000")
 		var body struct {
 			Written, Stored int
 			MaxCost         int `json:"max_cost"`
@@ -104,10 +106,10 @@ func TestCoverage_本地缓存多实例各自的容量和过期时间(t *testing
 	})
 }
 
-// covRedisDo GET /cov/redis，回状态码、服务端量的耗时和 body
+// covRedisDo GET /probe/redis，回状态码、服务端量的耗时和 body
 func covRedisDo(t *testing.T, p *harness.Process, name, op, key, val string) (int, time.Duration, map[string]any) {
 	t.Helper()
-	r := p.Get(t, fmt.Sprintf("/cov/redis?name=%s&op=%s&key=%s&val=%s", name, op, key, val))
+	r := p.Get(t, fmt.Sprintf("/probe/redis?name=%s&op=%s&key=%s&val=%s", name, op, key, val))
 	m := r.Map(t)
 	ms, _ := m["elapsed_ms"].(float64)
 	return r.Status, time.Duration(ms * float64(time.Millisecond)), m
@@ -126,7 +128,7 @@ func TestCoverage_Redis多实例各连各的_重试次数和退避按实例生�
     default: {Addr: "${E2E_REDIS_ADDR}"}
     second:  {Addr: "${E2E_REDIS_ADDR}", DB: 1}
     flaky:   {Addr: %q, MinIdleConns: 0, MaxRetries: 2, MinRetryBackoff: 300ms, MaxRetryBackoff: 300ms}
-    noretry: {Addr: %q, MinIdleConns: 0, MaxRetries: -1}
+    noretry: {Addr: %q, MinIdleConns: 0, MaxRetries: -1, MinRetryBackoff: 300ms, MaxRetryBackoff: 300ms}
 `, flaky.Addr(), noretry.Addr())})
 	p := harness.Start(t, harness.Options{Config: cfg})
 	rc := harness.Redis(t)
@@ -176,8 +178,10 @@ func TestCoverage_Redis多实例各连各的_重试次数和退避按实例生�
 				t.Errorf("MaxRetries: 2、退避 300ms 时一条命令应在 600ms 左右失败，实际 %v", d)
 			}
 		}
+		// noretry 的退避同样是 300ms：MaxRetries: -1 没生效的话哪怕重试一次也至少 300ms。
+		// 上界就取这一次退避——实测几毫秒，不必再卡得更紧
 		for _, d := range without {
-			if d > 100*time.Millisecond {
+			if d >= 300*time.Millisecond {
 				t.Errorf("MaxRetries: -1 关掉重试时拒绝连接应当场失败，实际 %v", d)
 			}
 		}

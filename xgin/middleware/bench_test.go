@@ -13,13 +13,9 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-)
 
-func quiet(b *testing.B) {
-	old := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	b.Cleanup(func() { slog.SetDefault(old) })
-}
+	"github.com/xiaoshicae/x-one/internal/testkit"
+)
 
 func benchEngine(mw ...gin.HandlerFunc) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
@@ -30,7 +26,7 @@ func benchEngine(mw ...gin.HandlerFunc) *gin.Engine {
 }
 
 func runReqs(b *testing.B, e *gin.Engine) {
-	quiet(b)
+	testkit.QuietSlog(b)
 	req := httptest.NewRequest("GET", "/order/123", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("User-Agent", "bench/1.0")
@@ -87,7 +83,7 @@ func sdkTracing(b *testing.B) {
 func runChain(b *testing.B, mw ...gin.HandlerFunc) {
 	b.Run("noop", func(b *testing.B) { runReqs(b, benchEngine(mw...)) })
 	b.Run("SDK采样", func(b *testing.B) {
-		quiet(b)
+		testkit.QuietSlog(b)
 		sdkTracing(b)
 		e := benchEngine(mw...)
 		// 确认量到的是写了 X-Trace-Id 的那一支，不是又一次空转
@@ -176,7 +172,7 @@ func BenchmarkRedactBody_JSON有敏感字段(b *testing.B) {
 // BenchmarkLog_记请求体和响应体 打开 WithBody 之后的整条路径：
 // 预读请求体、截响应、两次 body 脱敏、写一行日志
 func BenchmarkLog_记请求体和响应体(b *testing.B) {
-	quiet(b)
+	testkit.QuietSlog(b)
 	gin.SetMode(gin.ReleaseMode)
 	e := gin.New()
 	e.Use(Log(WithBody(true, true)))
