@@ -520,7 +520,7 @@ func TestValidate(t *testing.T) {
 func TestTunedTransport_没改的默认值与文档一致(t *testing.T) {
 	// 注释和 docs/config.md 里写的是这几个数（Go 1.25、resty v2.17.2）。
 	// 升级之后变了，这里先红，文档跟着改
-	tr := tunedTransport(DefaultConfig()).(*http.Transport)
+	tr := tunedTransport(DefaultConfig(), nil).(*http.Transport)
 	if tr.Proxy == nil || tr.TLSHandshakeTimeout != 10*time.Second || tr.ResponseHeaderTimeout != 0 ||
 		tr.MaxConnsPerHost != 0 || !tr.ForceAttemptHTTP2 {
 		t.Errorf("标准库的默认值变了：proxy=%v tls=%v header=%v maxConns=%d h2=%v",

@@ -1125,17 +1125,72 @@ mutate("Redis MaxRetries 只收 -1 这一个负数", "xredis/config.go", "./xred
        swap('if c.MaxRetries < -1 {', 'if false {'))
 mutate("Redis 退避只收 -1ns 这一个负数", "xredis/config.go", "./xredis", "TestValidate",
        swap('if d.val < 0 && d.val != -1 {', 'if false {'))
+# TLS 块（xtls.Config）一处定义、各模块共用：规则打在 xtls 里，
+# 「这个模块真的用了它」打在每个模块的调用点上——函数本身对，调用点绕开了照样是 bug
 # 写了 CAFile 却忘了 Enable，照明文连过去比报错更糟
-mutate("没开 TLS 却写了 TLS 字段要失败", "xredis/config.go", "./xredis", "TestValidate",
-       swap('\t\tif t != (TLSConfig{}) {', '\t\tif false {'))
-mutate("Redis 的 TLS 配置传给 go-redis", "xredis/xredis.go", "./xredis", "TestNew_TLS",
-       swap('tlsCfg, err := cfg.TLS.tlsConfig()', '_, err := cfg.TLS.tlsConfig()'), swap('TLSConfig: tlsCfg,', 'TLSConfig: nil,'))
-mutate("Redis TLS 用上 CAFile", "xredis/config.go", "./xredis", "TestNew_TLS",
+mutate("没开 TLS 却写了 TLS 字段要失败", "xtls/xtls.go", ".", "TestValidate_说不通的组合|TestBuild_没开却写了",
+       swap('\t\tif c != (Config{}) {', '\t\tif false {'))
+mutate("TLS 客户端证书和私钥要成对", "xtls/xtls.go", ".", "TestValidate_说不通的组合",
+       swap('if (c.CertFile == "") != (c.KeyFile == "") {', 'if false {'))
+mutate("直接调 Build 也先校验", "xtls/xtls.go", ".", "TestBuild_没开却写了",
+       swap('\tif err := c.Validate(); err != nil {\n\t\treturn nil, err\n\t}\n\tif !c.Enable', '\tif !c.Enable'))
+mutate("TLS 用上 CAFile", "xtls/xtls.go", ".", "TestBuild_CAFile",
        swap('\t\tcfg.RootCAs = pool\n', '\t\t_ = pool\n'))
-mutate("Redis TLS 带上客户端证书", "xredis/config.go", "./xredis", "TestNew_TLS双向认证",
+mutate("TLS 带上客户端证书", "xtls/xtls.go", ".", "TestBuild_客户端证书",
        swap('\t\tcfg.Certificates = []tls.Certificate{cert}\n', '\t\t_ = cert\n'))
-mutate("Redis TLS 的 ServerName 传下去", "xredis/config.go", "./xredis", "TestNew_TLS",
-       swap('cfg := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: t.ServerName}', 'cfg := &tls.Config{MinVersion: tls.VersionTLS12}'))
+mutate("TLS 的 ServerName 传下去", "xtls/xtls.go", ".", "TestBuild_CAFile|TestBuild_最低",
+       swap('ServerName: c.ServerName}', '}'))
+mutate("TLS 最低 1.2", "xtls/xtls.go", ".", "TestBuild_最低",
+       swap('MinVersion: tls.VersionTLS12, ', ''))
+# 证书被拒和密码错一样：再试还是同一张证书。PG / MySQL / Redis 的建连探测都走这里
+mutate("证书被拒不重试", "internal/xclient/probe.go", ".", "TestProbe",
+       swap('(tlsRejected(err) || p.AuthFailed != nil && p.AuthFailed(err))', '(p.AuthFailed != nil && p.AuthFailed(err))'))
+mutate("对端的证书告警也算证书被拒", "internal/xclient/probe.go", ".", "TestProbe_证书被拒",
+       swap('if errors.As(err, &op) && op.Op == "remote error" && op.Err != nil {', 'if false {'))
+mutate("Redis 校验 TLS 块", "xredis/config.go", "./xredis", "TestValidate",
+       swap('\treturn c.TLS.Validate()\n}', '\treturn nil\n}'))
+mutate("Redis 的 TLS 配置传给 go-redis", "xredis/xredis.go", "./xredis", "TestNew_TLS",
+       swap('tlsCfg, err := cfg.TLS.Build()', '_, err := cfg.TLS.Build()'), swap('TLSConfig: tlsCfg,', 'TLSConfig: nil,'))
+mutate("XGorm 校验 TLS 块", "xgorm/config.go", "./xgorm", "TestValidate_TLS块|TestConfig_TLS块",
+       swap('\tif err := c.TLS.Validate(); err != nil {\n\t\treturn err\n\t}\n', ''))
+mutate("方言不收 TLS 块时配了要失败", "xgorm/config.go", "./xgorm", "TestValidate_TLS块",
+       swap('if c.TLS.Enable && d.OpenTLS == nil {', 'if c.TLS.Enable && d.OpenTLS == nil && false {'))
+mutate("开了 TLS 块走 OpenTLS", "xgorm/dialect.go", "./xgorm", "TestNew_PG_TLS|TestNew_MySQL_TLS",
+       swap('\tif cfg == nil {\n\t\treturn d.Open(dsn), nil\n\t}', '\tif true {\n\t\treturn d.Open(dsn), nil\n\t}'))
+# pgx 默认的 prefer 不校验证书、服务端不肯 TLS 就改走明文
+mutate("PG 建连时换上 TLS 块的配置", "xgorm/tls.go", "./xgorm", "TestNew_PG_TLS",
+       swap('\t\t\tusePostgresTLS(&cc.Config, cfg)\n', ''))
+mutate("PG 开了 TLS 块不退回明文", "xgorm/tls.go", "./xgorm", "TestNew_PG_TLS块开着时|TestUsePostgresTLS",
+       swap('\tc.Fallbacks = hosts[1:]\n', ''))
+mutate("PG 没配 ServerName 时按主机名比对", "xgorm/tls.go", "./xgorm", "TestNew_PG_TLS块生效|TestUsePostgresTLS",
+       swap('\t\t\tif tc.ServerName == "" {\n\t\t\t\ttc.ServerName = h.Host\n\t\t\t}\n', ''))
+mutate("PG TLS 块和 DSN 里的 ssl 参数不能同时写", "xgorm/dsn.go", "./xgorm", "TestResolveDSN_PG_TLS块和",
+       swap('\t\tif err := checkPostgresTLSParams(dsn); err != nil {', '\t\tif err := checkPostgresTLSParams(dsn); false && err != nil {'))
+mutate("PG 冲突查的是补完 Params 之后的 DSN", "xgorm/dsn.go", "./xgorm", "TestResolveDSN_PG_TLS块和",
+       swap('checkPostgresTLSParams(dsn)', 'checkPostgresTLSParams(c.DSN)'))
+mutate("PG 只有 ssl 开头的参数算冲突", "xgorm/tls.go", "./xgorm", "TestResolveDSN_PG_TLS块和",
+       swap('if strings.HasPrefix(key, "ssl") {', 'if strings.HasPrefix(key, "") {'))
+mutate("PG TLS 块不收 Unix socket", "xgorm/dsn.go", "./xgorm", "TestResolveDSN_PG_TLS块不能配Unix",
+       swap('\t\tif err := checkPostgresTCP(pc); err != nil {', '\t\tif err := checkPostgresTCP(pc); false && err != nil {'))
+mutate("MySQL TLS 块和 DSN 里的 tls 不能同时写", "xgorm/dsn.go", "./xgorm", "TestResolveDSN_MySQL_TLS块",
+       swap('\t\tif err := checkMySQLTLS(c.DSN, cfg); err != nil {', '\t\tif err := checkMySQLTLS(c.DSN, cfg); false && err != nil {'))
+mutate("MySQL 连接配置带上 TLS 块", "xgorm/tls.go", "./xgorm", "TestNew_MySQL_TLS",
+       swap('\tdc.TLS = cfg.Clone()\n', ''))
+mutate("XHttp 校验 TLS 块", "xhttp/config.go", "./xhttp", "TestValidate_TLS块",
+       swap('\treturn c.TLS.Validate()\n}', '\treturn nil\n}'))
+mutate("XHttp 的 TLS 块交给连接池", "xhttp/xhttp.go", "./xhttp", "TestNew_TLS",
+       swap('\t\tt.TLSClientConfig = tlsCfg\n', ''))
+mutate("XGin 服务端 TLS 设置交给 http.Server", "xgin/xgin.go", "./xgin", "TestStart_ClientCAFile|TestStart_MinVersion",
+       swap('\tsrv.TLSConfig = tlsCfg', '\t_ = tlsCfg'))
+mutate("XGin ClientCAFile 开双向认证", "xgin/config.go", "./xgin", "TestStart_ClientCAFile开双向认证",
+       swap('\t\tcfg.ClientAuth = tls.RequireAndVerifyClientCert\n', ''))
+mutate("XGin MinVersion 生效", "xgin/config.go", "./xgin", "TestStart_MinVersion",
+       swap('cfg := &tls.Config{MinVersion: tlsVersions[c.MinVersion]}', 'cfg := &tls.Config{}'))
+# 以为开了双向认证，实际是谁都能连的明文
+mutate("XGin ClientCAFile 要和证书一起配", "xgin/config.go", "./xgin", "TestValidate_服务端TLS|TestConfig_服务端TLS",
+       swap('if c.ClientCAFile != "" && !c.tlsEnabled() {', 'if false {'))
+mutate("XGin MinVersion 只收 1.2 / 1.3", "xgin/config.go", "./xgin", "TestValidate_服务端TLS",
+       swap('if _, ok := tlsVersions[c.MinVersion]; !ok {', 'if false {'))
 # Redis 7.2 之前每条新连接一个报错的 CLIENT SETINFO Span
 mutate("Redis 建连不发 CLIENT SETINFO", "xredis/xredis.go", "./xredis", "TestNew_不发CLIENT_SETINFO",
        swap('DisableIdentity: true,', 'DisableIdentity: false,'))

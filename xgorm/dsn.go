@@ -100,6 +100,11 @@ func resolveMySQL(c ClientConfig) (string, ConnInfo, error) {
 		// 不回传驱动的错误：它会把 DSN 片段带在错误信息里，而错误信息会被记下来
 		return "", ConnInfo{}, errMalformedDSN
 	}
+	if c.TLS.Enable {
+		if err := checkMySQLTLS(c.DSN, cfg); err != nil {
+			return "", ConnInfo{}, err
+		}
+	}
 
 	if cfg.Timeout == 0 {
 		cfg.Timeout = c.DialTimeout
@@ -189,9 +194,21 @@ func resolvePostgres(c ClientConfig) (string, ConnInfo, error) {
 		dsn = prependPostgresKV(dsn, defaults)
 	}
 
+	// 查的是补完参数之后的 DSN：Postgres.Params 里写 sslmode 同样算在 DSN 里。
+	// 先于 parsePostgres：DSN 里写的 sslrootcert 读不到时，该报的是「两处都写了」
+	if c.TLS.Enable {
+		if err := checkPostgresTLSParams(dsn); err != nil {
+			return "", ConnInfo{}, err
+		}
+	}
 	pc, err := parsePostgres(dsn)
 	if err != nil {
 		return "", ConnInfo{}, err
+	}
+	if c.TLS.Enable {
+		if err := checkPostgresTCP(pc); err != nil {
+			return "", ConnInfo{}, err
+		}
 	}
 	// 连接信息交给 pgx 自己解：真正拿这串 DSN 建连的是它，两边读出来的
 	// 必然是同一份东西——密码里带着 host=… 这样的片段，也不会被读成
@@ -367,11 +384,11 @@ func millis(d time.Duration) string {
 //
 // name 是实例名，框架按配置建的才有；直接调 New 的没有名字，这个字段就不写
 func logConn(name string, info ConnInfo, c ClientConfig) {
-	attrs := make([]any, 0, 12)
+	attrs := make([]any, 0, 14)
 	if name != "" {
 		attrs = append(attrs, "name", name)
 	}
-	attrs = append(attrs, "driver", info.Driver, "addr", info.Addr, "db", info.DB,
+	attrs = append(attrs, "driver", info.Driver, "addr", info.Addr, "db", info.DB, "tls", c.TLS.Enable,
 		"max_open_conns", c.MaxOpenConns, "max_idle_conns", c.MaxIdleConns)
 	slog.Info("xgorm connected", attrs...)
 }

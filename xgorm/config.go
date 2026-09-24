@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/xiaoshicae/x-one/xconfig"
+	"github.com/xiaoshicae/x-one/xtls"
 )
 
 // ConfigKey 本模块在配置文件里的顶层 key
@@ -73,6 +74,15 @@ type ClientConfig struct {
 
 	// Postgres 仅在 Driver 为 postgres 时生效
 	Postgres PostgresConfig `yaml:"Postgres"`
+
+	// TLS 连库时走不走 TLS。默认不走（DSN 里自己写的 TLS 参数照旧生效）。
+	// 字段和规则各模块共用，见 xtls.Config。
+	//
+	// 开着时 TLS 全由这一块决定：证书一律校验，**不会退回明文**。DSN 里再写 TLS 参数
+	// （PostgreSQL 的 sslmode、sslrootcert 等 ssl 开头的那几个，MySQL 的 tls）
+	// 是配置错误——两处说法不一，哪处作数都会让另一处白写。
+	// 驱动怎么接、量出来的行为见 docs/config.md「TLS」。
+	TLS xtls.Config `yaml:"TLS"`
 
 	// MaxOpenConns 最大连接数。默认 50。
 	MaxOpenConns int `yaml:"MaxOpenConns"`
@@ -206,8 +216,15 @@ func (c ClientConfig) Validate() error {
 	if c.DSN == "" {
 		return fmt.Errorf("DSN must not be empty")
 	}
-	if _, ok := lookupDialect(c.Driver); !ok {
+	d, ok := lookupDialect(c.Driver)
+	if !ok {
 		return unknownDriver(c.Driver)
+	}
+	if err := c.TLS.Validate(); err != nil {
+		return err
+	}
+	if c.TLS.Enable && d.OpenTLS == nil {
+		return fmt.Errorf("Driver=%q does not support the TLS block, configure TLS in its DSN instead", c.Driver)
 	}
 	if c.MaxOpenConns <= 0 {
 		return fmt.Errorf("MaxOpenConns must be > 0, got=%d", c.MaxOpenConns)

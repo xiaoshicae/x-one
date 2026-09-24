@@ -160,6 +160,51 @@ YAML 里就有字段补全、拼错标红和悬停说明：
 | 列表字段 | 文件里写了就整体替换，不会和默认值混在一起 |
 | map 字段 | 文件里写的是**合并**进默认值，所以框架的 map 字段一律没有默认值 |
 
+### TLS 块（XGorm、XRedis、XHttp 共用）
+
+连数据库、连 Redis、发出站 https 请求，TLS 都写成同一个块，字段、默认值、校验规则只有一份（`xtls.Config`）：
+
+```yaml
+TLS:
+  Enable: true                        # 默认 false；下面几项只在开着时生效
+  CAFile: /etc/ssl/internal-ca.pem    # 校验服务端证书的 CA（PEM，可以放好几张）。空 = 系统根证书
+  CertFile: /etc/ssl/client.pem       # 客户端证书（PEM），服务端要求双向认证时和 KeyFile 成对填
+  KeyFile: /etc/ssl/client-key.pem
+  ServerName: db.internal             # 比对证书的名字。空 = 连接地址的主机部分
+```
+
+- **没开 `Enable` 却写了别的几项，读配置时就失败**：那多半是忘了开，照明文连过去比报错更糟。
+  `CertFile` / `KeyFile` 只配一个同样失败。
+- 填了 `CAFile` 就**只认**这个文件里的 CA，系统根证书不再参与校验。
+- 最低 TLS 1.2，证书校验一直开着，**没有跳过校验的开关**——自签证书把 CA 填进 `CAFile`。
+  要更细的控制（加密套件、自定义校验）就绕开配置、自己造原生 client。
+- 证书文件在建实例时读（`New`，框架里是启动钩子），读不出来、里面没有证书，报的是 op 为 `config` 的错，
+  点名是哪个字段、哪个文件，一次都不连。
+- **证书被拒不重试**，和认证失败一样：我们不认对端的证书（CA 不对、名字对不上），或者对端发来
+  `bad_certificate` / `unknown_ca` / `certificate_required` 告警，再试还是同一张证书、同一个结论。
+
+实测（e2e：测试时现造的 CA，PG 16、MySQL 8.0.46、Redis 7.0.15 各起一个只收 TLS 的实例，Go 1.25）：
+
+| | CA 对：服务端看到的 | CA 不对 / 不填（系统根证书） | `ServerName` 对不上 | 服务端要客户端证书而没带 | 明文连过去 |
+|---|---|---|---|---|---|
+| XGorm · PostgreSQL | `pg_stat_ssl`：`ssl=t`、`TLSv1.3`，双向认证时 `client_dn=/CN=…` | `x509: certificate signed by unknown authority`，3ms，不重试 | `x509: certificate is valid for localhost, db.e2e.internal, not wrong.e2e.internal` | `FATAL: connection requires a valid client certificate (SQLSTATE 28000)`，按认证失败报、不重试 | `no pg_hba.conf entry … no encryption`（pg_hba 里只有 `hostssl`） |
+| XGorm · MySQL | `Ssl_version=TLSv1.3`、`Ssl_cipher=TLS_AES_128_GCM_SHA256`，连接池里每条新连接都是 | 同上，2ms | 同上 | `REQUIRE X509` 的账号回 1045，按认证失败报 | `require_secure_transport=ON` 回 3159（`REQUIRE SSL` 的账号先回 1045）；不是认证错误，照常重试，1.9s |
+| XRedis | 服务端 `port 0`、只开 `tls-port`，这条连接连的就是它 | 同上，1–4ms | 同上 | `remote error: tls: certificate required`，约 0.45s（见下） | `EOF`，照常重试，2.0–3.5s |
+| XHttp | 桩服务端看到 `HTTP/2.0`、`TLS 1.3` 和客户端证书的 CN | 同上 | 同上 | 报什么说不准，见下 | —— |
+
+两件量出来才知道的事：
+
+- **TLS 1.3 下服务端拒客户端证书，客户端要到下一次读才知道。** 客户端发完 Finished 就当握手成功、开始写，
+  服务端的告警晚一步到：go-redis 第一次尝试常常先撞上 `broken pipe` / `EOF`，退避一次之后才读到告警，
+  所以是 0.45s 而不是几毫秒（没把告警认成「证书被拒」之前是试满 3 次，3.1–3.7s）；
+  net/http 有时报 `remote error: tls: certificate required`，有时报 `write: broken pipe`，
+  HTTP/2 的连接只报 `http2: client conn could not be established`。
+- **拿着别的 CA 签的客户端证书，Go 的客户端可能根本不出示它。** 服务端在握手里列出它认的 CA 时，
+  crypto/tls 只出示这些 CA 签的证书，别的就当没有——PG、net/http 的服务端看到的都是「没带」。
+  mysqld 和 redis-server 不列，证书照样发过去，服务端回 `unknown_ca`：go-redis 报
+  `remote error: tls: unknown certificate authority`；go-sql-driver v1.10.1 报的是 `invalid connection`（照常重试），
+  告警只出现在它的日志里，也就是一条 `xgorm go-sql-driver log`，`detail` 是 `packets.go:58 remote error: tls: unknown certificate authority`。
+
 ## App —— 应用身份
 
 链路的 `service.name` / `service.version`、接口文档（XGinSwagger）的默认标题和版本都取自这里。
@@ -347,6 +392,12 @@ XGorm:
     LockTimeout: 0s
     IdleInTxTimeout: 0s
     Params: {}             # 任意 PG 运行时参数，同名时以它为准；pgx 的连接参数（如 default_query_exec_mode）也写这里
+  TLS:                     # 默认不开，DSN 里自己写的 TLS 参数照旧生效。规则见「通用规则 · TLS 块」和下面的「TLS」
+    Enable: false
+    CAFile: ""             # 空 = 系统根证书
+    CertFile: ""           # 双向认证时和 KeyFile 成对填
+    KeyFile: ""
+    ServerName: ""         # 空 = DSN 里的主机名
 ```
 
 **配置在读的时候就校验。** 每个实例解完就查一遍（`ClientConfig.Validate`），报错带着文件和行号，
@@ -407,7 +458,7 @@ OTel 数据库语义约定 v1.43.0（与仓库里 otelhttp v0.71.0 用的同一�
 `db_pool_max_open`、`db_pool_wait_total`、`db_pool_wait_duration_seconds_total`、`db_pool_closed_max_idle_total`、
 `db_pool_closed_max_lifetime_total`。从前叫 `db_connections_*`，看板和告警要跟着改名。
 
-建连日志 `xgorm connected` 带 `name`（实例名，直接调 `xgorm.New` 的没有这个字段）、`driver`、`addr`、`db`；
+建连日志 `xgorm connected` 带 `name`（实例名，直接调 `xgorm.New` 的没有这个字段）、`driver`、`addr`、`db`、`tls`（开没开 TLS 块）；
 全部实例建好之后一条 `xgorm ready`，`instances` 列出实例名。
 
 **GORM 的默认行为。** 下面几项 xgorm 不改，原样用 GORM v1.31.2 的默认值，量过：
@@ -508,6 +559,33 @@ DSN 里写了 `timeout=1500ms` / `readTimeout=1s` 的，以 DSN 为准（实测 
 后调的那次生效。要赶在启动之前：驱动在解析 DSN 时把当时的 logger 抄进连接配置，之后再调只对新解析的 DSN 生效，
 而 xgorm 在启动钩子里解析 DSN。和 xredis 一样，别放在没有 import xgorm 的包的 `init` 里：
 谁先谁后取决于包路径的字典序，可能被 xgorm 盖掉。
+
+**TLS。** 字段和通用的规则见「通用规则 · TLS 块」。开着时 TLS 全由这一块决定，两个内置驱动都不经 DSN 传：
+`*tls.Config` 直接交给驱动的连接配置，DSN 一个字节不动，也不碰进程级的注册表。
+
+- **PostgreSQL**：每次建连之前把 pgx 连接配置里的 TLS 换成这一块（`stdlib.OptionBeforeConnect`）。
+  pgx 把 `sslmode` 翻译成「主机 × TLS 配置」的一串候选，默认的 `prefer` 是每个主机先试一次不校验证书的 TLS、
+  再试一次明文——这里按主机去重，每个主机只留一条、只走这一块的 TLS，**不会退回明文**：
+  服务端不肯 TLS 时报 `server refused TLS connection`。`ServerName` 没配时按主机名比对（和 `verify-full` 一样），
+  配了就用它——pgx 自己的 DSN 参数说不出这一点，`verify-full` 只拿 host 比对。
+  环境变量 `PGSSLMODE` 等和 service 文件里的 TLS 设置被这一块盖掉；主机是 Unix socket 的启动失败（pgx 不在 socket 上做 TLS）。
+- **MySQL**：解开 DSN，把 `*tls.Config` 放进 go-sql-driver 的连接配置，用它的 connector 建连接池。
+  `ServerName` 没配时由驱动取 `Addr` 的主机部分。不用 `mysql.RegisterTLSConfig` 加 `tls=<名字>`：
+  那是一张进程级的表，每个实例要起一个不撞的名字、关的时候还得注销。DSN 走 `unix(...)` 的启动失败。
+- **两处都说了 TLS 是配置错误，一次都不连**：开着 TLS 块，PostgreSQL 的 DSN（连同 `Postgres.Params`）里
+  又写了 `ssl` 开头的参数（`sslmode`、`sslrootcert`、`sslcert`、`sslkey`、`sslnegotiation` ……），
+  或者 MySQL 的 DSN 里写了 `tls=`（哪怕是 `tls=false`），报
+  `the DSN sets sslmode while the TLS block is enabled; configure TLS in one place only`。
+  哪一处作数都会让另一处白写，而 `sslmode=disable` 配 `Enable: true` 这种组合说不清想要什么。
+  PG 的 DSN 里有没有这些参数问的是 pgx 自己的解析器（`ConnStringAllowedKeys`，在读任何文件之前报出 key 名），
+  密码里带着 `sslmode=disable` 字样不算；MySQL 的判断照抄驱动的解析规则，同 `parseTime`。
+- **不开 TLS 块时，两个驱动的默认差得很远**，量过：pgx（DSN 不写 `sslmode` 即 `prefer`）连一个开着 ssl 的 PG
+  照样走 TLS（`pg_stat_ssl` 是 `ssl=t`、`TLSv1.3`），但**服务端证书根本不校验**——拿一个不相干的 CA 签的证书也连得上；
+  服务端不肯 TLS 就悄悄改走明文。go-sql-driver 不写 `tls` 就是明文，连 `require_secure_transport=ON` 的 MySQL 报 3159。
+  要加密又要校验，开 TLS 块（或者自己在 DSN 里写 `sslmode=verify-full` / `tls=true`，两种写法二选一）。
+- 其余驱动要在自己的 `Dialect` 里提供 `OpenTLS` 才收 TLS 块，没提供的配了就启动失败，
+  报 `Driver="clickhouse" does not support the TLS block, configure TLS in its DSN instead`——目前的 ClickHouse 就是这样，
+  TLS 写在它的 DSN 里（`secure=true`）。
 
 ### 其它驱动
 
@@ -632,7 +710,7 @@ XRedis:
                            # 连同值写进 db.statement（实测 SET 的值原样出现），这里关掉了。
                            # 钩子不是零成本：没装链路时实测每条命令约 +3µs、+8 次分配（本机回环）
   Metric: true             # 连接池指标，按实例生效，同 XGorm
-  TLS:                     # 默认不走 TLS，见下
+  TLS:                     # 默认不走 TLS。规则见「通用规则 · TLS 块」
     Enable: false
     CAFile: ""             # 校验服务端证书的 CA（PEM）。空 = 系统根证书；自签证书填这里
     CertFile: ""           # 客户端证书（PEM），服务端要求双向认证时和 KeyFile 成对填
@@ -646,11 +724,11 @@ XRedis:
 和 -2（不设 deadline）、`ConnMaxIdleTime` 的 -1（不按空闲回收），一个减号就静默关掉超时保护，这里不收。
 每个实例连上时打一条 `xredis connected`，带着 `name`、`addr`、`db`、`tls`、`min_idle_conns`，不带密码。
 
-**TLS**：`TLS.Enable: true` 之后握手受 `DialTimeout` 管（go-redis v9.22.0 用 `tls.DialWithDialer`，
-拨号和握手共用那一个超时），最低 TLS 1.2。证书校验一直开着，**不提供跳过校验的开关**——自签证书把 CA 填进 `CAFile`。
-没开 `Enable` 却写了别的几项，启动失败：那多半是忘了开，照明文连过去比报错更糟。
-实测 Redis 7.0.15 `--tls-port`：填了 `CAFile` 连得上；不填（用系统根证书）报
-`x509: certificate signed by unknown authority`；没开 TLS 用明文连 TLS 端口报 `EOF`。
+**TLS**：字段、规则和实测的行为见「通用规则 · TLS 块」，和 XGorm、XHttp 是同一个块。
+`TLS.Enable: true` 之后握手受 `DialTimeout` 管（go-redis v9.22.0 用 `tls.DialWithDialer`，
+拨号和握手共用那一个超时）。实测 Redis 7.0.15（`--port 0 --tls-port`）：填了 `CAFile` 连得上；不填（用系统根证书）报
+`x509: certificate signed by unknown authority`；没开 TLS 用明文连 TLS 端口报 `EOF`；
+`tls-auth-clients yes` 时不带客户端证书报 `remote error: tls: certificate required`。
 要更细的控制（加密套件、自定义校验）就自己 `redis.NewClient`。
 
 **每条新连接上发什么**：go-redis v9.22.0 的默认和这里的取舍（实测 Redis 7.0.15，挂着 redisotel 数 Span）：
@@ -780,7 +858,21 @@ XHttp:
   Trace: true              # 出站 Span。只管 Span：关掉后 traceparent、baggage、
                            # 透传 Header 照样带给下游，见 XTrace 那一节
   Metric: true             # 出站耗时指标，见下
+  TLS:                     # 出站 https 的 TLS，默认不配（系统根证书、不带客户端证书）。见下和「通用规则 · TLS 块」
+    Enable: false
+    CAFile: ""             # 填了就只认它：公网的 https 下游从此校验不过
+    CertFile: ""           # 下游要求双向认证时和 KeyFile 成对填
+    KeyFile: ""
+    ServerName: ""         # 填了就拿它比对**每一个**下游的证书
 ```
+
+**TLS 块管的是这个客户端发出的每一个 https 请求**，所以它适合「只调一类内部下游」的客户端：
+填了 `CAFile` 就只认这个 CA，公网上的 https 下游从此校验不过；`ServerName` 拿同一个名字比对每一个下游。
+要同时调公网的，另用 `xhttp.New` 建一个。`http://` 的请求不受影响（不会被升级成 TLS）。
+它落在连接池那一层（`Transport.TLSClientConfig`），`Trace` 开着和关着一样生效；
+换了 `TLSClientConfig` 之后 HTTP/2 照旧——连接池从 `http.DefaultTransport` 克隆，`ForceAttemptHTTP2` 是开着的，
+实测对开了 HTTP/2 的 https 下游协商出 `HTTP/2.0`。`http.DefaultTransport` 被换成了别的类型时（没法克隆），
+配了 TLS 块就启动失败，而不是悄悄用系统根证书发出去。
 
 配错的值（负的时长、负的重试次数和连接数）在读配置时就失败，直接调 `xhttp.New` 的由 `New` 校验。
 `DialKeepAlive` 是唯一允许负数的：标准库用负值表示「不发 keep-alive 探测」。
@@ -862,6 +954,9 @@ XGin:
                            # 优雅退出管：Shutdown 等在途请求做完，超时后 Close 断开
   CertFile: ""             # 与 KeyFile 必须同时配或同时留空，只配一半会启动失败
   KeyFile: ""
+  ClientCAFile: ""         # 校验客户端证书的 CA（PEM）。配了就是双向认证：客户端必须出示它签的证书，
+                           # 否则握手失败、请求到不了任何 handler。只能和 CertFile / KeyFile 一起配，见下
+  MinVersion: "1.2"        # 接受的最低 TLS 版本："1.2" / "1.3"，别的写法启动失败。只在配了证书时生效
   ReadHeaderTimeout: 10s   # 慢连接攻击的主要防线，必须 > 0
                            # 0 不是「用默认值」：net/http 会退到 ReadTimeout（默认 0），
                            # 结果是不限时——发半个请求头的连接一直不被断开（实测）
@@ -900,6 +995,16 @@ XGin:
                            # 业务再注册首页时 gin 在业务自己的路由代码里 panic
   ZHTranslations: false    # validator 的报错翻成中文，用法见 xgin/trans
 ```
+
+**TLS 与双向认证。** 配了 `CertFile` / `KeyFile` 就是 https，HTTP/2 自动协商。`MinVersion` 默认 1.2：
+Go 1.25 服务端自己的默认也是 1.2，这里照样显式写上，默认值会随 Go 版本变，配置文件里写着的不该跟着变。
+`ClientCAFile` 配了就是 `RequireAndVerifyClientCert`，handler 里用 `c.Request.TLS.PeerCertificates` 看是谁；
+文件读不出来或者里面没有证书，`Start` 报 op 为 `config` 的错、不监听。实测（e2e，`MinVersion: "1.3"`）：
+带着这个 CA 签的证书是 `200`、`HTTP/2.0`、`TLS 1.3`；不带证书，客户端报 `remote error: tls: certificate required`；
+拿别的 CA 签的证书，Go 的客户端根本不出示它（服务端在握手里列出了认哪些 CA），结果同上；
+最高只到 TLS 1.2 的客户端报 `protocol version not supported`；明文 HTTP 打到这个端口，net/http 回
+`400 Client sent an HTTP request to an HTTPS server.`。这几种一次都没进 handler。
+`ClientCAFile` 管的是整个端口：`/metrics` 这类框架挂的路由同样要客户端证书，抓指标的那一方也得带证书。
 
 停止没有单独的超时。`Stop` 等在途请求做完，最多等到它收到的 ctx 的截止时间。在 `xone.Run` 里
 这个截止时间就是服务那一段停止预算——`xone.WithStopTimeout`（默认 15s）的 2/3，也就是 10s。

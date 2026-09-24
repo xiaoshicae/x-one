@@ -2,6 +2,7 @@ package xgorm
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"slices"
 	"sync"
@@ -47,6 +48,15 @@ type Dialect struct {
 
 	// Open 造 GORM 的 Dialector
 	Open func(dsn string) gorm.Dialector
+
+	// OpenTLS 同 Open，但连接一律走 cfg 给出的 TLS：配置里 TLS.Enable 开着时 xgorm 调它而不是 Open。
+	// 可以留空，留空的驱动配了 TLS 块是配置错误（TLS 就写在它自己的 DSN 里）。
+	//
+	// cfg 由 xtls.Config.Build 装出来，ServerName 没配时是空的，按连接地址补上是这里的事。
+	// 不许在 cfg 之外留一条明文的退路：配了 TLS 的人要的是「连不上 TLS 就失败」。
+	// DSN 里自己也写了 TLS 参数的，由 Resolve 报配置错误，到不了这里。
+	// 返回普通 error，xgorm 包成 op 为 config 的 xerror，同样别回传带 DSN 片段的原始错误。
+	OpenTLS func(dsn string, cfg *tls.Config) (gorm.Dialector, error)
 
 	// Resolve 把配置里的超时等参数注入 DSN，并解出可安全记录的连接信息。
 	//
@@ -117,6 +127,15 @@ func RegisterDialect(d Dialect) {
 	dialects[d.Name] = d
 }
 
+// dialector 按有没有 TLS 选 Open 还是 OpenTLS。
+// 开了 TLS 而方言没有 OpenTLS 的，ClientConfig.Validate 已经拦下了
+func (d Dialect) dialector(dsn string, cfg *tls.Config) (gorm.Dialector, error) {
+	if cfg == nil {
+		return d.Open(dsn), nil
+	}
+	return d.OpenTLS(dsn, cfg)
+}
+
 // authFailed 方言认不认得出这是认证失败，方言没提供就是认不出
 func (d Dialect) authFailed(err error) bool {
 	return err != nil && d.AuthFailed != nil && d.AuthFailed(err)
@@ -168,11 +187,11 @@ func Drivers() []Driver {
 // 这样「内置的」和「外部注册的」在源码上一眼可分。
 func init() {
 	dialects[DriverMySQL] = Dialect{
-		Name: DriverMySQL, Open: openMySQL, Resolve: resolveMySQL, Ready: probeMySQLVersion,
+		Name: DriverMySQL, Open: openMySQL, OpenTLS: openMySQLTLS, Resolve: resolveMySQL, Ready: probeMySQLVersion,
 		AuthFailed: mysqlAuthFailed, ErrorCode: mysqlErrorCode,
 	}
 	dialects[DriverPostgres] = Dialect{
-		Name: DriverPostgres, Open: openPostgres, Resolve: resolvePostgres,
+		Name: DriverPostgres, Open: openPostgres, OpenTLS: openPostgresTLS, Resolve: resolvePostgres,
 		AuthFailed: postgresAuthFailed, ErrorCode: postgresErrorCode,
 	}
 }

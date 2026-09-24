@@ -45,7 +45,7 @@ func New(ctx context.Context, cfg ClientConfig) (*redis.Client, io.Closer, error
 	if err := cfg.Validate(); err != nil {
 		return nil, nil, xerror.Newf("xredis", "config", "invalid config: %w", err)
 	}
-	tlsCfg, err := cfg.TLS.tlsConfig()
+	tlsCfg, err := cfg.TLS.Build()
 	if err != nil {
 		return nil, nil, xerror.Newf("xredis", "config", "invalid TLS config: %w", err)
 	}

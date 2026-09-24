@@ -6,13 +6,11 @@
 package xredis
 
 import (
-	"crypto/tls"
-	"crypto/x509"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/xiaoshicae/x-one/xconfig"
+	"github.com/xiaoshicae/x-one/xtls"
 )
 
 // ConfigKey 本模块在配置文件里的顶层 key
@@ -109,29 +107,10 @@ type ClientConfig struct {
 	// 按实例生效：配了 Metric: false 的实例不出现在 /metrics 里。
 	Metric bool `yaml:"Metric"`
 
-	// TLS 连 Redis 时走不走 TLS。默认不走。
-	TLS TLSConfig `yaml:"TLS"`
-}
-
-// TLSConfig 连 Redis 的 TLS 设置。只收最常用的几项，最低版本固定 TLS 1.2；
-// 要更细的控制（加密套件、自定义校验）就自己 redis.NewClient，本包不挡路。
-type TLSConfig struct {
-	// Enable 是否走 TLS。默认 false。下面几项只在开着时生效，没开却写了它们，启动失败——
-	// 那多半是忘了开，照明文连过去比报错更糟。
-	Enable bool `yaml:"Enable"`
-
-	// CAFile 校验服务端证书用的 CA 证书（PEM）。默认空，用系统的根证书；自签的证书填这里。
-	CAFile string `yaml:"CAFile"`
-
-	// CertFile 客户端证书（PEM），服务端要求双向认证时和 KeyFile 成对填。默认空。
-	CertFile string `yaml:"CertFile"`
-
-	// KeyFile 客户端私钥（PEM），和 CertFile 成对填。默认空。
-	KeyFile string `yaml:"KeyFile"`
-
-	// ServerName 校验服务端证书时比对的名字。默认空，取 Addr 的主机部分；
-	// 按 IP 连、而证书上写的是域名时填它。
-	ServerName string `yaml:"ServerName"`
+	// TLS 连 Redis 时走不走 TLS。默认不走。字段和规则各模块共用，见 xtls.Config。
+	//
+	// 握手受 DialTimeout 管：go-redis v9.22.0 用 tls.DialWithDialer，拨号和握手共用那一个超时。
+	TLS xtls.Config `yaml:"TLS"`
 }
 
 // DefaultClientConfig 单个实例的全部默认值集中在这里
@@ -219,46 +198,5 @@ func (c ClientConfig) Validate() error {
 			return fmt.Errorf("%s must be -1ns (disable backoff) or >= 0, got=%v", d.name, d.val)
 		}
 	}
-	return c.TLS.validate()
-}
-
-// validate TLS 的几项之间说不通的地方。文件读不读得出来留给 New
-func (t TLSConfig) validate() error {
-	if !t.Enable {
-		if t != (TLSConfig{}) {
-			return fmt.Errorf("TLS fields are set but TLS.Enable is false; set TLS.Enable: true or remove them")
-		}
-		return nil
-	}
-	if (t.CertFile == "") != (t.KeyFile == "") {
-		return fmt.Errorf("TLS.CertFile and TLS.KeyFile must be set together")
-	}
-	return nil
-}
-
-// tlsConfig 按配置装出 *tls.Config；没开 TLS 时返回 nil，go-redis 由此走明文
-func (t TLSConfig) tlsConfig() (*tls.Config, error) {
-	if !t.Enable {
-		return nil, nil
-	}
-	cfg := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: t.ServerName}
-	if t.CAFile != "" {
-		pem, err := os.ReadFile(t.CAFile)
-		if err != nil {
-			return nil, fmt.Errorf("read TLS.CAFile: %w", err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("TLS.CAFile %s contains no PEM certificate", t.CAFile)
-		}
-		cfg.RootCAs = pool
-	}
-	if t.CertFile != "" {
-		cert, err := tls.LoadX509KeyPair(t.CertFile, t.KeyFile)
-		if err != nil {
-			return nil, fmt.Errorf("load TLS.CertFile / TLS.KeyFile: %w", err)
-		}
-		cfg.Certificates = []tls.Certificate{cert}
-	}
-	return cfg, nil
+	return c.TLS.Validate()
 }

@@ -8,6 +8,8 @@ package xhttp
 import (
 	"fmt"
 	"time"
+
+	"github.com/xiaoshicae/x-one/xtls"
 )
 
 // ConfigKey 本模块在配置文件里的顶层 key
@@ -92,6 +94,15 @@ type Config struct {
 
 	// Metric 是否导出出站请求的指标（按方法、目标、状态码分）。默认开启。
 	Metric bool `yaml:"Metric"`
+
+	// TLS 出站 https 请求的 TLS 设置：自签的 CA、双向认证的客户端证书、比对的名字。
+	// 默认不配，用标准库的默认（系统根证书、不带客户端证书）。字段和规则各模块共用，见 xtls.Config。
+	//
+	// 只管 https:// 的请求，不会把 http:// 升级成 TLS。它对这个客户端发出的**每一个**
+	// https 请求都生效：配了 CAFile 就只认这个 CA，公网上的 https 下游从此校验不过；
+	// ServerName 更是拿同一个名字去比对每一个下游。所以这里配的是「只调一类内部下游」
+	// 的那个客户端，要同时调公网的，另用 New 建一个。
+	TLS xtls.Config `yaml:"TLS"`
 }
 
 // DefaultConfig 全部默认值集中在这里
@@ -143,5 +154,5 @@ func (c Config) Validate() error {
 			return fmt.Errorf("%s must not be negative, got=%v", d.name, d.val)
 		}
 	}
-	return nil
+	return c.TLS.Validate()
 }
