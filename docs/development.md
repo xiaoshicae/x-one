@@ -44,7 +44,7 @@ xone/
 ├── example/             可直接跑的示例，同时是进程内的跨模块集成测试
 │   ├── consumer/        消息队列消费者：非 Web 服务的形状
 │   └── component/       自己写一个集成：两个钩子 + 一个 C() 的完整样例
-├── e2e/                 真实 Web 服务测试：真的进程、真的 PG / MySQL / Redis、真的信号（独立 module，不发布）
+├── e2e/                 真实 Web 服务测试：真的进程、真的 PG / MySQL / Redis / ClickHouse、真的信号（独立 module，不发布）
 │   ├── service/         被测服务：用齐各集成，配置全部来自 YAML
 │   ├── baseline/        裸 gin 的对照服务，压测时比出框架的开销
 │   └── harness/         起进程、读日志 / Span / 指标 / /proc、TCP 故障代理、下游桩、压测器
@@ -54,7 +54,7 @@ xone/
     ├── check.sh         把设计约束编译成检查
     ├── test.sh          跑全仓库测试（go test ./... 不跨模块边界）
     ├── mutate.py        变异测试：把每条承诺改坏，看有没有测试会失败
-    ├── e2e.sh           拉起 PG / MySQL / Redis，跑 e2e/ 的真实 Web 服务测试
+    ├── e2e.sh           拉起 PG / MySQL / Redis / ClickHouse，跑 e2e/ 的真实 Web 服务测试
     └── release.sh       打 tag 发布，推送之后 --verify 验证装得上
 ```
 
@@ -79,7 +79,7 @@ xone/
 | `scripts/check.sh` | 架构约束 + 依赖边界 + 文档 + gofmt / vet | 是 |
 | `scripts/test.sh [go test 参数]` | 逐模块 `GOWORK=off go test -race ./...` | 是（`-count=1`） |
 | `scripts/mutate.py` | 变异测试，几分钟，要干净工作区 | 否（`--dry-run` 在 check.sh 里） |
-| `scripts/e2e.sh [--load] [-run X]` | 真实 Web 服务测试，要 PG / MySQL / Redis | 否 |
+| `scripts/e2e.sh [--load] [-run X]` | 真实 Web 服务测试，要 PG / MySQL / Redis（ClickHouse 可选） | 否 |
 | `scripts/release.sh vX.Y.Z [--apply \| --verify]` | 打 tag / 验证发布 | 否 |
 
 ### check.sh
@@ -203,13 +203,17 @@ func C() *Client { /* ... */ }
 
 ## e2e：真实 Web 服务测试
 
-`e2e/` 把 `e2e/service` 编成二进制、当成一个真的进程起起来，连真的 PostgreSQL、MySQL 和 Redis，
+`e2e/` 把 `e2e/service` 编成二进制、当成一个真的进程起起来，连真的 PostgreSQL、MySQL、Redis 和 ClickHouse，
 发请求、发信号，再读它的日志、Span、`/metrics` 和 `/proc`。
 
 - 服务的 XGorm 是多实例：`default` 连 PostgreSQL，`mysql` 连 MySQL（`/mysql/...` 那组接口用 `xgorm.C("mysql")`）；
+  第三个 `ch` 连 ClickHouse（`/ch/...`，经 `xgorm/clickhouse`），写在 profile `e2e/service/application-ch.yml` 里，
+  只有 `TestClickHouse_*` 起的进程激活它（`harness.Options.ClickHouse`）；
 - 故障经 harness 里的 TCP 代理注入（断开、拒绝新连接、加延迟、模拟主机宕机），不去停真的 PG / MySQL / Redis；
 - 用例之间各用各的端口、表名和 key 前缀；
 - PG / MySQL / Redis 没在跑时脚本会先拉起来，连接参数可以用 `XONE_E2E_PG_ADDR`、`XONE_E2E_MYSQL_ADDR`、`XONE_E2E_REDIS_ADDR` 等环境变量覆盖；
+- ClickHouse 跑在 Docker 容器 `xone-ch` 里（`XONE_E2E_CH_CONTAINER`；native 127.0.0.1:9000、HTTP 127.0.0.1:8123，`XONE_E2E_CH_*` 覆盖），
+  停着就 `docker start`；没有 Docker、没有容器或起不来时脚本打一行提示并设 `XONE_E2E_CH=0`，`TestClickHouse_*` 各自跳过，其余照跑；
 - 后面的参数原样交给 `go test`。
 
 ```bash
@@ -217,6 +221,7 @@ scripts/e2e.sh                   # 全部（压测除外）
 scripts/e2e.sh -run Smoke        # 只跑冒烟
 scripts/e2e.sh --load -run Load  # 压测：裸 gin 对照三种中间件配置、并发 1～256，外加几分钟的浸泡
 scripts/e2e.sh --load -run MySQL # MySQL 那一组，连同裸 gin + MySQL 对照 xone + MySQL 的压测
+scripts/e2e.sh --load -run ClickHouse # ClickHouse 那一组，连同裸 gin + ClickHouse 对照 xone + ClickHouse 的压测
 ```
 
 压测默认不跑（一轮十来分钟，要独占机器），`--load` 才跑。结果只在测试日志里打成表格：

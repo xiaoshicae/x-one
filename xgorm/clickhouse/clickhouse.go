@@ -169,9 +169,15 @@ func resolve(c xgorm.ClientConfig) (string, xgorm.ConnInfo, error) {
 	// （v2.30.0 conn_handshake.go），往返没有单独可依的配置，按同一量级再给一份。
 	// 两处都没写时 ParseDSN 读出来是 0（驱动建连时才补 30s），交给 xgorm 按
 	// 2 × DialTimeout 兜底
+	//
+	// 地址取驱动解出来的第一个：多主机写法 clickhouse://u:p@h1:9000,h2:9000/db 里
+	// URL 的 Host 是整串 "h1:9000,h2:9000"，驱动按逗号切开、依次去连（默认 in_order）。
+	// 整串当地址的话 Span 的 server.address 是整串、没有 server.port（SplitHostPort 解不开），
+	// 建连日志里也不是一个「主机:端口」。和 PostgreSQL 的多主机一样记第一个。
+	// ParseDSN 在 Host 为空时报错，走到这里 Addr 至少有一项
 	return dsn, xgorm.ConnInfo{
 		Driver:       string(Driver),
-		Addr:         u.Host,
+		Addr:         opts.Addr[0],
 		DB:           strings.TrimPrefix(u.Path, "/"),
 		ProbeTimeout: 2 * opts.DialTimeout,
 	}, nil
@@ -181,10 +187,10 @@ func resolve(c xgorm.ClientConfig) (string, xgorm.ConnInfo, error) {
 // src/Common/ErrorCodes.cpp 同名）：新版本的服务端密码错、用户不存在一律报
 // 516 AUTHENTICATION_FAILED，192 / 193 / 194 是老版本分开报的三种。
 //
-// 这里没有能连的 ClickHouse，没有实测；错误的形状取自驱动源码：native 协议握手时
-// 服务端回 Exception 包，驱动原样返回 *clickhouse.Exception（v2.30.0 conn.go 的
-// exception()），错误链上 errors.As 得到。HTTP 协议的错误是驱动拼的一段文本
-// （"clickhouse [execute]:: 401 code: ..."），没有错误码可认，按连不上处理
+// native 协议握手时服务端回 Exception 包，驱动原样返回 *clickhouse.Exception（v2.30.0 conn.go 的
+// exception()），错误链上 errors.As 得到。实测（e2e，ClickHouse 24.8.14）密码错、用户不存在
+// 都是 code: 516，只试 1 次；库不存在是 81，不在这里。HTTP 协议的错误是驱动拼的一段文本
+// （实测 "clickhouse [execute]:: 403 code: Code: 516. DB::Exception: ..."），没有错误码可认，按连不上处理
 var authCodes = []chproto.Error{
 	chproto.ErrAuthenticationFailed, // 516
 	chproto.ErrUnknownUser,          // 192

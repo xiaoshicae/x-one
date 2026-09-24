@@ -178,6 +178,24 @@ func TestResolve_驱动自己解析不了的也在这里拦下且不回显(t *te
 	}
 }
 
+func TestResolve_多主机DSN记第一个主机(t *testing.T) {
+	// URL 的 Host 是整串 "h1:9000,h2:9001"，驱动按逗号切开依次去连。连接信息只记第一个：
+	// 整串的话 Span 里 server.address 是整串、server.port 解不出来
+	dsn := "clickhouse://u:p@h1:9000,h2:9001/db"
+	got, info, err := resolve(cfg(dsn, time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Addr != "h1:9000" {
+		t.Errorf("多主机时连接信息记第一个主机 h1:9000，got=%q", info.Addr)
+	}
+	// 交给驱动的 DSN 里两个主机都还在
+	opts, err := chgo.ParseDSN(got)
+	if err != nil || !slices.Equal(opts.Addr, []string{"h1:9000", "h2:9001"}) {
+		t.Errorf("DSN 里的主机列表不该动，got=%v err=%v", opts.Addr, err)
+	}
+}
+
 func TestResolve_各种scheme都认(t *testing.T) {
 	for _, scheme := range []string{"clickhouse", "tcp", "http", "https"} {
 		dsn := scheme + "://h:9000/db"

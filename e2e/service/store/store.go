@@ -1,5 +1,5 @@
 // Package store 是 e2e 服务的数据访问：PG 上的用户表、订单表，MySQL 上的用户表（mysql.go），
-// 以及启动时建表。
+// ClickHouse 上的事件表（clickhouse.go），以及启动时建表。
 //
 // 建表放在一个启动钩子里，不写档位就落在 StageBusiness：那时 xgorm 已经就绪，
 // 服务还没开始接流量。放到「第一次访问时再建」的话，并发的头几个请求要么互相等、
@@ -61,7 +61,13 @@ func migrate(ctx context.Context) error {
 	}
 	// MySQL 实例是可选的：换一份没配它的配置文件时（configWithout 之类）照样起得来
 	if xgorm.Has(MySQL) {
-		return migrateMySQL(ctx)
+		if err := migrateMySQL(ctx); err != nil {
+			return err
+		}
+	}
+	// ClickHouse 实例只在激活了 ch 那份 profile 时才有，见 clickhouse.go
+	if HasCH() {
+		return migrateCH(ctx)
 	}
 	return nil
 }

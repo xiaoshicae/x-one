@@ -38,6 +38,13 @@ type Options struct {
 	MySQLAddr string
 	RedisAddr string
 
+	// ClickHouse 给服务加上第三个 xgorm 实例 ch：激活 service/application-ch.yml 那份 profile
+	// （有 Overlay 时是 --profile=ch,e2e，Overlay 压过它）。只对 Start 有效。
+	// CHAddr 是它连的 native 地址，默认直连；给了 CHAddr 就等于 ClickHouse: true。
+	// 要换协议、换密码，直接在 Env 里给 E2E_CH_DSN
+	ClickHouse bool
+	CHAddr     string
+
 	// Downstream /proxy 调的下游 base URL，比如 Stub.URL 或 "http://" + proxy.Addr()
 	Downstream string
 
@@ -73,9 +80,11 @@ type Process struct {
 	// Port 监听的端口，Base 是 http://127.0.0.1:Port
 	Port int
 	Base string
-	// Table / KeyPrefix 这个进程用的表名（订单表加 _orders；MySQL 上的用户表同名）和 key 前缀
+	// Table / KeyPrefix 这个进程用的表名（订单表加 _orders；MySQL 上的用户表、ClickHouse 上的事件表同名）和 key 前缀
 	Table     string
 	KeyPrefix string
+	// CH 这个进程有没有 ClickHouse 实例（Options.ClickHouse）
+	CH bool
 	// Dir 这个进程的临时目录，测试结束时删掉
 	Dir string
 	// SpanFile Options.Spans 开着时 Span 写在这里
@@ -129,7 +138,14 @@ func Start(t testing.TB, o Options) *Process {
 		t.Fatalf("resolve config path: %v", err)
 	}
 	args := []string{"--config=" + cfg}
-	if o.Overlay != "" {
+	if o.CHAddr != "" {
+		o.ClickHouse = true
+	}
+	if o.ClickHouse {
+		RequireCH(t)
+	}
+	var profiles []string
+	if o.ClickHouse || o.Overlay != "" {
 		// profile 文件名由 base 推出来，所以 base 也挪进临时目录
 		base, err := os.ReadFile(cfg)
 		if err != nil {
@@ -137,8 +153,21 @@ func Start(t testing.TB, o Options) *Process {
 		}
 		cfg = filepath.Join(dir, "application.yml")
 		writeFile(t, cfg, base)
+	}
+	if o.ClickHouse {
+		ch, err := os.ReadFile(filepath.Join(ModuleDir(), "service", "application-ch.yml"))
+		if err != nil {
+			t.Fatalf("read clickhouse profile: %v", err)
+		}
+		writeFile(t, filepath.Join(dir, "application-ch.yml"), ch)
+		profiles = append(profiles, "ch")
+	}
+	if o.Overlay != "" {
 		writeFile(t, filepath.Join(dir, "application-e2e.yml"), []byte(o.Overlay))
-		args = []string{"--config=" + cfg, "--profile=e2e"}
+		profiles = append(profiles, "e2e")
+	}
+	if len(profiles) > 0 {
+		args = []string{"--config=" + cfg, "--profile=" + strings.Join(profiles, ",")}
 	}
 	return launch(t, "service", bin, append(args, o.Args...), dir, o)
 }
@@ -146,12 +175,15 @@ func Start(t testing.TB, o Options) *Process {
 // StartBaseline 起裸 gin 的对照服务。它不读配置文件，Overlay / Config / Spans / LogFile 对它无效
 func StartBaseline(t testing.TB, o Options) *Process {
 	t.Helper()
+	if o.CHAddr != "" {
+		o.ClickHouse = true
+	}
 	return launch(t, "baseline", BaselineBinary(t), o.Args, t.TempDir(), o)
 }
 
 func launch(t testing.TB, name, bin string, args []string, dir string, o Options) *Process {
 	t.Helper()
-	p := &Process{name: name, Dir: dir, Port: o.Port, Table: o.Table, KeyPrefix: o.KeyPrefix}
+	p := &Process{name: name, Dir: dir, Port: o.Port, Table: o.Table, KeyPrefix: o.KeyPrefix, CH: o.ClickHouse}
 	if p.Port == 0 {
 		p.Port = FreePort(t)
 	}
@@ -167,7 +199,7 @@ func launch(t testing.TB, name, bin string, args []string, dir string, o Options
 		t.Fatalf("Options.Table %q must match %s: it goes into SQL as is", p.Table, tableName)
 	}
 	// 先登记删数据、后登记杀进程：Cleanup 倒着跑，进程先死，再删它的表
-	t.Cleanup(func() { dropData(t, p.Table, p.KeyPrefix) })
+	t.Cleanup(func() { dropData(t, p.Table, p.KeyPrefix, p.CH) })
 
 	vars := map[string]string{
 		"E2E_PORT":       strconv.Itoa(p.Port),
@@ -176,6 +208,9 @@ func launch(t testing.TB, name, bin string, args []string, dir string, o Options
 		"E2E_REDIS_ADDR": or(o.RedisAddr, RedisAddr()),
 		"E2E_TABLE":      p.Table,
 		"E2E_KEY_PREFIX": p.KeyPrefix,
+	}
+	if o.ClickHouse {
+		vars["E2E_CH_DSN"] = CHDSN(or(o.CHAddr, CHAddr()))
 	}
 	if o.Downstream != "" {
 		vars["E2E_DOWNSTREAM_URL"] = o.Downstream

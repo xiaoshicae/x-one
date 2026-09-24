@@ -20,6 +20,7 @@
 #   E2E_SAMPLE_RATIO       XTrace.SampleRatio
 #   E2E_SQL_LOG            XGorm.Clients.default.Log
 #   E2E_MYSQL_SQL_LOG      XGorm.Clients.mysql.Log
+#   E2E_CH_DSN / E2E_CH_SQL_LOG  第三个实例 ch（ClickHouse），在 application-ch.yml 里，--profile=ch 才有
 #   E2E_HTTP_TIMEOUT       XHttp.Timeout
 #   E2E_ACCESS_LOG         XGin.Log
 #   E2E_LOG_REQUEST_BODY   XGin.LogRequestBody
@@ -48,7 +49,8 @@ XTrace:
 XMetric:
   Namespace: e2e
 
-# 两个实例：default 是 PG（C() 取的就是它），mysql 是 MySQL（C("mysql")）。
+# 两个实例：default 是 PG（C() 取的就是它），mysql 是 MySQL（C("mysql")）；
+# 第三个 ch（ClickHouse）在 application-ch.yml 里，--profile=ch 时才叠上来。
 # 每个实例的配置各管各的，overlay 里写 XGorm.Clients.<名字>.<字段> 单独改一个
 XGorm:
   Clients:

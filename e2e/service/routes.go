@@ -34,6 +34,7 @@ func routes(e *gin.Engine) {
 	e.POST("/upload", upload)
 	e.GET("/dep", dep)
 	mysqlRoutes(e)
+	clickhouseRoutes(e)
 }
 
 // ping 就绪探测：harness 等它返回 200 才算服务起来了
@@ -109,7 +110,7 @@ func slow(c *gin.Context) {
 // stuck 用 time.Sleep 睡 ms 毫秒（默认 1000），故意不看 ctx。
 //
 // 这是文档里「框架停不下来的 handler」：断开连接、取消 ctx 都叫不醒它。
-// db=1 / mysql=1 / redis=1 时睡完再查一次 PG、查一次 MySQL、Ping 一次 Redis，用的 ctx 同样剥掉了取消——
+// db=1 / mysql=1 / ch=1 / redis=1 时睡完再查一次 PG、MySQL、ClickHouse，Ping 一次 Redis，用的 ctx 同样剥掉了取消——
 // 看它是不是在框架关掉数据库、Redis 之后还在跑。
 // e2e_stuck_inflight 是此刻还睡在里面的个数：测试据此确认请求已经进了 handler 再发信号
 func stuck(c *gin.Context) {
@@ -132,6 +133,13 @@ func stuck(c *gin.Context) {
 			myErr = err.Error()
 		}
 		attrs = append(attrs, "mysql_error", myErr)
+	}
+	if c.Query("ch") == "1" && store.HasCH() {
+		chErr := "none"
+		if err := store.PingCH(context.WithoutCancel(ctx)); err != nil {
+			chErr = err.Error()
+		}
+		attrs = append(attrs, "ch_error", chErr)
 	}
 	if c.Query("redis") == "1" {
 		redisErr := "none"

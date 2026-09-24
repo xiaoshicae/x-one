@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql" // database/sql 的 MySQL 驱动，名字是 "mysql"
-	_ "github.com/jackc/pgx/v5/stdlib" // database/sql 的 pgx 驱动，名字是 "pgx"
+	_ "github.com/ClickHouse/clickhouse-go/v2" // database/sql 的 ClickHouse 驱动，名字是 "clickhouse"
+	_ "github.com/go-sql-driver/mysql"         // database/sql 的 MySQL 驱动，名字是 "mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"         // database/sql 的 pgx 驱动，名字是 "pgx"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -35,6 +36,18 @@ func MySQL(t testing.TB) *sql.DB {
 	return db
 }
 
+// CH 直连 ClickHouse（native 协议，不经代理），测试里核对数据用。测试结束时关掉
+func CH(t testing.TB) *sql.DB {
+	t.Helper()
+	RequireCH(t)
+	db, err := sql.Open("clickhouse", CHDSN(CHAddr()))
+	if err != nil {
+		t.Fatalf("open clickhouse: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
 // Redis 直连 Redis（不经代理），测试里核对数据用。测试结束时关掉
 func Redis(t testing.TB) *redis.Client {
 	t.Helper()
@@ -44,9 +57,9 @@ func Redis(t testing.TB) *redis.Client {
 	return c
 }
 
-// dropData 删掉一个进程在 PG 上的两张表、MySQL 上的那张表和它前缀下的全部 key。
-// 清理失败只记一笔：数据是随机名字，不会影响别的用例
-func dropData(t testing.TB, table, prefix string) {
+// dropData 删掉一个进程在 PG 上的两张表、MySQL 上的那张表（ch 时还有 ClickHouse 上的那张）
+// 和它前缀下的全部 key。清理失败只记一笔：数据是随机名字，不会影响别的用例
+func dropData(t testing.TB, table, prefix string, ch bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -64,6 +77,15 @@ func dropData(t testing.TB, table, prefix string) {
 			t.Logf("cleanup: drop mysql table %s: %v", table, err)
 		}
 		my.Close()
+	}
+
+	if ch {
+		if c, err := sql.Open("clickhouse", CHDSN(CHAddr())); err == nil {
+			if _, err := c.ExecContext(ctx, `DROP TABLE IF EXISTS `+table); err != nil {
+				t.Logf("cleanup: drop clickhouse table %s: %v", table, err)
+			}
+			c.Close()
+		}
 	}
 
 	rc := redis.NewClient(&redis.Options{Addr: RedisAddr()})
