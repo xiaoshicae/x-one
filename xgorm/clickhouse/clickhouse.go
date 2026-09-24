@@ -12,6 +12,7 @@
 //	XGorm:
 //	  Driver: clickhouse
 //	  DSN: "${CH_DSN}"     # clickhouse://user:pass@host:9000/db
+//	  TLS: {Enable: true, CAFile: /etc/ssl/ch-ca.pem}   # 可选：native 与 https:// 都走它，见 tls.go
 //
 // 为什么是独立的 module：实测一个只 import xgorm 的应用模块图是 65 个，
 // 加上这个包变成 128 个（go list -deps 里的非标准库包 127 → 171；clickhouse-go v2.48.0）。
@@ -65,6 +66,7 @@ var (
 var dialect = xgorm.Dialect{
 	Name:       Driver,
 	Open:       open,
+	OpenTLS:    openTLS,
 	Resolve:    resolve,
 	Ready:      probeVersion,
 	AuthFailed: authFailed,
@@ -148,6 +150,11 @@ func resolve(c xgorm.ClientConfig) (string, xgorm.ConnInfo, error) {
 	if err != nil {
 		return "", xgorm.ConnInfo{}, errMalformedQuery
 	}
+	if c.TLS.Enable {
+		if err := checkTLS(u, q); err != nil {
+			return "", xgorm.ConnInfo{}, err
+		}
+	}
 
 	// 使用者在 DSN 里显式写了的，一律不覆盖——配置里的值只是默认值
 	if v := dialTimeout(c); v != "" && !q.Has(dialTimeoutKey) {
@@ -158,8 +165,8 @@ func resolve(c xgorm.ClientConfig) (string, xgorm.ConnInfo, error) {
 
 	// 用驱动自己的解析器再过一遍：它的错误同样可能带着凭证（http_proxy 解析失败时
 	// 回显的是整个代理地址），留到建连时才报就是原样进日志。
-	// 这里报出来的只有一句不带内容的话；常见的是 https:// 没配 secure=true
-	opts, err := chgo.ParseDSN(dsn)
+	// 这里报出来的只有一句不带内容的话；常见的是 https:// 没配 secure=true（开了 TLS 块时不必配，见 parseDSN）
+	opts, err := parseDSN(dsn, c.TLS.Enable)
 	if err != nil {
 		return "", xgorm.ConnInfo{}, errMalformedDSN
 	}

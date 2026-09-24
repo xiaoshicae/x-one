@@ -941,8 +941,8 @@ mutate("ClickHouse 不是 URL 的 DSN 被拒绝", "xgorm/clickhouse/clickhouse.g
 mutate("ClickHouse 多主机 DSN 记第一个主机", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestResolve_多主机",
        swap('\t\tAddr:         opts.Addr[0],\n', '\t\tAddr:         u.Host,\n'))
 mutate("ClickHouse 驱动的解析错误不回显 DSN", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestResolve",
-       swap('chgo.ParseDSN(dsn)\n\tif err != nil {\n\t\treturn "", xgorm.ConnInfo{}, errMalformedDSN',
-     'chgo.ParseDSN(dsn)\n\tif err != nil {\n\t\treturn "", xgorm.ConnInfo{}, err'))
+       swap('parseDSN(dsn, c.TLS.Enable)\n\tif err != nil {\n\t\treturn "", xgorm.ConnInfo{}, errMalformedDSN',
+     'parseDSN(dsn, c.TLS.Enable)\n\tif err != nil {\n\t\treturn "", xgorm.ConnInfo{}, err'))
 mutate("Redis 命令遵守请求 deadline", "xredis/xredis.go", "./xredis", "TestNew",
        swap('\t\tContextTimeoutEnabled: true,\n',''))
 # go-redis 默认每次建连内部重拨 5 次、间隔 100ms：主机宕机时一条命令实测 11.7s，
@@ -1184,6 +1184,29 @@ mutate("MySQL TLS 块和 DSN 里的 tls 不能同时写", "xgorm/dsn.go", "./xgo
        swap('\t\tif err := checkMySQLTLS(c.DSN, cfg); err != nil {', '\t\tif err := checkMySQLTLS(c.DSN, cfg); false && err != nil {'))
 mutate("MySQL 连接配置带上 TLS 块", "xgorm/tls.go", "./xgorm", "TestNew_MySQL_TLS",
        swap('\tdc.TLS = cfg.Clone()\n', ''))
+# ClickHouse 的 TLS 块：打在注册的方言、resolve 与 openTLS 的调用点上
+mutate("ClickHouse 收 TLS 块", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestRegister_OpenTLS|TestNew_TLS块",
+       swap('\tOpenTLS:    openTLS,\n', ''))
+mutate("ClickHouse 连接配置带上 TLS 块", "xgorm/clickhouse/tls.go", "./xgorm/clickhouse", "TestNew_TLS块",
+       swap('\topts.TLS = cfg.Clone()\n', ''))
+mutate("ClickHouse TLS 块和 DSN 里的 TLS 参数不能同时写", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestResolve_TLS块",
+       swap('\t\tif err := checkTLS(u, q); err != nil {', '\t\tif err := checkTLS(u, q); false && err != nil {'))
+# http:// 按解析时记下的 scheme 拼请求地址，手里有 *tls.Config 也发明文
+mutate("ClickHouse http:// 配 TLS 块是配置错误", "xgorm/clickhouse/tls.go", "./xgorm/clickhouse", "TestResolve_TLS块不收http",
+       swap('if u.Scheme == "http" {', 'if false {'))
+mutate("ClickHouse 开了 TLS 块时 https 不必写 secure", "xgorm/clickhouse/clickhouse.go", "./xgorm/clickhouse", "TestResolve_TLS块开着时https",
+       swap('opts, err := parseDSN(dsn, c.TLS.Enable)', 'opts, err := chgo.ParseDSN(dsn)'))
+mutate("ClickHouse openTLS 按 https 解 https", "xgorm/clickhouse/tls.go", "./xgorm/clickhouse", "TestNew_TLS块生效",
+       swap('opts, err := parseDSN(dsn, true)', 'opts, err := parseDSN(dsn, false)'))
+mutate("ClickHouse https 补 secure 才记得住 scheme", "xgorm/clickhouse/tls.go", "./xgorm/clickhouse", "TestParseDSN_https|TestNew_TLS块生效",
+       swap('\t\tq.Set("secure", "true")\n', '\t\tq.Set("secure", "false")\n'))
+# GORM 的驱动拿到 DSN 会另解一份，UpdateLocalTable 按它直连每台主机、不带 TLS 块
+mutate("ClickHouse TLS 下不把 DSN 交给 GORM 的驱动", "xgorm/clickhouse/tls.go", "./xgorm/clickhouse", "TestOpenTLS",
+       swap('clickhouse.Config{Conn: chgo.OpenDB(opts),', 'clickhouse.Config{DSN: dsn, Conn: chgo.OpenDB(opts),'))
+mutate("ClickHouse TLS 下同样关掉驱动自带的查版本", "xgorm/clickhouse/tls.go", "./xgorm/clickhouse", "TestOpenTLS",
+       swap('SkipInitializeWithVersion: true', 'SkipInitializeWithVersion: false'))
+mutate("ClickHouse openTLS 的解析错误不回显 DSN", "xgorm/clickhouse/tls.go", "./xgorm/clickhouse", "TestOpenTLS",
+       swap('\t\treturn nil, errMalformedDSN // 不回传驱动的错误', '\t\treturn nil, err // 不回传驱动的错误'))
 mutate("XHttp 校验 TLS 块", "xhttp/config.go", "./xhttp", "TestValidate_TLS块",
        swap('\treturn c.TLS.Validate()\n}', '\treturn nil\n}'))
 mutate("XHttp 的 TLS 块交给连接池", "xhttp/xhttp.go", "./xhttp", "TestNew_TLS",

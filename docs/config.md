@@ -568,7 +568,7 @@ DSN 里写了 `timeout=1500ms` / `readTimeout=1s` 的，以 DSN 为准（实测 
 而 xgorm 在启动钩子里解析 DSN。和 xredis 一样，别放在没有 import xgorm 的包的 `init` 里：
 谁先谁后取决于包路径的字典序，可能被 xgorm 盖掉。
 
-**TLS。** 字段和通用的规则见「通用规则 · TLS 块」。开着时 TLS 全由这一块决定，两个内置驱动都不经 DSN 传：
+**TLS。** 字段和通用的规则见「通用规则 · TLS 块」。开着时 TLS 全由这一块决定，两个内置驱动和 ClickHouse 都不经 DSN 传：
 `*tls.Config` 直接交给驱动的连接配置，DSN 一个字节不动，也不碰进程级的注册表。
 
 - **PostgreSQL**：每次建连之前把 pgx 连接配置里的 TLS 换成这一块（`stdlib.OptionBeforeConnect`）。
@@ -591,9 +591,27 @@ DSN 里写了 `timeout=1500ms` / `readTimeout=1s` 的，以 DSN 为准（实测 
   照样走 TLS（`pg_stat_ssl` 是 `ssl=t`、`TLSv1.3`），但**服务端证书根本不校验**——拿一个不相干的 CA 签的证书也连得上；
   服务端不肯 TLS 就悄悄改走明文。go-sql-driver 不写 `tls` 就是明文，连 `require_secure_transport=ON` 的 MySQL 报 3159。
   要加密又要校验，开 TLS 块（或者自己在 DSN 里写 `sslmode=verify-full` / `tls=true`，两种写法二选一）。
+- **ClickHouse**（`xgorm/clickhouse`）：用 clickhouse-go 自己的解析器解开 DSN，把 `*tls.Config` 放进它的 `Options`，
+  用 `clickhouse.OpenDB` 建连接池交给 GORM。native（`clickhouse://` / `tcp://`，连 `tcp_port_secure`）和
+  HTTP（`https://`，连 `https_port`）都走这一块；开着 TLS 块时 `https://` **不必**再写驱动要求的 `secure=true`。
+  `ServerName` 没配时留给标准库按每次所连的主机补（native 是 `tls.DialWithDialer`，HTTP 是 `http.Transport`），
+  所以多主机 DSN 连到第二台时按第二台的名字比对证书。HTTPS 下驱动把账号密码放进 `X-ClickHouse-User` / `X-ClickHouse-Key`
+  请求头，不进 URL。GORM 的 clickhouse 驱动这时拿不到 DSN：它拿到 DSN 会另解一份、在 UPDATE 带 `UpdateLocalTable`
+  时按那一份直连每台主机（v0.7.0 `update.go`），那几条直连不带 TLS 块——所以开着 TLS 块时这类 UPDATE 照常经连接池发出。
+  实测（e2e，ClickHouse 24.8.14，`verificationMode=relaxed`）：两种协议 `system.query_log` 都是 `is_secure=1`
+  （`interface` 1 / 2）；CA 不对、`ServerName` 对不上、客户端证书不是服务端认的 CA 签的都在 2–6ms 内失败、不重试
+  （`certificate signed by unknown authority` / `certificate is valid for …` / `remote error: tls: unknown certificate authority`）；
+  证书认证的账号（`ssl_certificates`）不带客户端证书是 516，按认证失败报；TLS 块开着连到明文端口是
+  `first record does not look like a TLS handshake`（native）/ `server gave HTTP response to HTTPS client`（HTTPS），
+  不开 TLS 块明文连到 TLS 端口是 `unexpected packet [21]` / `malformed HTTP response`，这四种照常重试、报 `cannot reach`。
+- **两处都说了 TLS 是配置错误（ClickHouse）**：开着 TLS 块，DSN 里又写了 `secure`、`skip_verify` 或 `tls_server_name`
+  （哪怕是 `secure=false`），报 `the DSN sets secure while the TLS block is enabled; configure TLS in one place only`；
+  DSN 是 `http://` 的报 `the DSN uses http:// while the TLS block is enabled, and http:// never runs TLS`——
+  驱动按解析时记下的 scheme 拼 HTTP 请求地址，`http://` 手里有 `*tls.Config` 也照样发明文，要 TLS 就写 `https://`。
+  不开 TLS 块时 DSN 里的这几项照旧生效：`secure=true` 不写 `skip_verify` 时按系统根证书校验，
+  自签的证书过不了；`skip_verify=true` 连得上，但服务端证书根本不校验（e2e 实测）。
 - 其余驱动要在自己的 `Dialect` 里提供 `OpenTLS` 才收 TLS 块，没提供的配了就启动失败，
-  报 `Driver="clickhouse" does not support the TLS block, configure TLS in its DSN instead`——目前的 ClickHouse 就是这样，
-  TLS 写在它的 DSN 里（`secure=true`）。
+  报 `Driver="<name>" does not support the TLS block, configure TLS in its DSN instead`。
 
 ### 其它驱动
 
@@ -618,7 +636,7 @@ XGorm:
 DSN 必须是上面四种 scheme 之一的 URL，否则启动失败——包括裸的 `host:port`
 （驱动自己也不认，实测 `ParseDSN("10.255.255.1:9000")` 报错）、scheme 拼错、
 前面多一个空格。启动时还会用驱动自己的解析器把 DSN 过一遍（比如 `https://`
-必须配 `secure=true`）。这些错误一律不回显 DSN：驱动和 `url.Parse` 的原始错误
+必须配 `secure=true`；开着 TLS 块时不必，见「TLS」）。这些错误一律不回显 DSN：驱动和 `url.Parse` 的原始错误
 里带着整串 DSN，连同明文密码。
 
 多主机写法 `clickhouse://user:pass@h1:9000,h2:9000/db` 驱动按逗号切开、依次去连（默认 `in_order`），

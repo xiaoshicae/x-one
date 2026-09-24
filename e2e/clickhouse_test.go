@@ -20,6 +20,7 @@ package e2e
 //	clickhouse_fault_test.go       运行中断开 / 卡住 ClickHouse、启动时不可达、启动期间收到 SIGTERM
 //	clickhouse_shutdown_test.go    SIGTERM 时在途的查询、卡住的查询听不听请求的 ctx
 //	clickhouse_load_test.go        裸 gin + ClickHouse 对照 xone + ClickHouse（XONE_E2E_LOAD=1）
+//	clickhouse_tls_test.go         TLS 块：另起一个开着 TLS 端口的容器，native 与 https 各走一遍
 
 import (
 	"context"
