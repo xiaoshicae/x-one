@@ -183,7 +183,7 @@ func TestNew_退出信号到达时当场放弃建连(t *testing.T) {
 	}
 }
 
-func TestPing_重试后仍失败(t *testing.T) {
+func TestProbe_重试后仍失败(t *testing.T) {
 	f := newFakeRedis(t)
 	f.setFailPing(true)
 	c := liveCfg(f)
@@ -191,7 +191,7 @@ func TestPing_重试后仍失败(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: c.Addr})
 	defer client.Close()
 
-	if err := ping(context.Background(), client, c); err == nil {
+	if err := xclient.Probe(context.Background(), probePolicy(c), probe(client)); err == nil {
 		t.Fatal("Ping 一直失败时应当返回错误")
 	}
 	// 数服务端收到几次 ping，不看耗时：退避带抖动之后，

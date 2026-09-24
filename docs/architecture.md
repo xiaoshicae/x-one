@@ -300,7 +300,8 @@ xone 接管的是 SIGINT 和 SIGTERM，做法是三件事一起：
 |---|---|
 | 具名实例、建实例、失败回滚、逆序关闭 | `internal/xclient`（多实例模块共用，不对外） |
 | 单实例 / 多实例两种写法的解码 | `xconfig.UnmarshalClients` |
-| 带总预算的重试（建连验证用） | `xutil.Retry` |
+| 带总预算的重试 | `xutil.Retry` |
+| 启动期建连探测：试几次、单次预算、认证被拒不再试（xgorm、xredis 共用） | `xclient.Probe`（基于 `xutil.Retry`） |
 | 注册指标并断回具体类型 | `xmetric.RegisterAs` |
 
 `C()` 取不到实例时直接 panic，而且说清是哪一种，因为四种要查的地方各不相同：

@@ -17,7 +17,6 @@ import (
 	"github.com/xiaoshicae/x-one/xerror"
 	"github.com/xiaoshicae/x-one/xhook"
 	"github.com/xiaoshicae/x-one/xmetric"
-	"github.com/xiaoshicae/x-one/xutil"
 )
 
 const (
@@ -28,8 +27,11 @@ const (
 	fallbackPingTimeout = time.Second
 )
 
-// pingInterval 两次尝试之间的间隔。是变量而不是常量，只为让测试能调短——
-// 连不上的用例要跑满整轮重试，按一秒算一次就是几十秒。
+// pingInterval 第一次退避的上界，之后逐次翻倍（xutil.Retry），3 次尝试之间的两次
+// 退避上界是 1s、2s。这个数写在 docs/config.md「建连重试」里，启动预算靠它推算。
+//
+// 是变量而不是常量，只为让测试能调短——连不上的用例要跑满整轮重试，
+// 按一秒算一次就是几十秒。
 var pingInterval = time.Second
 
 // New 按配置建一个 Redis 实例，不触碰任何全局变量。
@@ -129,7 +131,7 @@ func New(ctx context.Context, cfg ClientConfig) (*redis.Client, io.Closer, error
 		}
 	}()
 
-	if err := ping(ctx, client, cfg); err != nil {
+	if err := xclient.Probe(ctx, probePolicy(cfg), probe(client)); err != nil {
 		// 原始错误用 %w 带上，调用方要靠它判断根因。它不含凭证：连不上时是
 		// 拨号错误（只有地址），认证失败时是服务端回的 WRONGPASS / NOAUTH 文本
 		if redis.IsAuthError(err) {
@@ -159,25 +161,15 @@ func New(ctx context.Context, cfg ClientConfig) (*redis.Client, io.Closer, error
 	return client, &clientCloser{client: client, addr: cfg.Addr}, nil
 }
 
-// ping 建连验证，失败按退避重试；parent 取消时立即放弃。
-//
-// 认证失败（WRONGPASS / NOAUTH）不重试：密码不对，再试几次也不对，
-// 只是让启动多等两次退避（默认 1s + 2s）。做法是叫停这一轮——和退出信号走同一条路，
-// xutil.Retry 看到 ctx 取消就不再等、不再试——再把认证错误本身报上去，而不是报「取消」
-func ping(parent context.Context, client *redis.Client, cfg ClientConfig) error {
-	ctx, stop := context.WithCancelCause(parent)
-	defer stop(nil)
-	err := xutil.Retry(ctx, pingAttempts, pingTimeout(cfg), pingInterval, func(ctx context.Context) error {
-		err := probe(ctx, client)
-		if redis.IsAuthError(err) {
-			stop(err)
-		}
-		return err
-	})
-	if cause := context.Cause(ctx); redis.IsAuthError(cause) {
-		return cause
+// probePolicy 建连验证怎么试。认证失败（WRONGPASS / NOAUTH）不重试：密码不对，
+// 再试几次也不对，只是让启动多等两次退避（默认最多 1s + 2s）才报出来
+func probePolicy(cfg ClientConfig) xclient.ProbePolicy {
+	return xclient.ProbePolicy{
+		Attempts:   pingAttempts,
+		Timeout:    pingTimeout(cfg),
+		Interval:   pingInterval,
+		AuthFailed: redis.IsAuthError,
 	}
-	return err
 }
 
 // probe 一次 Ping。ctx 被取消时当场返回，不等这次读撞上 ReadTimeout。
@@ -186,20 +178,23 @@ func ping(parent context.Context, client *redis.Client, cfg ClientConfig) error 
 // 取消叫不醒一个阻塞在读上的命令。实测（v9.22.0）对端收下连接不回话时，启动期间的
 // 退出信号要等这次读超时才生效：ReadTimeout 500ms 时信号后约 450ms，配 3s 时约 2.95s。
 // 所以 Ping 放到协程里跑，这边同时看着 ctx，取消了就不等它。
+// xclient.Probe 不替 fn 做这件事（见它的注释），这一截只能在这里补。
 //
 // 丢下的那个协程不会漏：建连失败时 New 会关掉 client，连接池一关，卡着的读当场返回。
 // 截止时间到了照样等它——那一刻 go-redis 自己也返回了，它的 i/o timeout 比 ctx 的错误更说明问题
-func probe(ctx context.Context, client *redis.Client) error {
-	done := make(chan error, 1)
-	go func() { done <- client.Ping(ctx).Err() }()
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		if errors.Is(ctx.Err(), context.Canceled) {
-			return ctx.Err()
+func probe(client *redis.Client) func(context.Context) error {
+	return func(ctx context.Context) error {
+		done := make(chan error, 1)
+		go func() { done <- client.Ping(ctx).Err() }()
+		select {
+		case err := <-done:
+			return err
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return ctx.Err()
+			}
+			return <-done
 		}
-		return <-done
 	}
 }
 

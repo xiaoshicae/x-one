@@ -947,11 +947,12 @@ mutate("Redis 一次建连只拨一次号", "xredis/xredis.go", "./xredis", "Tes
        swap('\t\tDialerRetries: 1,\n', ''))
 # 打在调用点上：绕开 probe 直接 Ping，启动期间的退出信号要等到 ReadTimeout 才生效
 mutate("Redis 建连探测收到退出信号当场放弃", "xredis/xredis.go", "./xredis", "TestNew_启动时收到退出信号",
-       swap('\t\terr := probe(ctx, client)\n', '\t\terr := client.Ping(ctx).Err()\n'))
+       swap('xclient.Probe(ctx, probePolicy(cfg), probe(client))',
+            'xclient.Probe(ctx, probePolicy(cfg), func(ctx context.Context) error { return client.Ping(ctx).Err() })'))
 mutate("Redis 建连探测取消时不等这次读", "xredis/xredis.go", "./xredis", "TestNew_启动时收到退出信号",
-       swap('\t\tif errors.Is(ctx.Err(), context.Canceled) {\n', '\t\tif false && errors.Is(ctx.Err(), context.Canceled) {\n'))
+       swap('\t\t\tif errors.Is(ctx.Err(), context.Canceled) {\n', '\t\t\tif false && errors.Is(ctx.Err(), context.Canceled) {\n'))
 mutate("Redis 认证失败不重试", "xredis/xredis.go", "./xredis", "TestNew_认证失败",
-       swap('\t\t\tstop(err)\n', ''))
+       swap('\t\tAuthFailed: redis.IsAuthError,\n', ''))
 mutate("Redis 认证失败不说成连不上", "xredis/xredis.go", "./xredis", "TestNew_认证失败",
        swap('\t\tif redis.IsAuthError(err) {\n\t\t\treturn nil, nil, xerror.Newf', '\t\tif false {\n\t\t\treturn nil, nil, xerror.Newf'))
 # 不接的话 go-redis 往 stderr 写纯文本，不是 JSON、不带 trace_id
@@ -1142,8 +1143,8 @@ mutate("Redis 不开维护通知", "xredis/xredis.go", "./xredis", "TestNew_不�
        swap('Mode: maintnotifications.ModeDisabled}', 'Mode: maintnotifications.ModeAuto}'))
 # 钩子挂在建连验证之前：启动时每次 Ping 尝试都是一个没有父 Span 的 ping
 mutate("Redis 链路钩子在建连验证成功之后才挂", "xredis/xredis.go", "./xredis", "TestTrace_启动时的建连验证不开Span",
-       swap('\tif err := ping(ctx, client, cfg); err != nil {',
-            '\tif cfg.Trace {\n\t\t_ = redisotel.InstrumentTracing(client, redisotel.WithDBStatement(false))\n\t}\n\tif err := ping(ctx, client, cfg); err != nil {'))
+       swap('\tif err := xclient.Probe(ctx, probePolicy(cfg), probe(client)); err != nil {',
+            '\tif cfg.Trace {\n\t\t_ = redisotel.InstrumentTracing(client, redisotel.WithDBStatement(false))\n\t}\n\tif err := xclient.Probe(ctx, probePolicy(cfg), probe(client)); err != nil {'))
 mutate("xredis connected 日志带着实例名", "xredis/xredis.go", "./xredis", "TestInstall_日志写出实例名",
        swap('"xredis connected", "name", c.name,', '"xredis connected", "name", "",'))
 mutate("Log 关掉时 GORM 不自己往标准输出写", "xgorm/xgorm.go", "./xgorm", "TestNew",
