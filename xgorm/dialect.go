@@ -19,12 +19,13 @@ type ConnInfo struct {
 	Addr   string // 主机:端口
 	DB     string // 库名
 
-	// DialTimeout / ReadTimeout 驱动从最终 DSN 里读出来的建连、读超时，
-	// 0 表示没写或读不出来。xgorm 拿它们推算建连验证时单次探测的预算：
-	// 使用者在 DSN 里写了比配置更长的超时，预算要跟着放宽，
-	// 不能在驱动自己放弃之前就把一次慢一点但合法的建连判超时
-	DialTimeout time.Duration
-	ReadTimeout time.Duration
+	// ProbeTimeout 建连验证时单次探测的预算：建连（含握手、认证）加一次往返。
+	// 0 表示方言推算不出来，xgorm 按 2 × DialTimeout 算，还是 0 就用 1s 兜底。
+	//
+	// 由方言按驱动从最终 DSN 里读出来的超时推算：使用者在 DSN 里写了比配置
+	// 更长的超时，驱动就等那么久，预算要跟着放宽，不能在驱动自己放弃之前
+	// 就把一次慢一点但合法的建连判超时、重试。
+	ProbeTimeout time.Duration
 }
 
 // Dialect 一种数据库方言。
@@ -51,8 +52,8 @@ type Dialect struct {
 	//
 	// 留空表示 DSN 原样使用、连接信息里只有驱动名——对一个只想先跑起来的
 	// 驱动这是合理的起点，超时写进 DSN 里一样有效。
-	// 连接信息里填上 DialTimeout / ReadTimeout 的话，建连验证的预算会跟着
-	// DSN 里实际生效的超时走；不填就只按配置推算。
+	// 连接信息里填上 ProbeTimeout 的话，建连验证的预算按它走；
+	// 不填就是 2 × DialTimeout。
 	//
 	// 返回普通 error 即可，由 xgorm 在模块边界包成一层 xerror（op 为 config）。
 	// DSN 解不出来时别回传解析器的原始错误：那里面带着 DSN 片段，
@@ -68,6 +69,22 @@ type Dialect struct {
 	// 把那次查询关掉、挪到这里：它和每次 Ping 一起执行、一起重试，受 ctx 约束。
 	// 返回普通 error，xgorm 会包成 op 为 connect 的 xerror。
 	Ready func(ctx context.Context, db *gorm.DB) error
+
+	// AuthFailed 这个错误是不是服务端拒绝了这组凭证。可以留空，留空就是认不出。
+	//
+	// 认得出来的，建连验证不再重试，报的是 "authentication to <addr> failed"；
+	// 认不出来的照常重试，报 "cannot reach <addr>"。
+	AuthFailed func(error) bool
+
+	// ErrorCode 服务端报错时的错误码（PostgreSQL 的 SQLSTATE、MySQL 的错误号），
+	// 不是服务端报的错返回空串。可以留空。
+	//
+	// SQL 日志的 error 字段和 Span 的状态只记这个码，不记错误原文：服务端的错误
+	// 原文会把参数值带出来——实测 MySQL 8.0 的 1062 是
+	// Duplicate entry 'a@b.com' for key 'm_err.email'，PG 16 的 22P02 是
+	// invalid input syntax for type integer: "notanint"。返回给调用方的错误不变。
+	// 留空的话认不出服务端的错，日志和 Span 里照原文记。
+	ErrorCode func(error) string
 }
 
 // dialects 已注册的方言
@@ -100,6 +117,30 @@ func RegisterDialect(d Dialect) {
 	dialects[d.Name] = d
 }
 
+// authFailed 方言认不认得出这是认证失败，方言没提供就是认不出
+func (d Dialect) authFailed(err error) bool {
+	return err != nil && d.AuthFailed != nil && d.AuthFailed(err)
+}
+
+// errorCode 服务端的错误码，方言没提供或不是服务端的错时为空
+func (d Dialect) errorCode(err error) string {
+	if err == nil || d.ErrorCode == nil {
+		return ""
+	}
+	return d.ErrorCode(err)
+}
+
+// redactedError 要写进日志和 Span 的错误文本：服务端报的错只留错误码，其余照原文。
+//
+// 只动服务端的错：网络错误、ctx 取消、record not found 这类是客户端这一侧的，
+// 原文里没有参数值，而且正是排查要看的东西。
+func (d Dialect) redactedError(err error) (text, code string) {
+	if code = d.errorCode(err); code != "" {
+		return fmt.Sprintf("%s error %s (message omitted, it may contain parameter values)", d.Name, code), code
+	}
+	return err.Error(), ""
+}
+
 // lookupDialect 取一个已注册的方言
 func lookupDialect(name Driver) (Dialect, bool) {
 	dialectMu.RLock()
@@ -126,6 +167,12 @@ func Drivers() []Driver {
 // 内置两个。直接填进 map 而不是在 init 里注册：
 // 这样「内置的」和「外部注册的」在源码上一眼可分。
 func init() {
-	dialects[DriverMySQL] = Dialect{Name: DriverMySQL, Open: openMySQL, Resolve: resolveMySQL, Ready: probeMySQLVersion}
-	dialects[DriverPostgres] = Dialect{Name: DriverPostgres, Open: openPostgres, Resolve: resolvePostgres}
+	dialects[DriverMySQL] = Dialect{
+		Name: DriverMySQL, Open: openMySQL, Resolve: resolveMySQL, Ready: probeMySQLVersion,
+		AuthFailed: mysqlAuthFailed, ErrorCode: mysqlErrorCode,
+	}
+	dialects[DriverPostgres] = Dialect{
+		Name: DriverPostgres, Open: openPostgres, Resolve: resolvePostgres,
+		AuthFailed: postgresAuthFailed, ErrorCode: postgresErrorCode,
+	}
 }

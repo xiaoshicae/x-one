@@ -47,7 +47,7 @@ func TestRegisterDialect_注册之后驱动就能用了(t *testing.T) {
 
 	c := DefaultClientConfig()
 	c.Driver, c.DSN = "demo", "demo://h:1/d"
-	if err := c.validate(); err != nil {
+	if err := c.Validate(); err != nil {
 		t.Fatalf("注册过的驱动应当通过校验：%v", err)
 	}
 
@@ -116,7 +116,7 @@ func TestValidate_没注册的驱动报错时列出已注册的(t *testing.T) {
 	// 是两个不同的问题，把实际注册了哪些列出来，两者一眼可分
 	c := DefaultClientConfig()
 	c.Driver, c.DSN = "clickhouse", "clickhouse://h:9000/db"
-	err := c.validate()
+	err := c.Validate()
 	if err == nil {
 		t.Fatal("没注册的驱动应当报错")
 	}
@@ -209,8 +209,9 @@ func TestNew_认证失败时不重试且说清是认证失败(t *testing.T) {
 			rejected := fmt.Errorf("failed to connect to `user=u database=d`: %w",
 				&pgconn.PgError{Severity: "FATAL", Code: c.code, Message: "rejected by server"})
 			withDialect(t, Dialect{
-				Name: "authprobe",
-				Open: func(string) gorm.Dialector { return okDialector{} },
+				Name:       "authprobe",
+				Open:       func(string) gorm.Dialector { return okDialector{} },
+				AuthFailed: postgresAuthFailed,
 				Ready: func(context.Context, *gorm.DB) error {
 					calls++
 					return rejected
@@ -254,7 +255,7 @@ func TestNew_MySQL认证失败时不重试且说清是认证失败(t *testing.T)
 		rejected := &mysqldriver.MySQLError{Number: c.number, Message: "Access denied"}
 
 		t.Run(c.name+"_在gorm.Open里", func(t *testing.T) {
-			withDialect(t, Dialect{Name: "myauthopen", Open: func(string) gorm.Dialector { return stubDialector{err: rejected} }})
+			withDialect(t, Dialect{Name: "myauthopen", Open: func(string) gorm.Dialector { return stubDialector{err: rejected} }, AuthFailed: mysqlAuthFailed})
 			cfg := DefaultClientConfig()
 			cfg.Driver, cfg.DSN = "myauthopen", "myauthopen://h/d"
 			_, _, err := New(context.Background(), cfg)
@@ -270,8 +271,9 @@ func TestNew_MySQL认证失败时不重试且说清是认证失败(t *testing.T)
 		t.Run(c.name+"_在探测里", func(t *testing.T) {
 			var calls int
 			withDialect(t, Dialect{
-				Name: "myauthping",
-				Open: func(string) gorm.Dialector { return okDialector{} },
+				Name:       "myauthping",
+				Open:       func(string) gorm.Dialector { return okDialector{} },
+				AuthFailed: mysqlAuthFailed,
 				Ready: func(context.Context, *gorm.DB) error {
 					calls++
 					return fmt.Errorf("select version: %w", rejected)
@@ -287,5 +289,48 @@ func TestNew_MySQL认证失败时不重试且说清是认证失败(t *testing.T)
 				t.Errorf("应试 %d 次，实际 %d 次", c.attempts, calls)
 			}
 		})
+	}
+}
+
+// pgDialect / mysqlDialect 内置的两个方言，测试里要单独拿出来用
+func pgDialect() Dialect {
+	d, _ := lookupDialect(DriverPostgres)
+	return d
+}
+
+func mysqlDialect() Dialect {
+	d, _ := lookupDialect(DriverMySQL)
+	return d
+}
+
+func TestDialect_内置方言认得出认证失败和错误码(t *testing.T) {
+	// 实测 PG 16 密码错是 28P01、MySQL 8.0.46 密码错是 1045、没有库权限是 1044。
+	// 库不存在（3D000 / 1049）不算认证失败
+	pgErr := func(code string) error {
+		return fmt.Errorf("failed to connect: %w", &pgconn.PgError{Code: code})
+	}
+	myErr := func(n uint16) error { return &mysqldriver.MySQLError{Number: n} }
+	for _, c := range []struct {
+		name string
+		d    Dialect
+		err  error
+		auth bool
+		code string
+	}{
+		{"PG 密码错", pgDialect(), pgErr("28P01"), true, "28P01"},
+		{"PG 认证方式不允许", pgDialect(), pgErr("28000"), true, "28000"},
+		{"PG 库不存在", pgDialect(), pgErr("3D000"), false, "3D000"},
+		{"MySQL 密码错", mysqlDialect(), myErr(1045), true, "1045"},
+		{"MySQL 没有库权限", mysqlDialect(), myErr(1044), true, "1044"},
+		{"MySQL 库不存在", mysqlDialect(), myErr(1049), false, "1049"},
+		{"PG 方言不认 MySQL 的错", pgDialect(), myErr(1045), false, ""},
+		{"不是服务端的错", mysqlDialect(), errors.New("i/o timeout"), false, ""},
+	} {
+		if got := c.d.authFailed(c.err); got != c.auth {
+			t.Errorf("%s：authFailed=%v，want %v", c.name, got, c.auth)
+		}
+		if got := c.d.errorCode(c.err); got != c.code {
+			t.Errorf("%s：errorCode=%q，want %q", c.name, got, c.code)
+		}
 	}
 }

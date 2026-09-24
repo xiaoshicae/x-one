@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +27,42 @@ func mysqlRoutes(e *gin.Engine) {
 	e.PUT("/mysql/users/:id", updateMySQLUser)
 	e.DELETE("/mysql/users/:id", deleteMySQLUser)
 	e.GET("/mysql/sleep", sleepMySQL)
+	e.POST("/bad-sql", badSQL)
+}
+
+type badSQLReq struct {
+	DB    string `json:"db"` // mysql 或 pg
+	Value string `json:"value"`
+}
+
+// badSQL 故意让服务端报一个原文里带着参数值的错：MySQL 把 value 塞进 BIGINT 列（1366），
+// PG 把 value 转成 bigint（22P02）。
+//
+// 测的是 xgorm 的 SQL 日志和 Span 里没有这个值；返回的错误原样不变，
+// 所以响应里告诉调用方「错误原文里有没有这个值」。这个 handler 自己不记错误原文——
+// 那是业务自己的事，不在 xgorm 管得着的范围里
+func badSQL(c *gin.Context) {
+	ctx := c.Request.Context()
+	var req badSQLReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	var err error
+	switch req.DB {
+	case "mysql":
+		err = store.BadInsertMySQL(ctx, req.Value)
+	case "pg":
+		err = store.BadCastPG(ctx, req.Value)
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "db must be mysql or pg"})
+		return
+	}
+	if err == nil {
+		c.JSON(http.StatusOK, gin.H{"failed": false})
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{"failed": true, "error_has_value": strings.Contains(err.Error(), req.Value)})
 }
 
 func createMySQLUser(c *gin.Context) {

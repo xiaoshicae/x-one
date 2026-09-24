@@ -7,7 +7,10 @@
 package xgorm
 
 import (
+	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/xiaoshicae/x-one/xconfig"
@@ -53,11 +56,16 @@ type ClientConfig struct {
 	// DSN 连接串，必填。
 	//
 	// 建议写成 "${DB_DSN}"：凭证不该进版本库，漏配时启动就失败。
+	//
+	// MySQL 的 DSN 里没写 parseTime 的，补成 parseTime=true：驱动默认 false，
+	// DATETIME 扫不进 time.Time（实测 go-sql-driver v1.10.1，带 CreatedAt 的模型
+	// First 一次就报 unsupported Scan）。写了的以 DSN 为准。
 	DSN string `yaml:"DSN"`
 
 	// DialTimeout 建连超时。默认 500ms。
 	//
 	// MySQL 注入 DSN 的 timeout，PostgreSQL 注入 connect_timeout（向上取整为秒）。
+	// 配 0 就不注入、用驱动自己的（两个驱动都是不限时）。不能为负，下面的时长都是。
 	DialTimeout time.Duration `yaml:"DialTimeout"`
 
 	// MySQL 仅在 Driver 为 mysql 时生效
@@ -75,16 +83,20 @@ type ClientConfig struct {
 	// 比 MaxOpenConns 大也没关系，database/sql 会自己压到 MaxOpenConns。
 	MaxIdleConns int `yaml:"MaxIdleConns"`
 
-	// MaxLifetime 连接最长存活时间。默认 5m。
+	// MaxLifetime 连接最长存活时间。默认 5m，配 0 不限。
 	MaxLifetime time.Duration `yaml:"MaxLifetime"`
 
-	// MaxIdleTime 空闲连接最长存活时间。默认 5m。
+	// MaxIdleTime 空闲连接最长存活时间。默认 5m，配 0 不限。
 	MaxIdleTime time.Duration `yaml:"MaxIdleTime"`
 
 	// Log 是否把 GORM 的 SQL 日志接到 slog 上。默认关闭。
+	//
+	// SQL 执行失败时 error 字段只记服务端的错误码（另有 error_code 字段），
+	// 不记原文：实测 MySQL 8.0 的 1062 原文是 Duplicate entry 'a@b.com' for key …，
+	// 参数值就在里面。返回给调用方的错误不变。
 	Log bool `yaml:"Log"`
 
-	// SlowThreshold 超过这个耗时的 SQL 记一条 warn 日志。默认 3s，需 Log 开启。
+	// SlowThreshold 超过这个耗时的 SQL 记一条 warn 日志。默认 3s，需 Log 开启，配 0 不记。
 	SlowThreshold time.Duration `yaml:"SlowThreshold"`
 
 	// IgnoreNotFound 是否不把「没查到记录」当错误记日志。默认 false。
@@ -93,9 +105,12 @@ type ClientConfig struct {
 	// Trace 是否挂 OpenTelemetry 插件。默认开启。
 	//
 	// 没装链路时它产出的是 noop Span，代价可以忽略，所以默认就开着。
+	// 属性按 OTel 数据库语义约定 v1.43.0 写（db.system.name、db.namespace、
+	// db.query.text、db.operation.name、server.address / server.port），
+	// db.query.text 带占位符、不带参数值；服务端报错时只记错误码（db.response.status_code）。
 	Trace bool `yaml:"Trace"`
 
-	// Metric 是否导出连接池指标（连接数、等待次数、等待时长等）。默认开启。
+	// Metric 是否导出连接池指标 db_pool_*（连接数、等待次数、等待时长等），标签 name 是实例名。默认开启。
 	//
 	// 指标在被抓取时才读 sql.DB.Stats()，不额外占协程。
 	// 按实例生效：配了 Metric: false 的实例不出现在 /metrics 里。
@@ -104,10 +119,10 @@ type ClientConfig struct {
 
 // MySQLConfig MySQL 特有的配置
 type MySQLConfig struct {
-	// ReadTimeout 读超时，对应 DSN 的 readTimeout。默认 3s。
+	// ReadTimeout 读超时，对应 DSN 的 readTimeout。默认 3s，配 0 不注入（驱动不限时）。
 	ReadTimeout time.Duration `yaml:"ReadTimeout"`
 
-	// WriteTimeout 写超时，对应 DSN 的 writeTimeout。默认 5s。
+	// WriteTimeout 写超时，对应 DSN 的 writeTimeout。默认 5s，配 0 不注入（驱动不限时）。
 	WriteTimeout time.Duration `yaml:"WriteTimeout"`
 }
 
@@ -133,6 +148,12 @@ type PostgresConfig struct {
 	IdleInTxTimeout time.Duration `yaml:"IdleInTxTimeout"`
 
 	// Params 其它任意 PG 运行时参数，原样拼进 DSN。
+	//
+	// pgx 自己的连接参数也写在这里，比如经 PgBouncer 的事务池连库时要写
+	// default_query_exec_mode: exec——pgx 默认的 cache_statement 用具名预备语句，
+	// 实测 PgBouncer 1.22 事务池（max_prepared_statements 为 0，1.24 之前的默认值）
+	// 20 个协程并发 1000 条查询，701 条报 prepared statement "stmtcache_…" already exists
+	// （42P05）。细节和各模式的代价见 docs/config.md。
 	Params map[string]string `yaml:"Params"`
 }
 
@@ -162,8 +183,26 @@ func loadConfig() (Config, error) {
 	return Config{Clients: clients}, err
 }
 
-// validate 检查配置本身说不通的地方，在建连之前就失败
-func (c ClientConfig) validate() error {
+// Validate 检查整块配置：每个实例各查一遍，报错时说清是哪个实例。
+//
+// 按配置文件读的时候用不着它：xconfig.UnmarshalClients 每解完一个实例就调一次
+// ClientConfig.Validate，报错带着文件和行号。自己拼出一份 Config 的，可以用它先查一遍。
+func (c Config) Validate() error {
+	var errs []error
+	for _, name := range slices.Sorted(maps.Keys(c.Clients)) {
+		if err := c.Clients[name].Validate(); err != nil {
+			errs = append(errs, fmt.Errorf("Clients.%s: %w", name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// Validate 检查一个实例的配置本身说不通的地方，在建连之前就失败。
+//
+// 读配置文件时 xconfig.UnmarshalClients 每解完一个实例就调它，配错的值在读配置时
+// 就失败、带着文件和行号，一个实例都还没连；直接调 New 的，New 也会调一次。
+// 返回普通 error，由调它的那一层包一次 xerror。
+func (c ClientConfig) Validate() error {
 	if c.DSN == "" {
 		return fmt.Errorf("DSN must not be empty")
 	}
@@ -172,6 +211,33 @@ func (c ClientConfig) validate() error {
 	}
 	if c.MaxOpenConns <= 0 {
 		return fmt.Errorf("MaxOpenConns must be > 0, got=%d", c.MaxOpenConns)
+	}
+	if c.MaxIdleConns < 0 {
+		return fmt.Errorf("MaxIdleConns must not be negative, got=%d", c.MaxIdleConns)
+	}
+	// 负的时长没有一个说得通的含义，而且底下每一处都把它静默变成「不限」：
+	// database/sql 把负的 MaxLifetime / MaxIdleTime 当成与 0 相同的「不按时长关连接」；
+	// go-sql-driver v1.10.1 的 FormatDSN 只写 > 0 的 timeout / readTimeout / writeTimeout，
+	// 负数注进去就从 DSN 里消失了，对端不回话时查询一直挂着；PG 的 connect_timeout
+	// 与几个 GUC 在注入时同样被跳过。一个减号换来一个静默消失的超时，配置文件看上去
+	// 毫无问题。0 各有文档写明的含义（不注入 / 不限），不在此列
+	for _, d := range []struct {
+		name string
+		val  time.Duration
+	}{
+		{"DialTimeout", c.DialTimeout},
+		{"MaxLifetime", c.MaxLifetime},
+		{"MaxIdleTime", c.MaxIdleTime},
+		{"SlowThreshold", c.SlowThreshold},
+		{"MySQL.ReadTimeout", c.MySQL.ReadTimeout},
+		{"MySQL.WriteTimeout", c.MySQL.WriteTimeout},
+		{"Postgres.StatementTimeout", c.Postgres.StatementTimeout},
+		{"Postgres.LockTimeout", c.Postgres.LockTimeout},
+		{"Postgres.IdleInTxTimeout", c.Postgres.IdleInTxTimeout},
+	} {
+		if d.val < 0 {
+			return fmt.Errorf("%s must not be negative, got=%v", d.name, d.val)
+		}
 	}
 	return nil
 }

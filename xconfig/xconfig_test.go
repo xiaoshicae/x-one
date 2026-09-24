@@ -379,7 +379,8 @@ func (c *checked) Validate() error {
 func TestUnmarshalClients_每个实例都调一次Validate(t *testing.T) {
 	useConf(t, "XMod:\n  Clients:\n    a: {Max: 1}\n    b: {Max: 0}\n")
 	_, err := UnmarshalClients("XMod", func() checked { return checked{Max: 1} })
-	if err == nil || !strings.Contains(err.Error(), "Clients.b: Max must be > 0") {
-		t.Errorf("Validate 的话要带上来并点名实例，got=%v", err)
+	// 还要带上这个实例在哪个文件第几行：Validate 自己只说得出字段名
+	if err == nil || !strings.Contains(err.Error(), "Clients.b: ") || !strings.Contains(err.Error(), "application.yml:4: Max must be > 0") {
+		t.Errorf("Validate 的话要带上来、点名实例并带上文件和行号，got=%v", err)
 	}
 }

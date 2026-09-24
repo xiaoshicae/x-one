@@ -1,6 +1,7 @@
 package xgorm
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -70,6 +71,28 @@ func unknownDriver(name Driver) error {
 // openPostgres PostgreSQL 的 Dialector 构造函数。MySQL 的见 mysql.go
 func openPostgres(dsn string) gorm.Dialector { return postgres.Open(dsn) }
 
+// postgresAuthFailed SQLSTATE 第 28 类（invalid authorization specification）。
+//
+// 实测 pgx v5.10.0 连 PG 16，密码错、用户不存在都报 28P01（后者在 scram 认证下
+// 也是 "password authentication failed"），错误链上是 *pgconn.PgError。
+// 库不存在是 3D000，不在这一类里，仍按连不上处理。
+func postgresAuthFailed(err error) bool {
+	return strings.HasPrefix(postgresErrorCode(err), "28")
+}
+
+// postgresErrorCode 服务端报的 SQLSTATE。
+//
+// 实测 PG 16：PgError.Error() 是 "ERROR: <Message> (SQLSTATE <Code>)"，
+// Message 里可能就有参数值（22P02 是 invalid input syntax for type integer: "notanint"），
+// Detail 更是（23505 是 Key (email)=(a@b.com) already exists.），只是 Error() 不带 Detail
+func postgresErrorCode(err error) string {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code
+	}
+	return ""
+}
+
 // resolveMySQL 用驱动自己的解析器处理 DSN，DSN 里已写的超时不会被覆盖
 func resolveMySQL(c ClientConfig) (string, ConnInfo, error) {
 	cfg, err := mysqldriver.ParseDSN(c.DSN)
@@ -88,10 +111,47 @@ func resolveMySQL(c ClientConfig) (string, ConnInfo, error) {
 		cfg.WriteTimeout = c.MySQL.WriteTimeout
 	}
 
+	// parseTime 驱动默认 false：DATETIME / TIMESTAMP 读出来是 []byte，
+	// 扫不进 time.Time——实测 go-sql-driver v1.10.1 连 MySQL 8.0.46，
+	// 带 CreatedAt 的模型 First 一次就是 unsupported Scan, storing driver.Value
+	// type []uint8 into type *time.Time，写进去倒是没问题。GORM 的模型几乎都有
+	// 时间字段，所以 DSN 里没写 parseTime 的，这里补成 true；写了（哪怕是 false）
+	// 以 DSN 为准。时区跟着驱动的 loc（默认 UTC）：写入时驱动先转成 loc 再格式化，
+	// 读出来按 loc 解释，同一个时刻来回不变（实测写 03:04:05+08:00，库里存的是
+	// 19:04:05，读回来是 19:04:05 UTC，Equal 为 true）
+	if !mysqlParamSet(c.DSN, "parseTime") {
+		cfg.ParseTime = true
+	}
+
+	// 预算读的是注入之后的值：DSN 里写了的以 DSN 为准。
+	// timeout 管建连，readTimeout 管探测那个往返
 	return cfg.FormatDSN(), ConnInfo{
 		Driver: "mysql", Addr: cfg.Addr, DB: cfg.DBName,
-		DialTimeout: cfg.Timeout, ReadTimeout: cfg.ReadTimeout,
+		ProbeTimeout: cfg.Timeout + cfg.ReadTimeout,
 	}, nil
+}
+
+// mysqlParamSet DSN 里有没有写 key 这个参数，写成什么值都算。
+//
+// 驱动解析完的 Config 分不清「没写」和「写成了默认值」，所以直接看原串，
+// 找法照抄驱动的 ParseDSN（go-sql-driver v1.10.1 dsn.go）：最后一个 / 之后、
+// 第一个 ? 之后的那段按 & 切开，每项按第一个 = 切成 key 和值。
+// 密码里带着 ?parseTime=false 也骗不过它：密码在最后一个 / 之前
+func mysqlParamSet(dsn, key string) bool {
+	i := strings.LastIndexByte(dsn, '/')
+	if i < 0 {
+		return false
+	}
+	_, params, ok := strings.Cut(dsn[i+1:], "?")
+	if !ok {
+		return false
+	}
+	for _, kv := range strings.Split(params, "&") {
+		if k, _, found := strings.Cut(kv, "="); found && k == key {
+			return true
+		}
+	}
+	return false
 }
 
 // resolvePostgres 把超时和运行时参数作为默认值补进 DSN
@@ -137,12 +197,24 @@ func resolvePostgres(c ClientConfig) (string, ConnInfo, error) {
 	// 必然是同一份东西——密码里带着 host=… 这样的片段，也不会被读成
 	// 连接信息写进日志。没写端口时这里是 pgx 补上的 5432，多主机时是第一个
 	info := ConnInfo{
-		Driver:      "postgres",
-		Addr:        net.JoinHostPort(pc.Host, strconv.Itoa(int(pc.Port))),
-		DB:          pc.Database,
-		DialTimeout: pc.ConnectTimeout,
+		Driver:       "postgres",
+		Addr:         net.JoinHostPort(pc.Host, strconv.Itoa(int(pc.Port))),
+		DB:           pc.Database,
+		ProbeTimeout: postgresProbeTimeout(pc.ConnectTimeout, c.DialTimeout),
 	}
 	return dsn, info, nil
+}
+
+// postgresProbeTimeout 单次探测的预算：最终生效的 connect_timeout，再加一份 DialTimeout。
+//
+// connect 是 pgx 从最终 DSN 里读出来的 connect_timeout：没写时就是注入的那个——
+// DialTimeout 向上取整的整秒（默认 500ms 注进去是 1s）。pgx 拿它管的是每个主机的
+// 整个建连：TCP 之后的 TLS 握手、startup、认证都在里面（pgconn v5.10.0
+// "restricts the whole connection process"；实测 TCP 秒连、startup 不回话的服务端，
+// connect_timeout=1 等满 1.0s）。预算只给 DialTimeout 的话，一次慢一点但合法的握手
+// 会在 pgx 自己放弃之前就被判超时。再加的那份 DialTimeout 给探测本身那个往返
+func postgresProbeTimeout(connect, dial time.Duration) time.Duration {
+	return cmp.Or(connect, ceilSeconds(dial)) + dial
 }
 
 // parsePostgres 用 pgx 自己的解析器过一遍，解不出来就报一个不带 DSN 的错。
@@ -291,9 +363,15 @@ func millis(d time.Duration) string {
 	return strconv.FormatInt(d.Milliseconds(), 10)
 }
 
-// logConn 记一条建连日志，只写确定不含凭证的字段
-func logConn(info ConnInfo, c ClientConfig) {
-	slog.Info("xgorm connected",
-		"driver", info.Driver, "addr", info.Addr, "db", info.DB,
+// logConn 记一条建连日志，只写确定不含凭证的字段。
+//
+// name 是实例名，框架按配置建的才有；直接调 New 的没有名字，这个字段就不写
+func logConn(name string, info ConnInfo, c ClientConfig) {
+	attrs := make([]any, 0, 12)
+	if name != "" {
+		attrs = append(attrs, "name", name)
+	}
+	attrs = append(attrs, "driver", info.Driver, "addr", info.Addr, "db", info.DB,
 		"max_open_conns", c.MaxOpenConns, "max_idle_conns", c.MaxIdleConns)
+	slog.Info("xgorm connected", attrs...)
 }

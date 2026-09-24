@@ -28,8 +28,11 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 
+	chproto "github.com/ClickHouse/ch-go/proto"
 	chgo "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/hashicorp/go-version"
 	"gorm.io/driver/clickhouse"
@@ -60,10 +63,12 @@ var (
 
 // dialect 注册进 xgorm 的那一份。单独成变量，测试才看得到它接的是哪几个函数
 var dialect = xgorm.Dialect{
-	Name:    Driver,
-	Open:    open,
-	Resolve: resolve,
-	Ready:   probeVersion,
+	Name:       Driver,
+	Open:       open,
+	Resolve:    resolve,
+	Ready:      probeVersion,
+	AuthFailed: authFailed,
+	ErrorCode:  errorCode,
 }
 
 // init 只注册，不初始化。真正建连由 xgorm 在框架的 StageClient 里做。
@@ -159,14 +164,49 @@ func resolve(c xgorm.ClientConfig) (string, xgorm.ConnInfo, error) {
 		return "", xgorm.ConnInfo{}, errMalformedDSN
 	}
 
-	// DialTimeout 取驱动读出来的：DSN 里写了更长的 dial_timeout，
-	// xgorm 建连验证的预算才会跟着放宽。两处都没写时驱动自己补 30s（v2.30.0）
+	// 预算按驱动读出来的 dial_timeout 算：DSN 里写了更长的，xgorm 建连验证的预算
+	// 才会跟着放宽。驱动拿它管 TCP 建连，握手阶段又拿它设整条连接的 deadline
+	// （v2.30.0 conn_handshake.go），往返没有单独可依的配置，按同一量级再给一份。
+	// 两处都没写时 ParseDSN 读出来是 0（驱动建连时才补 30s），交给 xgorm 按
+	// 2 × DialTimeout 兜底
 	return dsn, xgorm.ConnInfo{
-		Driver:      string(Driver),
-		Addr:        u.Host,
-		DB:          strings.TrimPrefix(u.Path, "/"),
-		DialTimeout: opts.DialTimeout,
+		Driver:       string(Driver),
+		Addr:         u.Host,
+		DB:           strings.TrimPrefix(u.Path, "/"),
+		ProbeTimeout: 2 * opts.DialTimeout,
 	}, nil
+}
+
+// authCodes 服务端拒绝凭证时的错误码，取自 ch-go 的类型化常量（与服务端
+// src/Common/ErrorCodes.cpp 同名）：新版本的服务端密码错、用户不存在一律报
+// 516 AUTHENTICATION_FAILED，192 / 193 / 194 是老版本分开报的三种。
+//
+// 这里没有能连的 ClickHouse，没有实测；错误的形状取自驱动源码：native 协议握手时
+// 服务端回 Exception 包，驱动原样返回 *clickhouse.Exception（v2.30.0 conn.go 的
+// exception()），错误链上 errors.As 得到。HTTP 协议的错误是驱动拼的一段文本
+// （"clickhouse [execute]:: 401 code: ..."），没有错误码可认，按连不上处理
+var authCodes = []chproto.Error{
+	chproto.ErrAuthenticationFailed, // 516
+	chproto.ErrUnknownUser,          // 192
+	chproto.ErrWrongPassword,        // 193
+	chproto.ErrRequiredPassword,     // 194
+}
+
+// authFailed 服务端是否拒绝了这组凭证，见 authCodes
+func authFailed(err error) bool {
+	var ex *chgo.Exception
+	return errors.As(err, &ex) && slices.Contains(authCodes, chproto.Error(ex.Code))
+}
+
+// errorCode 服务端报的错误码。原文（Exception.Message）里可能就有参数值，
+// 比如解析不了的输入会被原样引出来，所以日志和 Span 只记码。
+// HTTP 协议下没有类型化的错误，认不出，照原文记
+func errorCode(err error) string {
+	var ex *chgo.Exception
+	if errors.As(err, &ex) {
+		return strconv.Itoa(int(ex.Code))
+	}
+	return ""
 }
 
 // isURL 判断是不是驱动认的 URL 形式

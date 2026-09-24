@@ -107,8 +107,12 @@ func decodeClient[C any](n *yaml.Node, defaults func() C) (C, error) {
 	if err := DecodeStrict(n, &c); err != nil {
 		return c, err
 	}
+	// Validate 的错误前面补上这个实例在哪个文件第几行：它说得出哪个字段不对，
+	// 却不知道自己是从哪儿读来的，而多实例、多文件合并之后，光有字段名不好找
 	if v, ok := any(&c).(interface{ Validate() error }); ok {
-		return c, v.Validate()
+		if err := v.Validate(); err != nil {
+			return c, fmt.Errorf("%s: %w", newChecker().at(n), err)
+		}
 	}
 	return c, nil
 }

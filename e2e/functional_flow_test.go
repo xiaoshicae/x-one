@@ -128,7 +128,7 @@ func TestFunctional_xflow强依赖失败时逆序回滚已完成的步骤(t *tes
 		var ops []string
 		for _, s := range spans {
 			if strings.HasPrefix(s.Name, "gorm.") {
-				ops = append(ops, strings.Fields(s.Str("db.statement"))[0])
+				ops = append(ops, strings.Fields(s.Str("db.query.text"))[0])
 			}
 		}
 		return strings.Join(ops, ",")

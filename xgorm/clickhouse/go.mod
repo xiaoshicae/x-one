@@ -3,6 +3,7 @@ module github.com/xiaoshicae/x-one/xgorm/clickhouse
 go 1.25.0
 
 require (
+	github.com/ClickHouse/ch-go v0.61.5
 	github.com/ClickHouse/clickhouse-go/v2 v2.30.0
 	github.com/hashicorp/go-version v1.6.0
 	github.com/xiaoshicae/x-one/xgorm v0.0.0
@@ -12,7 +13,6 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
-	github.com/ClickHouse/ch-go v0.61.5 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

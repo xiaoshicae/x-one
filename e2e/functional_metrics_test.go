@@ -171,9 +171,9 @@ func TestFunctional_指标按路由模板打标签并带上自定义和连接池
 
 	t.Run("xgorm 与 xredis 的连接池指标", func(t *testing.T) {
 		for _, name := range []string{
-			"e2e_db_connections_open", "e2e_db_connections_in_use", "e2e_db_connections_idle", "e2e_db_connections_max_open",
-			"e2e_db_connections_wait_total", "e2e_db_connections_wait_duration_seconds_total",
-			"e2e_db_connections_closed_max_idle_total", "e2e_db_connections_closed_max_lifetime_total",
+			"e2e_db_pool_open", "e2e_db_pool_in_use", "e2e_db_pool_idle", "e2e_db_pool_max_open",
+			"e2e_db_pool_wait_total", "e2e_db_pool_wait_duration_seconds_total",
+			"e2e_db_pool_closed_max_idle_total", "e2e_db_pool_closed_max_lifetime_total",
 			"e2e_redis_pool_connections", "e2e_redis_pool_connections_idle", "e2e_redis_pool_connections_stale_total",
 			"e2e_redis_pool_hits_total", "e2e_redis_pool_misses_total", "e2e_redis_pool_timeouts_total",
 		} {
@@ -182,17 +182,17 @@ func TestFunctional_指标按路由模板打标签并带上自定义和连接池
 			}
 		}
 		// docs/config.md XGorm.MaxOpenConns 默认 50
-		if got := m.Sum("e2e_db_connections_max_open", "name", "default"); got != 50 {
-			t.Errorf("e2e_db_connections_max_open 应是默认的 50，实际 %v", got)
+		if got := m.Sum("e2e_db_pool_max_open", "name", "default"); got != 50 {
+			t.Errorf("e2e_db_pool_max_open 应是默认的 50，实际 %v", got)
 		}
-		if got := m.Sum("e2e_db_connections_open", "name", "default"); got < 1 {
-			t.Errorf("跑过 SQL 之后 e2e_db_connections_open 应至少是 1，实际 %v", got)
+		if got := m.Sum("e2e_db_pool_open", "name", "default"); got < 1 {
+			t.Errorf("跑过 SQL 之后 e2e_db_pool_open 应至少是 1，实际 %v", got)
 		}
 		if got := m.Sum("e2e_redis_pool_connections", "name", "default"); got < 1 {
 			t.Errorf("跑过 Redis 命令之后 e2e_redis_pool_connections 应至少是 1，实际 %v", got)
 		}
 		t.Logf("数字：db open=%v idle=%v；redis conns=%v idle=%v hits=%v misses=%v",
-			m.Sum("e2e_db_connections_open"), m.Sum("e2e_db_connections_idle"),
+			m.Sum("e2e_db_pool_open"), m.Sum("e2e_db_pool_idle"),
 			m.Sum("e2e_redis_pool_connections"), m.Sum("e2e_redis_pool_connections_idle"),
 			m.Sum("e2e_redis_pool_hits_total"), m.Sum("e2e_redis_pool_misses_total"))
 	})

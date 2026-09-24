@@ -535,11 +535,11 @@ func TestFunctional_SQL日志只记占位符不记参数值(t *testing.T) {
 		if len(ins) != 1 {
 			t.Fatalf("这条链路上应有一个 gorm.create Span")
 		}
-		sent := ins[0].Str("db.statement")
+		sent := ins[0].Str("db.query.text")
 		// gorm v1.31.2 logger/sql.go ExplainSQL：PG 的 Dialector 先把 $1 改写成 $1$ 等着代入参数，
 		// 而 ParamsFilter 返回的是空参数列表；xgorm/logger.go statement 负责把记号改回去
 		if logged != sent {
-			t.Errorf("SQL 日志和 Span 的 db.statement 应是同一条语句：日志 %q，Span %q", logged, sent)
+			t.Errorf("SQL 日志和 Span 的 db.query.text 应是同一条语句：日志 %q，Span %q", logged, sent)
 		}
 		if !strings.Contains(logged, "$1") || strings.Contains(logged, "$1$") {
 			t.Errorf("PG 的 SQL 日志应带 $1 这样的占位符（发给 PG 的原样），实际 %q", logged)
