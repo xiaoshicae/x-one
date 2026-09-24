@@ -1,10 +1,14 @@
 package xcache
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,6 +22,7 @@ import (
 	"github.com/xiaoshicae/x-one/internal/hook"
 	"github.com/xiaoshicae/x-one/internal/xclient"
 	"github.com/xiaoshicae/x-one/xerror"
+	"github.com/xiaoshicae/x-one/xmetric"
 )
 
 func load(t *testing.T, yml string) Config {
@@ -61,7 +66,7 @@ func withInstances(t testing.TB, cfgs map[string]ClientConfig) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = closer.Close() })
-		built[name] = instance{cache: cache, ttl: c.DefaultTTL}
+		built[name] = instance{cache: cache, ttl: c.DefaultTTL, metric: c.Metric}
 	}
 	publish(t, built)
 }
@@ -126,7 +131,7 @@ func TestConfig_没配就没有实例(t *testing.T) {
 
 func TestValidate(t *testing.T) {
 	ok := DefaultClientConfig()
-	if err := ok.validate(); err != nil {
+	if err := ok.Validate(); err != nil {
 		t.Errorf("默认配置应当合法：%v", err)
 	}
 	for name, mutate := range map[string]func(*ClientConfig){
@@ -138,7 +143,7 @@ func TestValidate(t *testing.T) {
 	} {
 		c := ok
 		mutate(&c)
-		if err := c.validate(); err == nil {
+		if err := c.Validate(); err == nil {
 			t.Errorf("%s 应当报错", name)
 		}
 	}
@@ -602,5 +607,165 @@ func BenchmarkSet_默认TTL(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		Set("k", "v")
+	}
+}
+
+func TestConfig_不合法的值在读配置时就失败(t *testing.T) {
+	// 读配置时就拦下，报错里带着是哪个实例；不等到 New 才发现
+	err := loadErr(t, "XCache:\n  Clients:\n    hot: {MaxCost: -1}\n")
+	if err == nil {
+		t.Fatal("MaxCost 为负应当在读配置时失败")
+	}
+	if !strings.Contains(err.Error(), "hot") || !strings.Contains(err.Error(), "MaxCost") {
+		t.Errorf("错误里要点名实例和字段，got=%v", err)
+	}
+	if err := loadErr(t, "XCache:\n  DefaultTTL: -1s\n"); err == nil {
+		t.Fatal("DefaultTTL 为负应当在读配置时失败")
+	}
+}
+
+// scrape 抓一次 /metrics
+func scrape(m *xmetric.Metrics) string {
+	w := httptest.NewRecorder()
+	m.Handler.ServeHTTP(w, httptest.NewRequest("GET", "/metrics", nil))
+	return w.Body.String()
+}
+
+func TestNew_Metric开关传给ristretto(t *testing.T) {
+	// ristretto 默认不计数（Metrics 为 nil），不传下去的话 Metric: true 也什么都导不出来
+	for _, on := range []bool{true, false} {
+		c := DefaultClientConfig()
+		c.Metric = on
+		cache, closer, err := New(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := cache.Metrics != nil; got != on {
+			t.Errorf("Metric=%v 时 ristretto 的计数应为 %v，got=%v", on, on, got)
+		}
+		closer.Close()
+	}
+}
+
+func TestCacheCollector_导出的是ristretto的计数(t *testing.T) {
+	m, closer, err := xmetric.New(xmetric.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closer.Close()
+
+	cfg := DefaultClientConfig()
+	cfg.MaxCost = 1000
+	cache, cc, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cc.Close()
+
+	for i := 0; i < 3; i++ {
+		cache.SetWithTTL("k"+strconv.Itoa(i), i, 1, 0)
+	}
+	cache.Wait()
+	cache.SetWithTTL("k0", "new", 1, 0) // 更新已有的键
+	cache.Wait()
+	cache.Get("k0")
+	cache.Get("k1")
+	cache.Get("nope")
+	cache.Del("k2") // 显式删除，ristretto 记在 keys_evicted 里
+	cache.Wait()
+
+	m.Registry.MustRegister(newCacheCollector("demo", nil, func() map[string]*Cache { return map[string]*Cache{"hot": cache} }))
+	out := scrape(m)
+	for _, want := range []string{
+		`demo_cache_hits_total{name="hot"} 2`,
+		`demo_cache_misses_total{name="hot"} 1`,
+		`demo_cache_keys_added_total{name="hot"} 3`,
+		`demo_cache_keys_updated_total{name="hot"} 1`,
+		`demo_cache_keys_evicted_total{name="hot"} 1`,
+		`demo_cache_sets_dropped_total{name="hot"} 0`,
+		`demo_cache_sets_rejected_total{name="hot"} 0`,
+		`demo_cache_cost{name="hot"} 2`,
+		`demo_cache_max_cost{name="hot"} 1000`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("导出里应有 %s\n实际=\n%s", want, out)
+		}
+	}
+}
+
+func TestCacheCollector_到期被清掉的也算进keys_evicted(t *testing.T) {
+	// 文档里写着 keys_evicted 包括 TTL 到期的，这里钉住：ristretto 升级后行为变了先红
+	cache, cc, err := New(DefaultClientConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cc.Close()
+	cache.SetWithTTL("k", 1, 1, 50*time.Millisecond)
+	cache.Wait()
+	// ristretto 的过期清理按桶走（v2.4.2 桶宽 5s、每 2.5s 扫一轮），等到它扫过为止
+	deadline := time.Now().Add(10 * time.Second)
+	for cache.Metrics.KeysEvicted() == 0 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if got := cache.Metrics.KeysEvicted(); got != 1 {
+		t.Errorf("到期被清掉的键应算进 keys_evicted，got=%d", got)
+	}
+}
+
+func TestInstall_只导出开了Metric的实例且xmetric重装后照样导出(t *testing.T) {
+	// collector 是进程级的一个，抓取时遍历全部实例：不看实例自己的开关，
+	// Metric: false 就是一句空话。第二轮是同一进程里再走一遍生命周期——
+	// xmetric 换了新的 Registry，collector 得跟着挂上去，否则指标全丢
+	on, off := DefaultClientConfig(), DefaultClientConfig()
+	off.Metric = false
+
+	for round := 1; round <= 2; round++ {
+		m, closer, err := xmetric.New(xmetric.Config{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.Install()
+		if err := install(context.Background(), Config{Clients: map[string]ClientConfig{"on": on, "off": off}}); err != nil {
+			t.Fatal(err)
+		}
+		out := scrape(m)
+		if !strings.Contains(out, `cache_hits_total{name="on"}`) {
+			t.Errorf("第 %d 轮：开了 Metric 的实例该导出\n实际=\n%s", round, out)
+		}
+		if strings.Contains(out, `name="off"`) {
+			t.Errorf("第 %d 轮：Metric: false 的实例不该导出\n实际=\n%s", round, out)
+		}
+		if err := reg.Close(); err != nil {
+			t.Fatal(err)
+		}
+		closer.Close()
+	}
+}
+
+func TestInstall_每个实例的日志带着名字(t *testing.T) {
+	// 配了好几个缓存时，只写参数分不出是哪一个
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	hot := DefaultClientConfig()
+	hot.MaxCost = 123
+	if err := initComponent(t, Config{Clients: map[string]ClientConfig{"hot": hot}}); err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		var rec map[string]any
+		if json.Unmarshal([]byte(line), &rec) != nil || rec["msg"] != "xcache created" {
+			continue
+		}
+		found = true
+		if rec["name"] != "hot" || rec["max_cost"] != float64(123) {
+			t.Errorf("日志要写出实例名和它的参数，got=%v", rec)
+		}
+	}
+	if !found {
+		t.Errorf("每个实例建好时该有一条 xcache created\n实际=\n%s", buf.String())
 	}
 }

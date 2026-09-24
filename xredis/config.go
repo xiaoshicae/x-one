@@ -6,7 +6,10 @@
 package xredis
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/xiaoshicae/x-one/xconfig"
@@ -105,6 +108,30 @@ type ClientConfig struct {
 	// 指标在被抓取时才读 PoolStats()，不额外占协程。
 	// 按实例生效：配了 Metric: false 的实例不出现在 /metrics 里。
 	Metric bool `yaml:"Metric"`
+
+	// TLS 连 Redis 时走不走 TLS。默认不走。
+	TLS TLSConfig `yaml:"TLS"`
+}
+
+// TLSConfig 连 Redis 的 TLS 设置。只收最常用的几项，最低版本固定 TLS 1.2；
+// 要更细的控制（加密套件、自定义校验）就自己 redis.NewClient，本包不挡路。
+type TLSConfig struct {
+	// Enable 是否走 TLS。默认 false。下面几项只在开着时生效，没开却写了它们，启动失败——
+	// 那多半是忘了开，照明文连过去比报错更糟。
+	Enable bool `yaml:"Enable"`
+
+	// CAFile 校验服务端证书用的 CA 证书（PEM）。默认空，用系统的根证书；自签的证书填这里。
+	CAFile string `yaml:"CAFile"`
+
+	// CertFile 客户端证书（PEM），服务端要求双向认证时和 KeyFile 成对填。默认空。
+	CertFile string `yaml:"CertFile"`
+
+	// KeyFile 客户端私钥（PEM），和 CertFile 成对填。默认空。
+	KeyFile string `yaml:"KeyFile"`
+
+	// ServerName 校验服务端证书时比对的名字。默认空，取 Addr 的主机部分；
+	// 按 IP 连、而证书上写的是域名时填它。
+	ServerName string `yaml:"ServerName"`
 }
 
 // DefaultClientConfig 单个实例的全部默认值集中在这里
@@ -133,13 +160,105 @@ func loadConfig() (Config, error) {
 	return Config{Clients: clients}, err
 }
 
-// validate 检查配置本身说不通的地方，在建连之前就失败
-func (c ClientConfig) validate() error {
+// Validate 检查配置本身说不通的地方，在建连之前就失败。
+//
+// xconfig.UnmarshalClients 每解完一个实例调一次，配错的值在读配置时就失败、
+// 带着是哪个实例；直接调 New 的，New 也会调一次。
+// 返回普通 error，由调它的那一层包一次 xerror。
+func (c ClientConfig) Validate() error {
 	if c.Addr == "" {
 		return fmt.Errorf("Addr must not be empty")
 	}
-	if c.DB < 0 {
-		return fmt.Errorf("DB must not be negative, got=%d", c.DB)
+	for _, n := range []struct {
+		name string
+		val  int
+	}{
+		{"DB", c.DB},
+		{"PoolSize", c.PoolSize},
+		{"MinIdleConns", c.MinIdleConns},
+		{"MaxIdleConns", c.MaxIdleConns},
+		{"MaxActiveConns", c.MaxActiveConns},
+	} {
+		if n.val < 0 {
+			return fmt.Errorf("%s must not be negative, got=%d", n.name, n.val)
+		}
+	}
+
+	// 负的时长在 go-redis 里各有各的暗号：ReadTimeout -1 是「不限时」、-2 是
+	// 「连 deadline 都不设」，ConnMaxIdleTime -1 是「不按空闲回收」。本包没把它们写进
+	// 文档，一个减号换来的是静默关掉超时保护，所以一律不收
+	for _, d := range []struct {
+		name string
+		val  time.Duration
+	}{
+		{"DialTimeout", c.DialTimeout},
+		{"ReadTimeout", c.ReadTimeout},
+		{"WriteTimeout", c.WriteTimeout},
+		{"PoolTimeout", c.PoolTimeout},
+		{"ConnMaxIdleTime", c.ConnMaxIdleTime},
+		{"ConnMaxLifetime", c.ConnMaxLifetime},
+	} {
+		if d.val < 0 {
+			return fmt.Errorf("%s must not be negative, got=%v", d.name, d.val)
+		}
+	}
+
+	// 写进文档的暗号只有这三个：MaxRetries -1、两个退避 -1ns，都是「关掉」。
+	// go-redis 只认恰好 -1，别的负数原样留下，行为没人说得清
+	if c.MaxRetries < -1 {
+		return fmt.Errorf("MaxRetries must be -1 (disable retries) or >= 0, got=%d", c.MaxRetries)
+	}
+	for _, d := range []struct {
+		name string
+		val  time.Duration
+	}{
+		{"MinRetryBackoff", c.MinRetryBackoff},
+		{"MaxRetryBackoff", c.MaxRetryBackoff},
+	} {
+		if d.val < 0 && d.val != -1 {
+			return fmt.Errorf("%s must be -1ns (disable backoff) or >= 0, got=%v", d.name, d.val)
+		}
+	}
+	return c.TLS.validate()
+}
+
+// validate TLS 的几项之间说不通的地方。文件读不读得出来留给 New
+func (t TLSConfig) validate() error {
+	if !t.Enable {
+		if t != (TLSConfig{}) {
+			return fmt.Errorf("TLS fields are set but TLS.Enable is false; set TLS.Enable: true or remove them")
+		}
+		return nil
+	}
+	if (t.CertFile == "") != (t.KeyFile == "") {
+		return fmt.Errorf("TLS.CertFile and TLS.KeyFile must be set together")
 	}
 	return nil
+}
+
+// tlsConfig 按配置装出 *tls.Config；没开 TLS 时返回 nil，go-redis 由此走明文
+func (t TLSConfig) tlsConfig() (*tls.Config, error) {
+	if !t.Enable {
+		return nil, nil
+	}
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: t.ServerName}
+	if t.CAFile != "" {
+		pem, err := os.ReadFile(t.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read TLS.CAFile: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("TLS.CAFile %s contains no PEM certificate", t.CAFile)
+		}
+		cfg.RootCAs = pool
+	}
+	if t.CertFile != "" {
+		cert, err := tls.LoadX509KeyPair(t.CertFile, t.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("load TLS.CertFile / TLS.KeyFile: %w", err)
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+	}
+	return cfg, nil
 }

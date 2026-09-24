@@ -51,7 +51,20 @@ type Config struct {
 	// 会让连接反复重建，尾延迟里全是握手。
 	MaxIdleConnsPerHost int `yaml:"MaxIdleConnsPerHost"`
 
-	// IdleConnTimeout 空闲连接多久后关闭。默认 90s。
+	// MaxConnsPerHost 每个 host 的连接数上限（含正在用的）。默认 0，不限制，与标准库一致。
+	//
+	// 不限制的意思是并发多少就开多少：实测对一个每次 300ms 才回的下游并发 200 个请求，
+	// 它收到 200 条新连接；紧接着再来 200 个，只有 MaxIdleConnsPerHost 那 10 条复用得上，
+	// 另开 190 条。下游一慢，连接数跟着并发一起涨，可能先耗尽对端的连接数或本机的端口。
+	// 配成正数之后超出的请求排队等连接，等的时间算在 Timeout 和调用方的 ctx 里。
+	MaxConnsPerHost int `yaml:"MaxConnsPerHost"`
+
+	// IdleConnTimeout 空闲连接多久后关闭。默认 90s，与标准库一致。
+	//
+	// 下游（或中间的负载均衡）先于它关掉空闲连接时，恰好在那一刻复用这条连接的请求
+	// 会失败：实测服务端空闲超时 200ms、请求间隔在 200ms 上下时，300 个 POST 失败 27 个
+	// （connection reset by peer / use of closed network connection）；GET 由标准库自动
+	// 在新连接上重发，200 个一个都没失败。所以它要小于下游的 keep-alive 超时。
 	IdleConnTimeout time.Duration `yaml:"IdleConnTimeout"`
 
 	// RetryCount 重试次数。默认 0，即不重试。
@@ -107,8 +120,9 @@ func (c Config) Validate() error {
 	if c.RetryCount < 0 {
 		return fmt.Errorf("RetryCount must not be negative, got=%d", c.RetryCount)
 	}
-	if c.MaxIdleConns < 0 || c.MaxIdleConnsPerHost < 0 {
-		return fmt.Errorf("connection counts must not be negative, MaxIdleConns=%d MaxIdleConnsPerHost=%d", c.MaxIdleConns, c.MaxIdleConnsPerHost)
+	if c.MaxIdleConns < 0 || c.MaxIdleConnsPerHost < 0 || c.MaxConnsPerHost < 0 {
+		return fmt.Errorf("connection counts must not be negative, MaxIdleConns=%d MaxIdleConnsPerHost=%d MaxConnsPerHost=%d",
+			c.MaxIdleConns, c.MaxIdleConnsPerHost, c.MaxConnsPerHost)
 	}
 	// 负的时长没有一个说得通的含义，而且底下每个字段的反应都不一样：
 	// DialTimeout 写成负数的话，拨号的 deadline 一开始就是过去的时间点，

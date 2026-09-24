@@ -1091,6 +1091,61 @@ mutate("缓存的 DefaultTTL 不能为负", "xcache/config.go", "./xcache", "Tes
 # 名字写错时静默返回 0，而 0 在 ristretto 里是「永不过期」
 mutate("DefaultTTL 取不到实例就 panic", "xcache/xcache.go", "./xcache", "TestDefaultTTL",
        swap('{ return reg.Get(name...).ttl }', '{ inst, _ := reg.Lookup(name...); return inst.ttl }'))
+# 读配置时就校验靠的是实例类型实现了 Validate：换成一个没有方法的同构类型，
+# 配错的值就一路放到 New 才报，报错里也不再有文件和实例名
+mutate("XCache 块在读配置时就校验", "xcache/config.go", "./xcache", "TestConfig_不合法的值在读配置时就失败",
+       swap('clients, err := xconfig.UnmarshalClients(ConfigKey, DefaultClientConfig)\n\treturn Config{Clients: clients}, err',
+            'type raw ClientConfig\n\tm, err := xconfig.UnmarshalClients(ConfigKey, func() raw { return raw(DefaultClientConfig()) })\n\tclients := map[string]ClientConfig{}\n\tfor k, v := range m {\n\t\tclients[k] = ClientConfig(v)\n\t}\n\treturn Config{Clients: clients}, err'))
+# ristretto 默认不计数，Metrics 为 nil 时每个计数都是 0：Metric: true 也什么都看不到
+mutate("缓存的 Metric 开关传给 ristretto", "xcache/xcache.go", "./xcache", "TestNew_Metric开关|TestCacheCollector",
+       swap('Metrics: cfg.Metric,', 'Metrics: false,'))
+mutate("Metric 关掉的缓存实例不导出", "xcache/xcache.go", "./xcache", "TestInstall_只导出开了Metric", swap('ok && inst.metric {', 'ok {'))
+mutate("xmetric 重装后缓存指标照样导出", "xcache/xcache.go", "./xcache", "TestInstall_只导出开了Metric",
+       swap('func installMetrics() {\n\tif _, err := xmetric.RegisterAs(',
+     'var installed bool\n\nfunc installMetrics() {\n\tif installed {\n\t\treturn\n\t}\n\tinstalled = true\n\tif _, err := xmetric.RegisterAs('))
+mutate("缓存实例的日志带着名字", "xcache/xcache.go", "./xcache", "TestInstall_每个实例的日志带着名字",
+       swap('"xcache created", "name", c.name,', '"xcache created", "name", "",'))
+# 调用点：字段在 Config 里、Validate 里都有，没赋给 Transport 就是一句空话
+mutate("MaxConnsPerHost 传给连接池", "xhttp/xhttp.go", "./xhttp", "TestNew_每host连接数上限生效",
+       swap('\tt.MaxConnsPerHost = cfg.MaxConnsPerHost\n', ''))
+mutate("MaxConnsPerHost 为负要被拦住", "xhttp/config.go", "./xhttp", "TestValidate",
+       swap(' || c.MaxConnsPerHost < 0 {', ' {'))
+mutate("XRedis 块在读配置时就校验", "xredis/config.go", "./xredis", "TestConfig_不合法的值在读配置时就失败",
+       swap('clients, err := xconfig.UnmarshalClients(ConfigKey, DefaultClientConfig)\n\treturn Config{Clients: clients}, err',
+            'type raw ClientConfig\n\tm, err := xconfig.UnmarshalClients(ConfigKey, func() raw { return raw(DefaultClientConfig()) })\n\tclients := map[string]ClientConfig{}\n\tfor k, v := range m {\n\t\tclients[k] = ClientConfig(v)\n\t}\n\treturn Config{Clients: clients}, err'))
+mutate("直接调 xredis.New 也校验", "xredis/xredis.go", "./xredis", "TestNew_配置有误时不建连|TestNew_TLS文件",
+       swap('\tif err := cfg.Validate(); err != nil {', '\tif err := cfg.Validate(); false && err != nil {'))
+# go-redis 把 ReadTimeout -1 当成「不限时」：一个减号就静默关掉超时保护
+mutate("Redis 负的时长要被拦住", "xredis/config.go", "./xredis", "TestValidate|TestConfig_不合法的值在读配置时就失败",
+       swap('\t\tif d.val < 0 {\n\t\t\treturn fmt.Errorf("%s must not be negative', '\t\tif false {\n\t\t\treturn fmt.Errorf("%s must not be negative'))
+mutate("Redis 负的连接数要被拦住", "xredis/config.go", "./xredis", "TestValidate",
+       swap('\t\tif n.val < 0 {', '\t\tif false {'))
+mutate("Redis MaxRetries 只收 -1 这一个负数", "xredis/config.go", "./xredis", "TestValidate",
+       swap('if c.MaxRetries < -1 {', 'if false {'))
+mutate("Redis 退避只收 -1ns 这一个负数", "xredis/config.go", "./xredis", "TestValidate",
+       swap('if d.val < 0 && d.val != -1 {', 'if false {'))
+# 写了 CAFile 却忘了 Enable，照明文连过去比报错更糟
+mutate("没开 TLS 却写了 TLS 字段要失败", "xredis/config.go", "./xredis", "TestValidate",
+       swap('\t\tif t != (TLSConfig{}) {', '\t\tif false {'))
+mutate("Redis 的 TLS 配置传给 go-redis", "xredis/xredis.go", "./xredis", "TestNew_TLS",
+       swap('tlsCfg, err := cfg.TLS.tlsConfig()', '_, err := cfg.TLS.tlsConfig()'), swap('TLSConfig: tlsCfg,', 'TLSConfig: nil,'))
+mutate("Redis TLS 用上 CAFile", "xredis/config.go", "./xredis", "TestNew_TLS",
+       swap('\t\tcfg.RootCAs = pool\n', '\t\t_ = pool\n'))
+mutate("Redis TLS 带上客户端证书", "xredis/config.go", "./xredis", "TestNew_TLS双向认证",
+       swap('\t\tcfg.Certificates = []tls.Certificate{cert}\n', '\t\t_ = cert\n'))
+mutate("Redis TLS 的 ServerName 传下去", "xredis/config.go", "./xredis", "TestNew_TLS",
+       swap('cfg := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: t.ServerName}', 'cfg := &tls.Config{MinVersion: tls.VersionTLS12}'))
+# Redis 7.2 之前每条新连接一个报错的 CLIENT SETINFO Span
+mutate("Redis 建连不发 CLIENT SETINFO", "xredis/xredis.go", "./xredis", "TestNew_不发CLIENT_SETINFO",
+       swap('DisableIdentity: true,', 'DisableIdentity: false,'))
+mutate("Redis 不开维护通知", "xredis/xredis.go", "./xredis", "TestNew_不发CLIENT_SETINFO",
+       swap('Mode: maintnotifications.ModeDisabled}', 'Mode: maintnotifications.ModeAuto}'))
+# 钩子挂在建连验证之前：启动时每次 Ping 尝试都是一个没有父 Span 的 ping
+mutate("Redis 链路钩子在建连验证成功之后才挂", "xredis/xredis.go", "./xredis", "TestTrace_启动时的建连验证不开Span",
+       swap('\tif err := ping(ctx, client, cfg); err != nil {',
+            '\tif cfg.Trace {\n\t\t_ = redisotel.InstrumentTracing(client, redisotel.WithDBStatement(false))\n\t}\n\tif err := ping(ctx, client, cfg); err != nil {'))
+mutate("xredis connected 日志带着实例名", "xredis/xredis.go", "./xredis", "TestInstall_日志写出实例名",
+       swap('"xredis connected", "name", c.name,', '"xredis connected", "name", "",'))
 mutate("Log 关掉时 GORM 不自己往标准输出写", "xgorm/xgorm.go", "./xgorm", "TestNew",
        swap('gormCfg.Logger = logger.Discard','gormCfg.Logger = logger.Default'))
 # 建到一半失败时把半套实例发布出去，比一个都没有更糟：C() 取得到 a

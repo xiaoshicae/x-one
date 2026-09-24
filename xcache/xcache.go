@@ -12,6 +12,7 @@ import (
 	"github.com/xiaoshicae/x-one/xconfig"
 	"github.com/xiaoshicae/x-one/xerror"
 	"github.com/xiaoshicae/x-one/xhook"
+	"github.com/xiaoshicae/x-one/xmetric"
 )
 
 // Cache 就是原生的 ristretto 缓存，这里只是给它起个短名字。
@@ -22,7 +23,7 @@ type Cache = ristretto.Cache[string, any]
 
 // New 按配置建一个缓存实例，不触碰任何全局变量
 func New(cfg ClientConfig) (*Cache, io.Closer, error) {
-	if err := cfg.validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, nil, xerror.Newf("xcache", "config", "invalid config: %w", err)
 	}
 
@@ -35,6 +36,8 @@ func New(cfg ClientConfig) (*Cache, io.Closer, error) {
 		// 只能存下一千七百多条，配置里写的数字和实际容量差着五十多倍，
 		// 而且没有任何地方会提到这件事。关掉它，cost 才是 cost
 		IgnoreInternalCost: true,
+		// ristretto 默认不计数，Metrics 字段是 nil，命中率无从谈起
+		Metrics: cfg.Metric,
 	})
 	if err != nil {
 		return nil, nil, xerror.Newf("xcache", "new", "create cache: %w", err)
@@ -67,10 +70,13 @@ func (f closerFunc) Close() error { f(); return nil }
 
 // ---- 全局实例 ----
 
-// instance 一个缓存实例连同它自己的默认 TTL
+// instance 一个缓存实例连同它自己的默认 TTL 和 Metric 开关。
+// 带着 Metric 的理由同 xredis：collector 是进程级的一个，不带着这一位
+// 就分不出哪个实例配了 Metric: false。
 type instance struct {
-	cache *Cache
-	ttl   time.Duration
+	cache  *Cache
+	ttl    time.Duration
+	metric bool
 }
 
 // C 取一个缓存实例，不带参数时取名为 default 的那个。
@@ -151,11 +157,30 @@ func initXCache(ctx context.Context) error {
 
 // install 按配置把实例挨个建出来
 func install(ctx context.Context, c Config) error {
-	if err := xclient.Build(ctx, reg, c.Clients, build); err != nil {
+	if err := xclient.Build(ctx, reg, withNames(c.Clients), build); err != nil {
 		return err
 	}
+	installMetrics() // 一个实例都没开 Metric 时它什么都不导出，不必特判
 	slog.Info("xcache ready", "instances", reg.Names())
 	return nil
+}
+
+// namedConfig 一个实例的配置连同它的名字。
+//
+// xclient.Build 交给构造函数的只有配置本身，而每个实例建好时的那条日志要写上
+// 它叫什么——配了好几个缓存时，只写参数分不出是哪一个。
+type namedConfig struct {
+	name string
+	ClientConfig
+}
+
+// withNames 让每份配置带上自己的名字
+func withNames(cfgs map[string]ClientConfig) map[string]namedConfig {
+	out := make(map[string]namedConfig, len(cfgs))
+	for name, c := range cfgs {
+		out[name] = namedConfig{name: name, ClientConfig: c}
+	}
+	return out
 }
 
 // closeXCache 摘掉全部实例并逆序关闭。
@@ -165,11 +190,36 @@ func install(ctx context.Context, c Config) error {
 func closeXCache(context.Context) error { return reg.Close() }
 
 // build 建一个实例。New 不收 ctx（本地缓存不建连、不会把人卡住），
-// 所以这里补一个形参把它接上；同时把这个实例的默认 TTL 一起带上
-func build(_ context.Context, c ClientConfig) (instance, io.Closer, error) {
-	cache, closer, err := New(c)
+// 所以这里补一个形参把它接上；同时把这个实例的默认 TTL 和 Metric 开关一起带上
+func build(_ context.Context, c namedConfig) (instance, io.Closer, error) {
+	cache, closer, err := New(c.ClientConfig)
 	if err != nil {
 		return instance{}, nil, err
 	}
-	return instance{cache: cache, ttl: c.DefaultTTL}, closer, nil
+	slog.Info("xcache created", "name", c.name, "max_cost", c.MaxCost, "default_ttl", c.DefaultTTL, "metric", c.Metric)
+	return instance{cache: cache, ttl: c.DefaultTTL, metric: c.Metric}, closer, nil
+}
+
+// installMetrics 把缓存 collector 挂到当前的 Registry 上。
+//
+// 每次 install 都挂、不用 sync.Once，理由同 xredis：xmetric 重装之后是新的
+// Registry，Once 会把这第二次挡掉；同一个 Registry 上重复挂由 xmetric.Register
+// 复用已有的那个。
+//
+// 不让启动失败：指标导不出去是可观测性问题，不该拦住服务起来。
+func installMetrics() {
+	if _, err := xmetric.RegisterAs(newCacheCollector(xmetric.Namespace(), xmetric.ConstLabels(), metricCaches)); err != nil {
+		slog.Error("xcache failed to register cache metrics", "error", err)
+	}
+}
+
+// metricCaches 开了 Metric 的各个实例
+func metricCaches() map[string]*Cache {
+	out := map[string]*Cache{}
+	for _, name := range reg.Names() {
+		if inst, ok := reg.Lookup(name); ok && inst.metric {
+			out[name] = inst.cache
+		}
+	}
+	return out
 }

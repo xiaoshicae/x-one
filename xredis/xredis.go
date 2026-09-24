@@ -10,6 +10,7 @@ import (
 
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9/maintnotifications"
 
 	"github.com/xiaoshicae/x-one/internal/xclient"
 	"github.com/xiaoshicae/x-one/xconfig"
@@ -39,8 +40,12 @@ var pingInterval = time.Second
 // ctx 限定这轮建连验证的生命期：连不上时要走满一轮重试，
 // 收到退出信号就该当场放弃，而不是让进程卡在那里。
 func New(ctx context.Context, cfg ClientConfig) (*redis.Client, io.Closer, error) {
-	if err := cfg.validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return nil, nil, xerror.Newf("xredis", "config", "invalid config: %w", err)
+	}
+	tlsCfg, err := cfg.TLS.tlsConfig()
+	if err != nil {
+		return nil, nil, xerror.Newf("xredis", "config", "invalid TLS config: %w", err)
 	}
 
 	client := redis.NewClient(&redis.Options{
@@ -61,6 +66,32 @@ func New(ctx context.Context, cfg ClientConfig) (*redis.Client, io.Closer, error
 		MaxRetries:      cfg.MaxRetries,
 		MinRetryBackoff: cfg.MinRetryBackoff,
 		MaxRetryBackoff: cfg.MaxRetryBackoff,
+
+		// nil 时是明文。握手受 DialTimeout 管：go-redis v9.22.0 用 tls.DialWithDialer，
+		// 拨号和握手共用那一个超时
+		TLSConfig: tlsCfg,
+
+		// 不发 CLIENT SETINFO。
+		//
+		// go-redis v9.22.0 默认每建一条连接就多发一个 pipeline（CLIENT SETINFO lib-name、
+		// lib-ver 两条），只为让服务端的 CLIENT LIST 里显示客户端库名和版本。
+		// Redis 7.2 之前没有这个子命令：实测 Redis 7.0.15 上每条新连接都回
+		// ERR unknown subcommand 'setinfo'，go-redis 吞掉这个错，但链路开着时
+		// 每条连接都留下一个报错的 redis.pipeline Span——ConnMaxLifetime 每 5 分钟
+		// 换一轮连接，就每 5 分钟一批。换来的信息对使用者几乎没用，关掉
+		DisableIdentity: true,
+
+		// 不发 CLIENT MAINT_NOTIFICATIONS。
+		//
+		// go-redis v9.22.0 默认 auto：每条新连接先发一次，服务端认就开启「维护通知」——
+		// 服务端迁移、升级前推一条通知，客户端据此把读写超时临时放宽
+		// （源码里的默认 RelaxedTimeout 是 10s；手头没有认这条命令的服务端，没有实测）、
+		// 在后台把连接挪到新节点。go-redis 的注释说
+		// 这是给 Redis Cloud 用的。在不认这条命令的服务端上，实测 Redis 7.0.15 回
+		// ERR unknown subcommand 'maint_notifications'，并发建起来的头几条连接各留一个报错的
+		// Span（并发 3 条时 1–2 个），之后整个 client 降级不再发。认的那种服务端上，
+		// 「超时临时放宽到 10s」又和本包 ReadTimeout 的承诺对不上。关掉，行为只由配置决定
+		MaintNotificationsConfig: &maintnotifications.Config{Mode: maintnotifications.ModeDisabled},
 
 		// 一次建连只拨一次号，重试交给 MaxRetries。
 		//
@@ -98,6 +129,18 @@ func New(ctx context.Context, cfg ClientConfig) (*redis.Client, io.Closer, error
 		}
 	}()
 
+	if err := ping(ctx, client, cfg); err != nil {
+		// 原始错误用 %w 带上，调用方要靠它判断根因。它不含凭证：连不上时是
+		// 拨号错误（只有地址），认证失败时是服务端回的 WRONGPASS / NOAUTH 文本
+		if redis.IsAuthError(err) {
+			return nil, nil, xerror.Newf("xredis", "connect", "authentication to %s failed: %w", cfg.Addr, err)
+		}
+		return nil, nil, xerror.Newf("xredis", "connect", "cannot reach %s: %w", cfg.Addr, err)
+	}
+
+	// 链路钩子在建连验证成功之后才挂：挂在前面的话，启动时的每一次 Ping 尝试
+	// 都是一个没有父 Span 的 ping（外加 redis.dial、hello），连不上时一轮重试就是一串
+	// 报错的根 Span，而那是一次启动，不是业务请求
 	if cfg.Trace {
 		// 关掉 db.statement：redisotel v9.22.0 默认开着，把整条命令连同参数
 		// 写进 Span（实测 SET session:1 <值> 原样出现），值里的会话、令牌就此
@@ -111,18 +154,6 @@ func New(ctx context.Context, cfg ClientConfig) (*redis.Client, io.Closer, error
 			return nil, nil, xerror.Newf("xredis", "new", "install tracing hook: %w", err)
 		}
 	}
-
-	if err := ping(ctx, client, cfg); err != nil {
-		// 原始错误用 %w 带上，调用方要靠它判断根因。它不含凭证：连不上时是
-		// 拨号错误（只有地址），认证失败时是服务端回的 WRONGPASS / NOAUTH 文本
-		if redis.IsAuthError(err) {
-			return nil, nil, xerror.Newf("xredis", "connect", "authentication to %s failed: %w", cfg.Addr, err)
-		}
-		return nil, nil, xerror.Newf("xredis", "connect", "cannot reach %s: %w", cfg.Addr, err)
-	}
-
-	// 日志里只写地址和库号，密码不进日志——所以也就不需要脱敏
-	slog.Info("xredis connected", "addr", cfg.Addr, "db", cfg.DB, "min_idle_conns", cfg.MinIdleConns)
 
 	ok = true
 	return client, &clientCloser{client: client, addr: cfg.Addr}, nil
@@ -265,7 +296,7 @@ func initXRedis(ctx context.Context) error {
 
 // install 按配置把实例挨个建出来
 func install(ctx context.Context, c Config) error {
-	if err := xclient.Build(ctx, reg, c.Clients, build); err != nil {
+	if err := xclient.Build(ctx, reg, withNames(c.Clients), build); err != nil {
 		return err
 	}
 	installPoolMetrics() // 一个实例都没开 Metric 时它什么都不导出，不必特判
@@ -279,13 +310,34 @@ func install(ctx context.Context, c Config) error {
 // 所以这里不必处理「还没建起来」。
 func closeXRedis(context.Context) error { return reg.Close() }
 
+// namedConfig 一个实例的配置连同它的名字。
+//
+// xclient.Build 交给构造函数的只有配置本身，而建好时的那条日志要写上它叫什么——
+// 配了好几个 Redis 时，只写地址分不出是哪一个（同一个地址不同库号的更是如此）。
+type namedConfig struct {
+	name string
+	ClientConfig
+}
+
+// withNames 让每份配置带上自己的名字
+func withNames(cfgs map[string]ClientConfig) map[string]namedConfig {
+	out := make(map[string]namedConfig, len(cfgs))
+	for name, c := range cfgs {
+		out[name] = namedConfig{name: name, ClientConfig: c}
+	}
+	return out
+}
+
 // build 建一个实例。包一层 New 而不是直接把 New 交出去，
-// 是为了把这个实例的 Metric 开关一起带进注册表
-func build(ctx context.Context, c ClientConfig) (instance, io.Closer, error) {
-	client, closer, err := New(ctx, c)
+// 是为了把这个实例的 Metric 开关一起带进注册表，并在日志里写上实例名
+func build(ctx context.Context, c namedConfig) (instance, io.Closer, error) {
+	client, closer, err := New(ctx, c.ClientConfig)
 	if err != nil {
 		return instance{}, nil, err
 	}
+	// 日志里只写地址和库号，密码不进日志——所以也就不需要脱敏
+	slog.Info("xredis connected", "name", c.name, "addr", c.Addr, "db", c.DB,
+		"tls", c.TLS.Enable, "min_idle_conns", c.MinIdleConns)
 	return instance{client: client, metric: c.Metric}, closer, nil
 }
 

@@ -97,27 +97,29 @@ func TestNew_连不上时不漏连接池(t *testing.T) {
 	}
 }
 
-func TestNew_密码不进日志(t *testing.T) {
+func TestInstall_日志写出实例名和地址但不写密码(t *testing.T) {
 	f := newFakeRedis(t)
 	lines := capture(t)
 
 	c := liveCfg(f)
 	c.Password = "hunter2"
-	_, closer, err := New(context.Background(), c)
-	if err != nil {
+	if err := initComponent(t, Config{Clients: map[string]ClientConfig{"session": c}}); err != nil {
 		t.Fatal(err)
 	}
-	closer.Close()
 
+	var connected map[string]any
 	for _, l := range lines() {
 		blob := fmt.Sprint(l)
 		if strings.Contains(blob, "hunter2") {
 			t.Errorf("日志里出现了密码：%v", l)
 		}
+		if l["msg"] == "xredis connected" {
+			connected = l
+		}
 	}
-	got := lines()
-	if len(got) == 0 || got[0]["addr"] != c.Addr {
-		t.Errorf("该写出地址，否则排查不了连的是谁，got=%v", got)
+	// 配了好几个 Redis 时，只写地址分不出是哪一个
+	if connected == nil || connected["addr"] != c.Addr || connected["name"] != "session" {
+		t.Errorf("该写出实例名和地址，否则排查不了连的是谁，got=%v", lines())
 	}
 }
 

@@ -1,6 +1,7 @@
 package xredis
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9/maintnotifications"
 
 	"github.com/xiaoshicae/x-one/internal/config"
 )
@@ -153,19 +155,89 @@ func TestConfig_退避交给goredis时的默认值与文档一致(t *testing.T) 
 
 func TestValidate(t *testing.T) {
 	ok := DefaultClientConfig()
-	if err := ok.validate(); err != nil {
+	if err := ok.Validate(); err != nil {
 		t.Errorf("默认配置应当合法：%v", err)
 	}
 
 	bad := ok
 	bad.Addr = ""
-	if err := bad.validate(); err == nil {
+	if err := bad.Validate(); err == nil {
 		t.Error("Addr 为空应当报错")
 	}
 
 	bad = ok
 	bad.DB = -1
-	if err := bad.validate(); err == nil {
+	if err := bad.Validate(); err == nil {
 		t.Error("DB 为负应当报错")
+	}
+
+	for name, mutate := range map[string]func(*ClientConfig){
+		"PoolSize 为负":       func(c *ClientConfig) { c.PoolSize = -1 },
+		"MinIdleConns 为负":   func(c *ClientConfig) { c.MinIdleConns = -1 },
+		"MaxIdleConns 为负":   func(c *ClientConfig) { c.MaxIdleConns = -1 },
+		"MaxActiveConns 为负": func(c *ClientConfig) { c.MaxActiveConns = -1 },
+		"DialTimeout 为负":    func(c *ClientConfig) { c.DialTimeout = -time.Second },
+		// go-redis 把 ReadTimeout -1 当成「不限时」：一个减号就关掉了超时保护
+		"ReadTimeout 为负":         func(c *ClientConfig) { c.ReadTimeout = -1 },
+		"WriteTimeout 为负":        func(c *ClientConfig) { c.WriteTimeout = -time.Second },
+		"PoolTimeout 为负":         func(c *ClientConfig) { c.PoolTimeout = -time.Second },
+		"ConnMaxIdleTime 为负":     func(c *ClientConfig) { c.ConnMaxIdleTime = -1 },
+		"ConnMaxLifetime 为负":     func(c *ClientConfig) { c.ConnMaxLifetime = -time.Second },
+		"MaxRetries 小于 -1":       func(c *ClientConfig) { c.MaxRetries = -2 },
+		"MinRetryBackoff 为 -2ns": func(c *ClientConfig) { c.MinRetryBackoff = -2 },
+		"MaxRetryBackoff 为 -1s":  func(c *ClientConfig) { c.MaxRetryBackoff = -time.Second },
+		"没开 TLS 却写了 CAFile":      func(c *ClientConfig) { c.TLS.CAFile = "/etc/ca.pem" },
+		"CertFile 没配 KeyFile":    func(c *ClientConfig) { c.TLS = TLSConfig{Enable: true, CertFile: "c.pem"} },
+	} {
+		c := ok
+		mutate(&c)
+		if err := c.Validate(); err == nil {
+			t.Errorf("%s 应当报错", name)
+		}
+	}
+
+	// 写进文档的暗号：-1 关重试、-1ns 关退避
+	sentinel := ok
+	sentinel.MaxRetries, sentinel.MinRetryBackoff, sentinel.MaxRetryBackoff = -1, -1, -1
+	if err := sentinel.Validate(); err != nil {
+		t.Errorf("文档里写的 -1 / -1ns 应当合法：%v", err)
+	}
+}
+
+func TestConfig_不合法的值在读配置时就失败(t *testing.T) {
+	// 读配置时就拦下，报错里带着是哪个实例；不等到建连才发现
+	err := loadErr(t, "XRedis:\n  Clients:\n    session: {Addr: h:6379, ReadTimeout: -1s}\n")
+	if err == nil {
+		t.Fatal("ReadTimeout 为负应当在读配置时失败")
+	}
+	if !strings.Contains(err.Error(), "session") || !strings.Contains(err.Error(), "ReadTimeout") {
+		t.Errorf("错误里要点名实例和字段，got=%v", err)
+	}
+}
+
+func TestNew_不发CLIENT_SETINFO也不开维护通知(t *testing.T) {
+	// go-redis v9.22.0 默认每条新连接发 CLIENT SETINFO 和 CLIENT MAINT_NOTIFICATIONS，
+	// Redis 7.2 之前两条都回 unknown subcommand，链路开着时每条连接一个报错的 Span
+	f := newFakeRedis(t)
+	// 维护通知的握手 go-redis 只在协商成 RESP3 的连接上发，假服务端得认 HELLO 3
+	f.setResp3(true)
+	client, closer, err := New(context.Background(), liveCfg(f))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closer.Close()
+	if n := f.count("hello"); n == 0 {
+		t.Fatal("前提：建连时该发过 HELLO")
+	}
+
+	o := client.Options()
+	if !o.DisableIdentity {
+		t.Error("DisableIdentity 该打开")
+	}
+	if o.MaintNotificationsConfig == nil || o.MaintNotificationsConfig.Mode != maintnotifications.ModeDisabled {
+		t.Errorf("维护通知该关掉，got=%+v", o.MaintNotificationsConfig)
+	}
+	if n := f.count("client"); n != 0 {
+		t.Errorf("建连时不该发 CLIENT 子命令，收到 %d 次", n)
 	}
 }

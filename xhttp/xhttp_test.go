@@ -73,13 +73,13 @@ func TestNew_拿到的是可用的resty(t *testing.T) {
 
 func TestNew_连接池参数传下去了(t *testing.T) {
 	c := DefaultConfig()
-	c.MaxIdleConnsPerHost, c.MaxIdleConns, c.IdleConnTimeout = 33, 77, 11*time.Second
+	c.MaxIdleConnsPerHost, c.MaxIdleConns, c.IdleConnTimeout, c.MaxConnsPerHost = 33, 77, 11*time.Second, 5
 	c.Trace = false // otelhttp.Transport 不导出内层，要看底层就别包它
 	client, _ := newQuiet(t, c)
 
 	// 标准库默认每主机只留 2 条空闲连接，对只调几个下游的服务太小
 	tr := unwrapTransport(t, client)
-	if tr.MaxIdleConnsPerHost != 33 || tr.MaxIdleConns != 77 || tr.IdleConnTimeout != 11*time.Second {
+	if tr.MaxIdleConnsPerHost != 33 || tr.MaxIdleConns != 77 || tr.IdleConnTimeout != 11*time.Second || tr.MaxConnsPerHost != 5 {
 		t.Errorf("连接池参数没传下去，got=%+v", tr)
 	}
 	if tr.DialContext == nil {
@@ -509,6 +509,64 @@ func TestValidate(t *testing.T) {
 	bad.MaxIdleConns = -1
 	if err := bad.Validate(); err == nil {
 		t.Error("连接数为负应当报错")
+	}
+	bad = DefaultConfig()
+	bad.MaxConnsPerHost = -1
+	if err := bad.Validate(); err == nil {
+		t.Error("每 host 连接数上限为负应当报错")
+	}
+}
+
+func TestTunedTransport_没改的默认值与文档一致(t *testing.T) {
+	// 注释和 docs/config.md 里写的是这几个数（Go 1.25、resty v2.17.2）。
+	// 升级之后变了，这里先红，文档跟着改
+	tr := tunedTransport(DefaultConfig()).(*http.Transport)
+	if tr.Proxy == nil || tr.TLSHandshakeTimeout != 10*time.Second || tr.ResponseHeaderTimeout != 0 ||
+		tr.MaxConnsPerHost != 0 || !tr.ForceAttemptHTTP2 {
+		t.Errorf("标准库的默认值变了：proxy=%v tls=%v header=%v maxConns=%d h2=%v",
+			tr.Proxy != nil, tr.TLSHandshakeTimeout, tr.ResponseHeaderTimeout, tr.MaxConnsPerHost, tr.ForceAttemptHTTP2)
+	}
+	client, _ := newQuiet(t, DefaultConfig())
+	if client.GetClient().CheckRedirect != nil {
+		t.Error("resty 自己设了重定向策略，文档里「标准库默认，最多 10 次」不再成立")
+	}
+}
+
+func TestNew_每host连接数上限生效(t *testing.T) {
+	// 不限的话并发多少就开多少条连接；配了上限，超出的请求排队等连接
+	var mu sync.Mutex
+	conns := 0
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+	}))
+	srv.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+		if s == http.StateNew {
+			mu.Lock()
+			conns++
+			mu.Unlock()
+		}
+	}
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	c := DefaultConfig()
+	c.MaxConnsPerHost = 2
+	client, _ := newQuiet(t, c)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := client.R().Get(srv.URL); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if conns > 2 {
+		t.Errorf("MaxConnsPerHost=2 时下游最多该看到 2 条连接，got=%d", conns)
 	}
 }
 
