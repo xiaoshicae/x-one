@@ -27,6 +27,7 @@ import (
 
 	"github.com/xiaoshicae/x-one/internal/config"
 	"github.com/xiaoshicae/x-one/internal/hook"
+	"github.com/xiaoshicae/x-one/xerror"
 	"github.com/xiaoshicae/x-one/xmetric"
 	"github.com/xiaoshicae/x-one/xtrace"
 )
@@ -100,6 +101,8 @@ func unwrapTransport(t *testing.T, client *resty.Client) *http.Transport {
 			return v
 		case *xtrace.Transport:
 			rt = v.Next
+		case propagateOnly:
+			rt = v.next
 		default:
 			t.Fatalf("剥不开的 Transport 类型：%T（otelhttp 不导出内层，测这层时把 Trace 关掉）", rt)
 		}
@@ -108,14 +111,89 @@ func unwrapTransport(t *testing.T, client *resty.Client) *http.Transport {
 	return nil
 }
 
-func TestNew_不开链路时是干净的Transport(t *testing.T) {
+func TestNew_关掉Trace只是不开Span_链路标识和透传头照常带给下游(t *testing.T) {
+	// 回归用例。XHttp.Trace: false 原先把 xtrace.Transport 连同注入一起摘掉，
+	// X-Request-Id 和上游的 traceparent 就断在这一跳，而文档说它只管 Span
+	old := otel.GetTracerProvider()
+	oldProp := otel.GetTextMapPropagator()
+	t.Cleanup(func() { otel.SetTracerProvider(old); otel.SetTextMapPropagator(oldProp) })
+
+	exp := tracetest.NewInMemoryExporter()
+	tc := xtrace.DefaultConfig()
+	tc.ForwardHeaders = []string{"X-Request-Id"}
+	tc.ForwardHeaderRules = []xtrace.ForwardHeaderRule{{Domains: []string{"127.0.0.1"}, Headers: []string{"X-Tenant-Id"}}}
+	tr, tcloser, err := xtrace.New(context.Background(), tc, sdktrace.NewSimpleSpanProcessor(exp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tcloser.Close()
+	tr.Install()
+
+	srv, last := echo(t, nil)
 	c := DefaultConfig()
 	c.Trace = false
 	client, _ := newQuiet(t, c)
 
-	if _, ok := client.GetClient().Transport.(*http.Transport); !ok {
-		t.Errorf("关掉链路后不该有包装层，got=%T", client.GetClient().Transport)
+	const upstream = "4bf92f3577b34da6a3ce929d0e0e4736"
+	ctx := tr.Propagator.Extract(context.Background(), fromTrusted{propagation.HeaderCarrier(http.Header{
+		"Traceparent":  {"00-" + upstream + "-00f067aa0ba902b7-01"},
+		"Baggage":      {"tenant=acme"},
+		"X-Request-Id": {"req-1"},
+		"X-Tenant-Id":  {"t-1"},
+	})})
+	req := client.R().SetContext(ctx)
+	if _, err := req.Get(srv.URL); err != nil {
+		t.Fatal(err)
 	}
+
+	got := *last.Load()
+	if got.Get("X-Request-Id") != "req-1" {
+		t.Errorf("Trace 关着也该透传 X-Request-Id，下游收到=%v", got)
+	}
+	if got.Get("X-Tenant-Id") != "t-1" {
+		t.Errorf("按域名的透传规则也要生效（目标 host 靠 xtrace.Transport 写进 ctx），下游收到=%v", got)
+	}
+	if tp := got.Get("Traceparent"); !strings.HasPrefix(tp, "00-"+upstream+"-") {
+		t.Errorf("Trace 关着也该把上游的链路标识带给下游，got=%q", tp)
+	}
+	if got.Get("Baggage") != "tenant=acme" {
+		t.Errorf("baggage 也该带给下游，got=%q", got.Get("Baggage"))
+	}
+	if spans := exp.GetSpans(); len(spans) != 0 {
+		t.Errorf("Trace 关着不该开出站 Span，got=%d 个", len(spans))
+	}
+	if req.RawRequest.Header.Get("X-Request-Id") != "" {
+		t.Error("注入要写在克隆出来的请求上，不该改调用方的请求")
+	}
+}
+
+func TestNew_关掉Trace时http_Client的CloseIdleConnections照样传到连接池(t *testing.T) {
+	// RawClient 的使用者调 http.Client.CloseIdleConnections，它靠类型断言一层层往下找，
+	// 中间哪一层不转发就是空操作。只断言方法存在测不出来，得看连接有没有真的被释放
+	var idle atomic.Int64
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	srv.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+		switch s {
+		case http.StateIdle:
+			idle.Add(1)
+		case http.StateClosed, http.StateHijacked:
+			idle.Add(-1)
+		}
+	}
+	srv.Start()
+	defer srv.Close()
+
+	c := DefaultConfig()
+	c.Trace = false
+	client, _ := newQuiet(t, c)
+	if _, err := client.R().Get(srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return idle.Load() > 0 }, "请求完成后该有一个空闲连接")
+	client.GetClient().CloseIdleConnections()
+	waitFor(t, func() bool { return idle.Load() == 0 }, "CloseIdleConnections 之后空闲连接该被释放")
 }
 
 func TestTransport_otelhttp在noop下仍然注入透传Header(t *testing.T) {
@@ -419,18 +497,31 @@ func initComponent(t *testing.T, c Config) {
 }
 
 func TestValidate(t *testing.T) {
-	if err := DefaultConfig().validate(); err != nil {
+	if err := DefaultConfig().Validate(); err != nil {
 		t.Errorf("默认配置应当合法：%v", err)
 	}
 	bad := DefaultConfig()
 	bad.RetryCount = -1
-	if err := bad.validate(); err == nil {
+	if err := bad.Validate(); err == nil {
 		t.Error("重试次数为负应当报错")
 	}
 	bad = DefaultConfig()
 	bad.MaxIdleConns = -1
-	if err := bad.validate(); err == nil {
+	if err := bad.Validate(); err == nil {
 		t.Error("连接数为负应当报错")
+	}
+}
+
+func TestNew_直接调也校验配置(t *testing.T) {
+	// 不经过配置文件、直接 New 的使用者没有 xconfig.Unmarshal 替他调 Validate
+	bad := DefaultConfig()
+	bad.DialTimeout = -time.Second
+	_, _, err := New(bad)
+	if err == nil {
+		t.Fatal("非法配置直接 New 也该失败")
+	}
+	if xerror.Module(err) != "xhttp" || strings.Count(err.Error(), "xhttp") != 1 {
+		t.Errorf("错误由 xhttp 包一次，got=%v", err)
 	}
 }
 
@@ -688,6 +779,9 @@ func TestInitXHttp_取值非法时启动失败(t *testing.T) {
 				t.Fatalf("%s 配成负数应当让启动失败", field)
 			} else if !strings.Contains(err.Error(), field) {
 				t.Errorf("错误里要点名是哪个字段，got=%v", err)
+			} else if !xerror.Is(err, "xconfig") {
+				// 在读配置时就拦下（xconfig.Unmarshal 调 Validate），不是等到 New
+				t.Errorf("错误该出自读配置那一步，got=%v", err)
 			}
 		})
 	}
@@ -697,7 +791,7 @@ func TestValidate_KeepAlive_允许负值(t *testing.T) {
 	// 这是唯一一个负值有意义的时长：标准库用它表示「不发探测」
 	c := DefaultConfig()
 	c.DialKeepAlive = -1
-	if err := c.validate(); err != nil {
+	if err := c.Validate(); err != nil {
 		t.Errorf("DialKeepAlive 负值是合法的，got=%v", err)
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/xiaoshicae/x-one/internal/config"
 	"github.com/xiaoshicae/x-one/internal/hook"
@@ -1203,6 +1204,51 @@ func TestBuild_不配TrustedProxies时谁发来的透传Header都不收(t *testi
 		if trusted(e, remote) {
 			t.Errorf("默认谁都不信，对端 %s 却被当成了可信", remote)
 		}
+	}
+}
+
+func TestBuild_关掉Trace只是不开Span_上游的链路标识和透传照常接上(t *testing.T) {
+	// 回归用例。XGin.Trace: false 原先连 Extract 一起摘掉：可信对端发来的
+	// X-Request-Id、上游的 traceparent 都断在这一跳，而它本该只管 Span
+	trusted := probeTrust(t)
+	off := func(c *Config) { c.Trace = false }
+	e := New().WithConfig(configWith(quiet, off, func(c *Config) {
+		c.TrustedProxies = []string{"10.0.0.0/8"}
+	})).Engine()
+	for remote, want := range map[string]bool{"10.0.0.5:1234": true, "1.2.3.4:1234": false} {
+		if got := trusted(e, remote); got != want {
+			t.Errorf("Trace 关着时对端 %s 可信=%v，want %v：可信规则要和开着时一样", remote, got, want)
+		}
+	}
+
+	// 上游的链路标识接进了请求的 ctx，但这一跳不开 Span、不回带 X-Trace-Id
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sdktrace.NewSimpleSpanProcessor(exp)))
+	oldTP := otel.GetTracerProvider()
+	t.Cleanup(func() { otel.SetTracerProvider(oldTP) })
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	const upstream = "4bf92f3577b34da6a3ce929d0e0e4736"
+	var seen string
+	e = New().WithConfig(configWith(quiet, off)).WithRoutes(func(e *gin.Engine) {
+		e.GET("/x", func(c *gin.Context) {
+			seen = trace.SpanContextFromContext(c.Request.Context()).TraceID().String()
+		})
+	}).Engine()
+	req := httptest.NewRequest("GET", "/x", nil)
+	req.Header.Set("traceparent", "00-"+upstream+"-00f067aa0ba902b7-01")
+	w := httptest.NewRecorder()
+	e.ServeHTTP(w, req)
+
+	if seen != upstream {
+		t.Errorf("Trace 关着也该接上上游的链路标识，handler 里看到的 TraceID=%q", seen)
+	}
+	if spans := exp.GetSpans(); len(spans) != 0 {
+		t.Errorf("Trace 关着不该开 Span，got=%d 个", len(spans))
+	}
+	if w.Header().Get(middleware.TraceIDHeader) != "" {
+		t.Error("Trace 关着不回带 X-Trace-Id")
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/xiaoshicae/x-one/xgin/internal/peer"
 	"github.com/xiaoshicae/x-one/xmetric"
@@ -165,14 +166,37 @@ func TestTrace_对端可信与否按xgin留的记号(t *testing.T) {
 		mws  []gin.HandlerFunc
 		want bool
 	}{
-		"单独用":       {[]gin.HandlerFunc{Trace()}, false},
-		"xgin 标了可信": {[]gin.HandlerFunc{markTrusted, Trace()}, true},
+		"单独用":                 {[]gin.HandlerFunc{Trace()}, false},
+		"xgin 标了可信":           {[]gin.HandlerFunc{markTrusted, Trace()}, true},
+		"Propagate 单独用":       {[]gin.HandlerFunc{Propagate()}, false},
+		"Propagate xgin 标了可信": {[]gin.HandlerFunc{markTrusted, Propagate()}, true},
 	} {
 		got = !c.want
 		serve(t, get("/hello"), c.mws, func(c *gin.Context) { c.Status(200) })
 		if got != c.want {
 			t.Errorf("%s：carrier 声明的可信=%v，want %v", name, got, c.want)
 		}
+	}
+}
+
+func TestPropagate_接上上游链路但不开Span(t *testing.T) {
+	spans := recording(t)
+	req := get("/hello")
+	req.Header.Set("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+
+	var seen string
+	w := serve(t, req, []gin.HandlerFunc{Propagate()}, func(c *gin.Context) {
+		seen = trace.SpanContextFromContext(c.Request.Context()).TraceID().String()
+		c.Status(200)
+	})
+	if seen != "4bf92f3577b34da6a3ce929d0e0e4736" {
+		t.Errorf("handler 的 ctx 里该是上游的链路标识，got=%q", seen)
+	}
+	if n := len(spans()); n != 0 {
+		t.Errorf("Propagate 不开 Span，got=%d 个", n)
+	}
+	if w.Header().Get(TraceIDHeader) != "" {
+		t.Error("没开 Span 就不回带 X-Trace-Id")
 	}
 }
 

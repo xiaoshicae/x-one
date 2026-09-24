@@ -570,8 +570,10 @@ mutate("Swagger 挂在配置的前缀下", "xginswagger/swagger.go", "./xginswag
 # 默认值是预填进结构体的：默认给了 Schemes，没写它也会盖掉注解里的 @schemes
 mutate("Swagger 没写 Schemes 就沿用注解", "xginswagger/swagger.go", "./xginswagger", "TestConfig_没写Schemes",
        swap('\treturn Config{}\n', '\treturn Config{Schemes: []string{"https", "http"}}\n'))
+# 校验只剩 Validate 这一处，靠 xconfig.Unmarshal 调到它。变异把 &c 换成一个没有方法的
+# 同构类型：解码照旧，Validate 不再被调——这正是忘了导出、或者方法签名写错时的形状
 mutate("Swagger 前缀格式不对要启动失败", "xginswagger/swagger.go", "./xginswagger", "TestLoadConfig",
-       swap('\tif err := c.validate(); err != nil {', '\tif err := c.validate(); false && err != nil {'))
+       swap('xconfig.Unmarshal(ConfigKey, &c)', 'func() error { type raw Config; return xconfig.Unmarshal(ConfigKey, (*raw)(&c)) }()'))
 
 section("中间件")
 mutate("代理网段写错要启动失败", "xgin/config.go", "./xgin", "TestValidate", swap('if !isIPOrCIDR(p) {','if false {'))
@@ -722,7 +724,19 @@ mutate("链路关闭在调用方的 ctx 上收紧", "xtrace/xtrace.go", "./xtrac
        swap('context.WithTimeout(parent, c.timeout)', 'context.WithTimeout(context.Background(), c.timeout)'))
 # 照单全收的话，公网客户端发一个 X-Tenant-Id 就被带进内网的每一次调用
 mutate("透传 Header 只收可信对端发来的", "xtrace/propagator.go", "./xtrace", "TestHeaderPropagator_只收|TestNew_装好的",
-       swap('\tif !fromTrustedPeer(carrier) {', '\tif false && !fromTrustedPeer(carrier) {'))
+       swap('\tif !fromTrustedPeer(carrier) {\n\t\tp.warnUntrusted(carrier)', '\tif false && !fromTrustedPeer(carrier) {\n\t\tp.warnUntrusted(carrier)'))
+# baggage 和透传头是同一种东西，OTel 自带的那个谁发来的都收
+mutate("baggage 只收可信对端发来的", "xtrace/propagator.go", "./xtrace", "TestNew_装好的Propagator只收可信对端的baggage",
+       swap('\tif !fromTrustedPeer(carrier) {\n\t\t// 只告警一次', '\tif false {\n\t\t// 只告警一次'))
+mutate("装的是只收可信对端的 baggage", "xtrace/xtrace.go", "./xtrace", "TestNew_装好的Propagator只收可信对端的baggage",
+       swap('&trustedBaggage{}', 'propagation.Baggage{}'))
+mutate("不可信对端带来 baggage 时只告警一次", "xtrace/propagator.go", "./xtrace", "TestTrustedBaggage",
+       swap('b.warned.CompareAndSwap(false, true)', 'true'))
+# 透传规则写错原先要等装 Propagator 才报；New 照样会报，所以要看错误出自读配置那一步
+mutate("透传规则在读配置时就校验", "xtrace/config.go", "./xtrace", "TestInitXTrace_透传规则",
+       swap('\tif c.forwardEnabled() {\n\t\tif _, err := newHeaderPropagator(', '\tif false && c.forwardEnabled() {\n\t\tif _, err := newHeaderPropagator('))
+mutate("XTrace 块在读配置时就校验", "xtrace/xtrace.go", "./xtrace", "TestInitXTrace_透传规则",
+       swap('xconfig.Unmarshal(ConfigKey, &c)', 'func() error { type raw Config; return xconfig.Unmarshal(ConfigKey, (*raw)(&c)) }()'))
 mutate("不可信对端带来透传头时只告警一次", "xtrace/propagator.go", "./xtrace", "TestHeaderPropagator_不可信",
        swap('\tif p.warned.Load() {\n\t\treturn\n\t}\n', ''),
        swap('if p.warned.CompareAndSwap(false, true) {', 'if true {'))
@@ -733,6 +747,13 @@ mutate("可信网段来自装配时的配置", "xgin/xgin.go", "./xgin", "TestBu
        swap('g.trusted = prefixes(c.TrustedProxies)', 'g.trusted = prefixes(nil)'))
 mutate("装配时先判对端再开链路", "xgin/xgin.go", "./xgin", "TestBuild_只有",
        swap('e.Use(g.markTrustedPeer, middleware.Trace())', 'e.Use(middleware.Trace())'))
+# XGin.Trace 只管 Span。原先关掉它连提取一起摘了，上游的链路标识和透传头都不收
+mutate("XGin.Trace 关掉照样接上游的链路和透传", "xgin/xgin.go", "./xgin", "TestBuild_关掉Trace",
+       swap('e.Use(g.markTrustedPeer, middleware.Propagate())', 'e.Use(g.markTrustedPeer)'))
+mutate("XGin.Trace 关掉时可信规则不变", "xgin/xgin.go", "./xgin", "TestBuild_关掉Trace",
+       swap('e.Use(g.markTrustedPeer, middleware.Propagate())', 'e.Use(middleware.Propagate())'))
+mutate("Propagate 也把可信记号交给 xtrace", "xgin/middleware/trace.go", "./xgin", "TestTrace_对端可信",
+       swap('WithContext(otel.GetTextMapPropagator().Extract(c.Request.Context(), inbound(c)))', 'WithContext(otel.GetTextMapPropagator().Extract(c.Request.Context(), propagation.HeaderCarrier(c.Request.Header)))'))
 mutate("链路中间件把可信记号交给 xtrace", "xgin/middleware/trace.go", "./xgin", "TestTrace_对端可信",
        swap('\tif c.GetBool(peer.TrustedKey) {\n\t\treturn trustedCarrier{h}\n\t}\n', '\t_ = peer.TrustedKey\n'))
 # 两个模块靠 TrustedPeer() 这个方法名接头，各自的单元测试只看得见自己那一半。
@@ -835,7 +856,10 @@ mutate("xcache 没配也让注册表知道启动过了", "xcache/xcache.go", "./
 # 乱序的桶能通过启动，然后在第一次 Observe 时 panic——在业务请求里；
 # 不合规的 Namespace 不报错，导出时被悄悄转义，看板按原名查不到
 mutate("指标配置说不通时启动就失败", "xmetric/xmetric.go", "./xmetric", "TestNew|TestInitXMetric",
-       swap('\tif err := cfg.validate(); err != nil {', '\tif err := cfg.validate(); false && err != nil {'))
+       swap('\tif err := cfg.Validate(); err != nil {', '\tif err := cfg.Validate(); false && err != nil {'))
+# New 照样校验，所以只看「启动失败」测不出来：要看错误出自读配置那一步
+mutate("XMetric 块在读配置时就校验", "xmetric/xmetric.go", "./xmetric", "TestInitXMetric",
+       swap('xconfig.Unmarshal(ConfigKey, &c)', 'func() error { type raw Config; return xconfig.Unmarshal(ConfigKey, (*raw)(&c)) }()'))
 mutate("直方图的桶必须严格递增", "xmetric/config.go", "./xmetric", "TestNew",
        swap('if i > 0 && v <= b[i-1] {', 'if false && i > 0 && v <= b[i-1] {'))
 mutate("桶写成空列表要启动失败", "xmetric/config.go", "./xmetric", "TestNew|TestInitXMetric",
@@ -1022,6 +1046,10 @@ mutate("关实例先摘再关", "internal/xclient/xclient.go", ".", "TestClose",
 # Timeout 为负反而被标准库当成「不限时」，超时保护整个消失
 mutate("负的时长要被拦住", "xhttp/config.go", "./xhttp", "TestInitXHttp|TestValidate",
        swap('\t\tif d.val < 0 {', '\t\tif false {'))
+mutate("XHttp 块在读配置时就校验", "xhttp/xhttp.go", "./xhttp", "TestInitXHttp",
+       swap('xconfig.Unmarshal(ConfigKey, &c)', 'func() error { type raw Config; return xconfig.Unmarshal(ConfigKey, (*raw)(&c)) }()'))
+mutate("直接调 xhttp.New 也校验", "xhttp/xhttp.go", "./xhttp", "TestNew_直接调",
+       swap('\tif err := cfg.Validate(); err != nil {', '\tif err := cfg.Validate(); false && err != nil {'))
 # 「XRedis:」这样的空块曾经让启动直接失败：Has 返回 false，那个包就此跳过、
 # 不再 Unmarshal，于是这个 key 没人认领，而 Unclaimed 报出来的两条原因
 # （拼错了、忘了 import）都不成立，照着查什么都查不出来
@@ -1082,6 +1110,20 @@ mutate("代理网段设不上时退回谁都不信", "xgin/xgin.go", "./xgin", "
        swap('\t\t_ = e.SetTrustedProxies([]string{})', ''))
 
 # resty 的默认 logger 绕开 slog 直写 stderr，重试失败时连查询串里的令牌一起打
+# XHttp.Trace 只管 Span。原先关掉它连注入一起摘了，透传头和 traceparent 断在这一跳
+mutate("XHttp.Trace 关掉照样注入链路标识和透传头", "xhttp/xhttp.go", "./xhttp", "TestNew_关掉Trace",
+       swap('next := http.RoundTripper(propagateOnly{next: pool})', 'next := pool'))
+mutate("XHttp.Trace 关掉照样按域名透传", "xhttp/xhttp.go", "./xhttp", "TestNew_关掉Trace",
+       swap('\treturn &xtrace.Transport{Next: next}\n', '\tif !cfg.Trace {\n\t\treturn next\n\t}\n\treturn &xtrace.Transport{Next: next}\n'))
+mutate("只注入那一层不改调用方的请求", "xhttp/xhttp.go", "./xhttp", "TestNew_关掉Trace",
+       swap('\tr = r.Clone(r.Context())\n', ''))
+mutate("只注入那一层转发 CloseIdleConnections", "xhttp/xhttp.go", "./xhttp", "TestNew_关掉Trace",
+       swap('func (p propagateOnly) CloseIdleConnections() {', 'func (p propagateOnly) closeIdleConnections() {'))
+# 方法是自由 token，照抄进标签的话谁都能把时间序列撑爆。打在两个调用点上
+mutate("出站指标的 method 标签收敛", "xhttp/metric.go", "./xhttp", "TestMetric",
+       swap('normalizeMethod(raw.Method)', 'raw.Method', 2))
+mutate("出站指标注册失败不让 New 失败", "xhttp/xhttp.go", "./xhttp", "TestNew_指标注册失败",
+       swap('\t\t\tslog.Error("xhttp failed to register the request duration metric', '\t\t\treturn nil, nil, err\n\t\t\tslog.Error("xhttp failed to register the request duration metric'))
 mutate("resty 自己的日志走 slog", "xhttp/xhttp.go", "./xhttp", "TestNew_resty",
        swap('return resty.NewWithClient(hc).SetLogger(restyLogger{})', 'return resty.NewWithClient(hc)'))
 mutate("resty 日志去掉查询串", "xhttp/xhttp.go", "./xhttp", "TestNew_resty",

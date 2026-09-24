@@ -3,6 +3,7 @@ package xhttp
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -50,7 +51,7 @@ func installMetrics(client *resty.Client, hist *prometheus.HistogramVec) {
 			return
 		}
 		raw := resp.Request.RawRequest
-		observe(hist, raw.Method, raw.URL.Host, strconv.Itoa(resp.StatusCode()),
+		observe(hist, normalizeMethod(raw.Method), raw.URL.Host, strconv.Itoa(resp.StatusCode()),
 			elapsed(resp.Request, resp.Time()))
 	})
 
@@ -66,8 +67,31 @@ func installMetrics(client *resty.Client, hist *prometheus.HistogramVec) {
 		if errors.As(err, &re) && re.Response != nil {
 			status, dur = strconv.Itoa(re.Response.StatusCode()), re.Response.Time()
 		}
-		observe(hist, raw.Method, raw.URL.Host, status, elapsed(req, dur))
+		observe(hist, normalizeMethod(raw.Method), raw.URL.Host, status, elapsed(req, dur))
 	})
+}
+
+// knownMethods RFC 9110 定的那几个方法，加上 PATCH。与 xgin/middleware 的那份一致
+var knownMethods = map[string]struct{}{
+	http.MethodGet: {}, http.MethodHead: {}, http.MethodPost: {}, http.MethodPut: {},
+	http.MethodPatch: {}, http.MethodDelete: {}, http.MethodConnect: {},
+	http.MethodOptions: {}, http.MethodTrace: {},
+}
+
+// methodOther 不认识的方法统一记成这个
+const methodOther = "OTHER"
+
+// normalizeMethod 把方法收敛到一个固定集合。
+//
+// 方法是一个自由 token，出站这边它来自业务代码，常常是从上游请求、配置、
+// 消息里转手来的——照抄进标签的话，每来一个新值就多一组时间序列，没有淘汰机制。
+// 与 xgin/middleware 的 normalizeMethod 同一个道理；那边是另一个 module 的
+// 内部包，这几行宁可重复，也不为它新开一个公共包。
+func normalizeMethod(m string) string {
+	if _, ok := knownMethods[m]; ok {
+		return m
+	}
+	return methodOther
 }
 
 // elapsed 取整次逻辑请求的耗时，拿不到起点时退回这一次尝试的耗时

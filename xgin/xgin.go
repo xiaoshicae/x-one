@@ -170,9 +170,12 @@ func (g *XGin) build() {
 		if c.Log {
 			e.Use(middleware.LogScope())
 		}
+		// 先判对端可不可信，Trace / Propagate 才知道收不收透传 Header 和 baggage。
+		// Trace 只管 Span：关掉时照样接上游的链路标识和透传 Header，只是不开 Span
 		if c.Trace {
-			// 先判对端可不可信，Trace 才知道收不收透传 Header
 			e.Use(g.markTrustedPeer, middleware.Trace())
+		} else {
+			e.Use(g.markTrustedPeer, middleware.Propagate())
 		}
 		if c.Log {
 			skip := append([]string{}, c.LogSkipPaths...)

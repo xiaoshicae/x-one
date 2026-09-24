@@ -263,12 +263,12 @@
             "boolean",
             "string"
           ],
-          "description": "是否启用链路中间件。默认启用。",
+          "description": "是否为入站请求开服务端 Span。默认启用。 只管 Span。关掉之后照样接上游传来的 traceparent、baggage 和透传 Header （可信规则同 TrustedProxies），日志里的 trace_id 是上游的那条， 经 xhttp 发出的请求也照样带给下游；响应里不再回带 X-Trace-Id。",
           "pattern": "\\$\\{"
         },
         "TrustedProxies": {
           "type": "array",
-          "description": "信任哪些代理发来的 X-Forwarded-For / X-Real-IP。 默认一个都不信，此时 ClientIP() 就是对端地址本身。 gin 自己的默认是「全都信」，那意味着任何人发一个 X-Forwarded-For: 1.2.3.4 就能决定访问日志里的 client_ip 是什么—— 日志可以被伪造，建在这个字段上的限流和审计也一起失效。 这种事不该靠使用者记得去关，所以这里默认关掉。 真的在负载均衡后面时，把它那一段网段写进来： 它同时决定收不收透传 Header（XTrace.ForwardHeaders / ForwardHeaderRules）： 只有直连的对端在这张表里，那些值才会被收下、带给下游。「谁是自己人」 只在这一处说。所以这里只写确实可信的那一跳——负载均衡会原样转发客户端 发来的头，要先在它那里剥掉 X-Tenant-Id 这类头，再把它写进来。",
+          "description": "信任哪些代理发来的 X-Forwarded-For / X-Real-IP。 默认一个都不信，此时 ClientIP() 就是对端地址本身。 gin 自己的默认是「全都信」，那意味着任何人发一个 X-Forwarded-For: 1.2.3.4 就能决定访问日志里的 client_ip 是什么—— 日志可以被伪造，建在这个字段上的限流和审计也一起失效。 这种事不该靠使用者记得去关，所以这里默认关掉。 真的在负载均衡后面时，把它那一段网段写进来： 它同时决定收不收透传 Header（XTrace.ForwardHeaders / ForwardHeaderRules）和 baggage： 只有直连的对端在这张表里，那些值才会被收下、带给下游。「谁是自己人」 只在这一处说。所以这里只写确实可信的那一跳——负载均衡会原样转发客户端 发来的头，要先在它那里剥掉 X-Tenant-Id 这类头，再把它写进来。",
           "items": {
             "type": "string"
           }
@@ -602,7 +602,7 @@
       "properties": {
         "DialKeepAlive": {
           "type": "string",
-          "description": "TCP keep-alive 探测间隔。默认 30s。 这是唯一一个负值有意义的时长：标准库的 net.Dialer 用负值表示 「不发探测」，所以它不在 validate 的非负检查里。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
+          "description": "TCP keep-alive 探测间隔。默认 30s。 这是唯一一个负值有意义的时长：标准库的 net.Dialer 用负值表示 「不发探测」，所以它不在 Validate 的非负检查里。（时长，写成 30s / 1500ms / 1h30m 这种形式；写裸数字会启动失败）"
         },
         "DialTimeout": {
           "type": "string",
@@ -669,7 +669,7 @@
             "boolean",
             "string"
           ],
-          "description": "是否为出站请求开 Span 并透传链路 Header。默认开启。",
+          "description": "是否为出站请求开 Span。默认开启。 只管 Span。关掉之后 traceparent、baggage 和 XTrace.ForwardHeaders 里的 透传 Header 照样带给下游（链路标识来自上游，或者本进程别处开的 Span）： 这一跳不记 Span，不该让整条链路和透传在这里断掉。",
           "pattern": "\\$\\{"
         }
       },

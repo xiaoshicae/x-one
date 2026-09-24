@@ -246,8 +246,13 @@ func TestFunctional_下游收到traceparent且透传头只收可信对端的(t *
 		stub := harness.NewStub(t)
 		p := harness.Start(t, harness.Options{Downstream: stub.URL})
 		for i := range 3 {
-			r := p.Get(t, "/proxy", "X-Request-Id", fmt.Sprintf("rid-untrusted-%d", i), "X-Forwarded-For", "198.51.100.7")
+			r := p.Get(t, "/proxy", "X-Request-Id", fmt.Sprintf("rid-untrusted-%d", i), "X-Forwarded-For", "198.51.100.7",
+				"Baggage", "tenant=forged")
 			last := stub.Last(t)
+			// docs/config.md XTrace：「baggage 同样只收可信对端的」
+			if got := last.Header.Get("Baggage"); got != "" {
+				t.Errorf("TrustedProxies 没配时 baggage 不该透传，下游却收到了 %q", got)
+			}
 			if tp := last.Header.Get("Traceparent"); !strings.HasPrefix(tp, "00-"+traceIDOf(t, r)+"-") {
 				t.Errorf("下游应收到这次请求那条链路的 traceparent（%s），实际 %q", traceIDOf(t, r), tp)
 			}
@@ -275,16 +280,55 @@ func TestFunctional_下游收到traceparent且透传头只收可信对端的(t *
 			Downstream: stub.URL,
 			Overlay:    "XGin:\n  TrustedProxies: [\"127.0.0.1/32\"]\n",
 		})
-		r := p.Get(t, "/proxy", "X-Request-Id", "rid-trusted-1", "X-Forwarded-For", "198.51.100.7")
+		r := p.Get(t, "/proxy", "X-Request-Id", "rid-trusted-1", "X-Forwarded-For", "198.51.100.7", "Baggage", "tenant=acme")
 		last := stub.Last(t)
 		if got := last.Header.Get("X-Request-Id"); got != "rid-trusted-1" {
 			t.Errorf("直连对端在 TrustedProxies 里时 X-Request-Id 应透传给下游，下游收到 %q", got)
+		}
+		if got := last.Header.Get("Baggage"); got != "tenant=acme" {
+			t.Errorf("直连对端在 TrustedProxies 里时 baggage 应透传给下游，下游收到 %q", got)
 		}
 		if tp := last.Header.Get("Traceparent"); !strings.HasPrefix(tp, "00-"+traceIDOf(t, r)+"-") {
 			t.Errorf("下游应收到 traceparent（%s），实际 %q", traceIDOf(t, r), tp)
 		}
 		if l := accessLog(t, p, traceIDOf(t, r)); l.Str("client_ip") != "198.51.100.7" {
 			t.Errorf("直连对端可信时 client_ip 取 X-Forwarded-For 里的 198.51.100.7，实际 %q", l.Str("client_ip"))
+		}
+	})
+
+	// docs/config.md XTrace：「透传和链路标识不跟着 XGin.Trace / XHttp.Trace 走」，
+	// 那两个开关只管开不开 Span
+	t.Run("XGin 和 XHttp 的 Trace 都关掉", func(t *testing.T) {
+		t.Parallel()
+		stub := harness.NewStub(t)
+		p := harness.Start(t, harness.Options{
+			Spans:      true,
+			Downstream: stub.URL,
+			Overlay:    "XGin:\n  TrustedProxies: [\"127.0.0.1/32\"]\n  Trace: false\nXHttp:\n  Trace: false\n",
+		})
+		const upstream = "4bf92f3577b34da6a3ce929d0e0e4736"
+		r := p.Get(t, "/proxy", "X-Request-Id", "rid-notrace-1", "Baggage", "tenant=acme",
+			"Traceparent", "00-"+upstream+"-00f067aa0ba902b7-01")
+		if id := r.Header.Get("X-Trace-Id"); id != "" {
+			t.Errorf("XGin.Trace 关着不回带 X-Trace-Id，实际 %q", id)
+		}
+		last := stub.Last(t)
+		if got := last.Header.Get("X-Request-Id"); got != "rid-notrace-1" {
+			t.Errorf("Trace 关着 X-Request-Id 照样透传给下游，下游收到 %q", got)
+		}
+		if got := last.Header.Get("Baggage"); got != "tenant=acme" {
+			t.Errorf("Trace 关着 baggage 照样透传给下游，下游收到 %q", got)
+		}
+		if tp := last.Header.Get("Traceparent"); !strings.HasPrefix(tp, "00-"+upstream+"-") {
+			t.Errorf("Trace 关着上游的链路标识照样带给下游，下游收到 %q", tp)
+		}
+		if exit := p.Terminate(t, 20*time.Second); exit.Code != 0 {
+			t.Fatalf("SIGTERM 之后应以 0 退出，实际 %v", exit)
+		}
+		for _, s := range p.Spans(t) {
+			if s.TraceID == upstream {
+				t.Errorf("Trace 都关着，这条链路上不该导出服务端或出站 Span，实际导出了 %s（%s）", s.Name, s.Kind)
+			}
 		}
 	})
 }

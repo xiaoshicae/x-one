@@ -253,13 +253,29 @@ XTrace:
 - 判的是直连的对端（TCP 那一跳），不是从 `X-Forwarded-For` 推出来的 client IP
 - **负载均衡一般会原样转发客户端发来的头**：把它写进 `TrustedProxies` 之前，
   先在它那里剥掉这些头，否则等于又信了所有客户端
-- 链路标识（`traceparent`、`b3`、`baggage`）不受这条影响
-- 不可信的对端带着这些头来时，打一条告警（整个进程只打一次）
+- **`baggage` 同样只收可信对端的**：它和透传 Header 是同一种东西——上游给的键值原样带进
+  每一次调用，不设防的话 `ForwardHeaders` 挡在门外的 `X-Tenant-Id` 改写成
+  `baggage: tenant=…` 照样进了内网。本进程自己写进 ctx 的 baggage 照常带给下游
+- 链路标识（`traceparent`、`b3`）不受这条影响，谁发来的都接
+- 不可信的对端带着这些头来时，打一条告警（整个进程只打一次）；带着 `baggage` 来时另打一条
+  `xtrace ignored baggage from an untrusted peer`，同样只打一次
 - 不经过 xgin、自己调 `Extract` 的（比如从消息队列的消息头里取），carrier 要实现
   `TrustedPeer() bool` 并返回 `true` 才会被收下，否则一律当作不可信
 
 > 行为变化：之前的版本不看来源一律收下。升级后，没配 `XGin.TrustedProxies`
 > 的服务透传会停掉；确认上游可信之后，把它那一段网段写进 `TrustedProxies`。
+> `baggage` 从这一版起也按这条收：原先谁发来的都收。
+
+**透传和链路标识不跟着 `XGin.Trace` / `XHttp.Trace` 走。** 那两个开关只管开不开 Span：
+关掉之后入站照样接上游的 `traceparent`、`baggage` 和透传 Header（可信规则不变），
+出站照样把它们带给下游，按域名的规则照样生效。关掉的只是这一跳的 Span 和
+`X-Trace-Id` 响应头。要整个进程都不产生 Span，用 `XTrace.Enable: false`。
+
+> 行为变化：之前 `XHttp.Trace: false` 连注入一起摘掉，透传 Header 和 `traceparent`
+> 断在这一跳；`XGin.Trace: false` 连入站的提取一起摘掉，上游的链路标识和透传 Header 都不收。
+
+下面这些**读配置时就失败**（`xconfig.Unmarshal` 调 `Validate`，错误出自 xconfig、点名 `XTrace` 这一块），
+不等到装 Propagator；直接调 `xtrace.New` 的，`New` 也会校验一遍。
 
 同一个 header 同时出现在 `ForwardHeaders` 和 `ForwardHeaderRules` 里会**启动失败**：
 一边说发给所有人、一边说只发给这些人，猜哪边都可能把内部标识发给第三方。
@@ -289,7 +305,7 @@ XMetric:
   LogErrorMetric: true     # Error 级别日志计入 log_errors_total，默认开（需配合 xlog）
 ```
 
-下面这些启动时就失败，而不是留到运行期：
+下面这些读配置时就失败（`xconfig.Unmarshal` 调 `Validate`；直接调 `xmetric.New` 的由 `New` 校验），而不是留到运行期：
 
 | 写法 | 不拦的话 |
 |---|---|
@@ -587,9 +603,31 @@ XHttp:
   RetryWaitTime: 100ms
   RetryMaxWaitTime: 2s
   RetryOnlyIdempotent: true  # 默认只重试幂等方法，见下
-  Trace: true
-  Metric: true
+  Trace: true              # 出站 Span。只管 Span：关掉后 traceparent、baggage、
+                           # 透传 Header 照样带给下游，见 XTrace 那一节
+  Metric: true             # 出站耗时指标，见下
 ```
+
+配错的值（负的时长、负的重试次数和连接数）在读配置时就失败，直接调 `xhttp.New` 的由 `New` 校验。
+
+`Metric` 开着时导出 `http_client_request_duration_seconds`（带 XMetric 的 `Namespace` 前缀），
+标签三个：
+
+| 标签 | 取值 | 基数 |
+|---|---|---|
+| `method` | 收敛到固定集合：`GET` `HEAD` `POST` `PUT` `PATCH` `DELETE` `CONNECT` `OPTIONS` `TRACE`，其余（包括小写的 `get`）一律 `OTHER` | 最多 10 |
+| `host` | 请求 URL 里的 `host[:port]`，原样照抄 | **等于你调过的目标数**，见下 |
+| `status` | 响应状态码；没拿到响应（建连失败、超时）记 `0` | 有界 |
+
+`host` 没法收敛：它就是「打给谁」，看板要靠它分下游。它的基数由业务决定——
+调固定几个下游时是个位数；**目标地址来自用户输入、按租户拼子域名、或者直连一批 IP**
+（`http://10.0.3.17:8080`）时，每个新值都要乘上它出现过的 `method` × `status` 组合，
+每个组合是 15 条时间序列（默认 12 个桶，加 `+Inf`、`_sum`、`_count`），没有淘汰机制。那种调用关掉 `Metric` 用单独的客户端发
+（`xhttp.New` 自己建一个），或者在前面挂一层固定域名的网关。
+
+指标注册失败（比如同名指标已被别处注册成别的类型）**不让启动失败**：只打一条
+`xhttp failed to register the request duration metric` 的错误日志，客户端照常可用，
+那组指标导不出去——与 xgin / xgorm / xredis 一致，可观测性的问题不该让出站调用跟着起不来。
 
 `RetryOnlyIdempotent` 默认开着：传输层超时分不出「请求没到服务端」和
 「服务端处理完了但响应丢了」，重发一个 POST 就可能变成重复下单。
@@ -654,7 +692,7 @@ XGin:
                            # 建在这个字段上的限流和审计跟着一起失效。
                            # 真在负载均衡后面时写它那一段网段：["10.0.0.0/8"]
                            # 写错的网段会直接启动失败，不会只生效一半
-                           # 它同时决定收不收透传 Header（XTrace.ForwardHeaders），
+                           # 它同时决定收不收透传 Header（XTrace.ForwardHeaders）和 baggage，
                            # 只收直连对端在这张表里的，见 XTrace 那一节
 
   # 内置中间件的开关
@@ -664,6 +702,8 @@ XGin:
   LogRequestBody: false    # 请求体进访问日志，默认关，见下
   LogResponseBody: false   # 响应体进访问日志，默认关
   Trace: true              # 链路：每个请求一个服务端 Span，响应头回带 X-Trace-Id
+                           # 只管 Span：关掉后照样接上游的 traceparent、baggage、
+                           # 透传 Header，只是不开 Span、不回带 X-Trace-Id
   Metric: true             # 请求指标，并自动挂上 MetricPath 这个端点
   MetricPath: /metrics     # Metric 开着时必须以 / 开头，否则启动失败。gin 不会拒绝别的写法，
                            # 而是悄悄改写（实测 v1.12.0）：metrics 注册成 /metrics，
@@ -779,7 +819,7 @@ XGinSwagger:
   Description: ""
   Schemes: []              # 默认留空：沿用注解里的 @schemes，写了才覆盖
   URLPrefix: ""            # UI 挂载路径前缀，默认挂在 /swagger/*any
-                           # 留空，或以 / 开头、不以 / 结尾，否则启动失败
+                           # 留空，或以 / 开头、不以 / 结尾，否则读配置时就失败
 ```
 
 `Register` 什么时候调都行（比如 `main` 顶上就调了 xgin 的 `Engine()`）：

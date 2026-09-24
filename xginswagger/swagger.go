@@ -22,7 +22,6 @@ import (
 
 	"github.com/xiaoshicae/x-one/xapp"
 	"github.com/xiaoshicae/x-one/xconfig"
-	"github.com/xiaoshicae/x-one/xerror"
 	"github.com/xiaoshicae/x-one/xhook"
 )
 
@@ -60,8 +59,10 @@ type Config struct {
 	URLPrefix string `yaml:"URLPrefix"`
 }
 
-// validate 检查配置本身说不通的地方
-func (c Config) validate() error {
+// Validate 检查配置本身说不通的地方。
+//
+// xconfig.Unmarshal 解完配置文件里的 XGinSwagger 块会调它，配错的值在读配置时就失败。
+func (c Config) Validate() error {
 	if c.URLPrefix != "" && (!strings.HasPrefix(c.URLPrefix, "/") || strings.HasSuffix(c.URLPrefix, "/")) {
 		return fmt.Errorf("URLPrefix must start with / and must not end with /, got=%q", c.URLPrefix)
 	}
@@ -92,14 +93,11 @@ func loadConfig(context.Context) error {
 //
 // 什么时候调都行：配置文件第一次读的时候才加载，读到的永远是最终值——
 // 在 main 顶上、xone.Run 之前就装配 engine 也一样。
-// 解不出来或者不合法时返回默认值和那个错误
+// xconfig.Unmarshal 解完会调 Validate；解不出来或者不合法时返回默认值和那个错误
 func fileConfig() (Config, error) {
 	c := DefaultConfig()
 	if err := xconfig.Unmarshal(ConfigKey, &c); err != nil {
 		return DefaultConfig(), err
-	}
-	if err := c.validate(); err != nil {
-		return DefaultConfig(), xerror.Newf("xginswagger", "config", "invalid config: %w", err)
 	}
 	return c, nil
 }

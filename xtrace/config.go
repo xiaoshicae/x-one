@@ -78,11 +78,14 @@ func DefaultConfig() Config {
 	}
 }
 
-// validate 检查配置本身说不通的地方
+// Validate 检查配置本身说不通的地方，透传 Header 的规则也在内。
 //
-// 这里返回普通 error，由模块边界（New）包一次 xerror：每层都包的话，
-// 消息里会套出两层 xtrace。
-func (c Config) validate() error {
+// xconfig.Unmarshal 解完配置文件里的 XTrace 块会调它，配错的值在读配置时就失败；
+// 直接调 New 的，New 也会调一次。
+//
+// 这里返回普通 error，由调它的那一层（xconfig.Unmarshal 或 New）包一次 xerror：
+// 每层都包的话，消息里会套出两层 xtrace。
+func (c Config) Validate() error {
 	if c.ShutdownTimeout <= 0 {
 		return fmt.Errorf("ShutdownTimeout must be > 0 "+
 			"(0 is not unlimited, it is no wait at all, and buffered spans get dropped), got=%v", c.ShutdownTimeout)
@@ -91,6 +94,12 @@ func (c Config) validate() error {
 	// 会拿它算出一个说不清的阈值
 	if math.IsNaN(c.SampleRatio) || c.SampleRatio < 0 || c.SampleRatio > 1 {
 		return fmt.Errorf("SampleRatio must be within [0, 1], got=%v", c.SampleRatio)
+	}
+	// 通配写错、一个头两边都写，都是决定内部标识发给谁的配置，读配置时就拦下
+	if c.forwardEnabled() {
+		if _, err := newHeaderPropagator(c.ForwardHeaders, c.ForwardHeaderRules); err != nil {
+			return err
+		}
 	}
 	return nil
 }

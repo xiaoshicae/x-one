@@ -39,7 +39,7 @@ type Config struct {
 	// DialKeepAlive TCP keep-alive 探测间隔。默认 30s。
 	//
 	// 这是唯一一个负值有意义的时长：标准库的 net.Dialer 用负值表示
-	// 「不发探测」，所以它不在 validate 的非负检查里。
+	// 「不发探测」，所以它不在 Validate 的非负检查里。
 	DialKeepAlive time.Duration `yaml:"DialKeepAlive"`
 
 	// MaxIdleConns 全局最大空闲连接数。默认 100。
@@ -70,7 +70,11 @@ type Config struct {
 	// 确认接口幂等（比如带幂等键）之后再关掉它。
 	RetryOnlyIdempotent bool `yaml:"RetryOnlyIdempotent"`
 
-	// Trace 是否为出站请求开 Span 并透传链路 Header。默认开启。
+	// Trace 是否为出站请求开 Span。默认开启。
+	//
+	// 只管 Span。关掉之后 traceparent、baggage 和 XTrace.ForwardHeaders 里的
+	// 透传 Header 照样带给下游（链路标识来自上游，或者本进程别处开的 Span）：
+	// 这一跳不记 Span，不该让整条链路和透传在这里断掉。
 	Trace bool `yaml:"Trace"`
 
 	// Metric 是否导出出站请求的指标（按方法、目标、状态码分）。默认开启。
@@ -94,8 +98,12 @@ func DefaultConfig() Config {
 	}
 }
 
-// validate 检查配置本身说不通的地方
-func (c Config) validate() error {
+// Validate 检查配置本身说不通的地方。
+//
+// xconfig.Unmarshal 解完配置文件里的 XHttp 块会调它，配错的值在读配置时就失败、
+// 带着是哪个文件哪一块；直接调 New 的，New 也会调一次。
+// 返回普通 error，由调它的那一层包一次 xerror。
+func (c Config) Validate() error {
 	if c.RetryCount < 0 {
 		return fmt.Errorf("RetryCount must not be negative, got=%d", c.RetryCount)
 	}
