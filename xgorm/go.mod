@@ -6,9 +6,9 @@ require (
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/prometheus/client_golang v1.24.1
-	github.com/xiaoshicae/x-one v0.1.0
-	github.com/xiaoshicae/x-one/xmetric v0.1.0
-	github.com/xiaoshicae/x-one/xtrace v0.1.0
+	github.com/xiaoshicae/x-one v0.0.0
+	github.com/xiaoshicae/x-one/xmetric v0.0.0
+	github.com/xiaoshicae/x-one/xtrace v0.0.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/sdk v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
@@ -42,4 +42,11 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
+)
+
+// 都还没打 tag，本地开发与 CI 都走仓库内的相对路径
+replace (
+	github.com/xiaoshicae/x-one => ../
+	github.com/xiaoshicae/x-one/xmetric => ../xmetric
+	github.com/xiaoshicae/x-one/xtrace => ../xtrace
 )
