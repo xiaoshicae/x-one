@@ -191,7 +191,7 @@ GORM 的 PG 方言没参数可代时会写成 `$1$`，这里改回去了）。
 | PG 16 | 23514 | `Detail` 是 `Failing row contains (3, chk@y, 500, null, null).` |
 
 所以日志的 `error` 字段和 Span 的状态描述只写 `mysql error 1062 (message omitted, it may contain parameter values)`，
-错误码另记（字段见 [「可观测 · 链路」](#数据库)），不调 `RecordError`。**返回给调用方的错误原样不变**，
+错误码另记（字段见 [「可观测 · 链路」](#链路)），不调 `RecordError`。**返回给调用方的错误原样不变**，
 `errors.As` 照样取得到 `*mysql.MySQLError` / `*pgconn.PgError`。网络错误、ctx 取消、`record not found`
 这类客户端一侧的错照原文记。例外是 `database/sql` 的扫描错误，它会引出扫不进去的那个值
 （实测 PG：`converting driver.Value type string ("abc-secret") to a int: invalid syntax`），那是列类型与字段类型对不上。
