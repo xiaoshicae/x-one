@@ -1,0 +1,131 @@
+name: release
+
+# 发布按钮：Actions → release → Run workflow，填版本号（如 v0.1.0）。
+#
+# 做的事和本地 scripts/release.sh 一样，只是在 GitHub 的机器上跑、跑完自己推送：
+#   1. 跑一遍 e2e（真实的 PG / MySQL / Redis / ClickHouse，同 e2e.yml）；
+#   2. release.sh --apply：检查、单测，把各模块 go.mod 里的 replace 换成真实版本号，
+#      提交、给每个模块打 tag（v0.1.0、xgin/v0.1.0……），再补一个还原 replace 的提交；
+#   3. 两个提交和全部 tag 一次推送（--atomic：要么全上去，要么一个都不上去）；
+#   4. release.sh --verify：在一个全新的外部工程里 go get，验证装得上、跑得起来。
+#
+# 只能手动触发、只能从 main 发。tag 推出去就被 Go 的 module proxy 永久缓存，删不掉，
+# 推错了只能再发一版盖过去——所以前面任何一步红了，都不会推送。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号，vX.Y.Z（只收 v0 / v1）'
+        required: true
+        type: string
+
+# 同一时间只跑一个发布
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # 推提交和 tag
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # 和 e2e.yml 同一套服务容器，账号密码与 e2e/compose.yml、e2e/harness 的默认值一致
+    services:
+      postgres:
+        image: mirror.gcr.io/library/postgres:16
+        env:
+          POSTGRES_USER: xone
+          POSTGRES_PASSWORD: e2e-secret-pw
+          POSTGRES_DB: xone_e2e
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U xone -d xone_e2e"
+          --health-interval 2s --health-retries 30
+      mysql:
+        image: mirror.gcr.io/library/mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: e2e-root-pw
+          MYSQL_USER: xone
+          MYSQL_PASSWORD: e2e-secret-pw
+          MYSQL_DATABASE: xone_e2e
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uxone -pe2e-secret-pw"
+          --health-interval 2s --health-retries 60
+      redis:
+        image: mirror.gcr.io/library/redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s --health-retries 30
+      clickhouse:
+        image: mirror.gcr.io/clickhouse/clickhouse-server:24.8
+        env:
+          CLICKHOUSE_USER: xone
+          CLICKHOUSE_PASSWORD: e2e-secret-pw
+          CLICKHOUSE_DB: xone_e2e
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'
+        ports: ['9000:9000', '8123:8123']
+        options: >-
+          --health-cmd "wget -qO- http://127.0.0.1:8123/ping"
+          --health-interval 2s --health-retries 60
+    env:
+      # 版本号经环境变量进脚本，不直接拼进 run：输入框里的内容不该有机会变成命令
+      VERSION: ${{ inputs.version }}
+      XONE_E2E_EXTERNAL: '1'
+      XONE_E2E_PG_ADDR: 127.0.0.1:5432
+      XONE_E2E_MYSQL_ADDR: 127.0.0.1:3306
+      XONE_E2E_REDIS_ADDR: 127.0.0.1:6379
+      XONE_E2E_CH_ADDR: 127.0.0.1:9000
+      XONE_E2E_CH_HTTP_ADDR: 127.0.0.1:8123
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # release.sh 要看已有的 tag，还要取发布提交的上一版
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: '**/go.sum'
+
+      - name: 这个版本还没发过
+        run: |
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "::error::tag $VERSION 已经存在，换一个版本号"
+            exit 1
+          fi
+
+      # 跳过的三条同 e2e.yml：PG / MySQL / Redis 的 TLS 用例要 root 起本机实例，runner 不是 root。
+      # e2e 在这里先跑，release.sh 就不必再跑一遍（--e2e-passed）
+      - name: e2e
+        shell: bash
+        run: scripts/e2e.sh -skip 'TestTLS_(PostgreSQL|MySQL|Redis)$' 2>&1 | tee e2e.log
+
+      - name: release.sh --apply（本地提交、打 tag）
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          scripts/release.sh "$VERSION" --apply --e2e-passed
+
+      # 两个提交和全部 tag 一次推上去：tag 指向去掉 replace 的发布提交，main 停在还原之后的那个
+      - name: 推送
+        run: git push --atomic origin HEAD:main --tags
+
+      - name: release.sh --verify（外部工程装得上、跑得起来）
+        run: scripts/release.sh "$VERSION" --verify
+
+      - name: summary
+        if: always()
+        run: |
+          {
+            echo "### release $VERSION"
+            echo
+            if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+              echo "tag：$(git tag --points-at "$VERSION" | tr '\n' ' ')"
+            else
+              echo "没有打 tag，也没有推送。"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

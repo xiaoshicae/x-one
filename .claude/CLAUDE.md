@@ -53,5 +53,6 @@ scripts/mutate.py [--only X] [-k X] [-j N] [--dry-run]   # 变异测试，经 ov
 scripts/e2e.sh [--load] [-run X]     # 真实服务测试：拉起 PG / MySQL / Redis / ClickHouse；CI 里是 .github/workflows/e2e.yml
 docker compose -f e2e/compose.yml up -d --wait   # 本机没装这些服务时
 scripts/release.sh vX.Y.Z --apply    # 打 tag（不推送）；--verify 推送之后验证装得上；--e2e-passed 跳过 e2e
+                                     # 平时用 GitHub Actions 的 release 按钮：同样几步，跑完自己推送
 go test -run=NONE -bench=. -benchtime=100000x ./xlog/ ./xflow/ ./xgin/middleware/   # 改热点代码前后各跑一次
 ```
