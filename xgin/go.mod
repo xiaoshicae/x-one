@@ -2,22 +2,15 @@ module github.com/xiaoshicae/x-one/xgin
 
 go 1.25.0
 
-// 都还没打 tag，本地开发与 CI 都走仓库内的相对路径
-replace (
-	github.com/xiaoshicae/x-one => ../
-	github.com/xiaoshicae/x-one/xmetric => ../xmetric
-	github.com/xiaoshicae/x-one/xtrace => ../xtrace
-)
-
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-playground/locales v0.14.1
 	github.com/go-playground/universal-translator v0.18.1
 	github.com/go-playground/validator/v10 v10.30.4
 	github.com/prometheus/client_golang v1.24.1
-	github.com/xiaoshicae/x-one v0.0.0
-	github.com/xiaoshicae/x-one/xmetric v0.0.0-20260918025814-4fda3cf089bf
-	github.com/xiaoshicae/x-one/xtrace v0.0.0
+	github.com/xiaoshicae/x-one v0.1.0
+	github.com/xiaoshicae/x-one/xmetric v0.1.0
+	github.com/xiaoshicae/x-one/xtrace v0.1.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/sdk v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0

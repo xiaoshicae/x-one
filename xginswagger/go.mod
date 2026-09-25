@@ -7,7 +7,7 @@ require (
 	github.com/swaggo/files v1.0.1
 	github.com/swaggo/gin-swagger v1.6.1
 	github.com/swaggo/swag v1.16.6
-	github.com/xiaoshicae/x-one v0.0.0
+	github.com/xiaoshicae/x-one v0.1.0
 )
 
 require (
@@ -55,6 +55,3 @@ require (
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
-
-// 还没打 tag，本地开发与 CI 都走仓库内的相对路径
-replace github.com/xiaoshicae/x-one => ../
