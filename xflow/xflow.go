@@ -13,10 +13,12 @@
 package xflow
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"reflect"
 	"runtime/debug"
+	"time"
 
 	"github.com/xiaoshicae/x-one/xerror"
 )
@@ -149,6 +151,9 @@ func (r *Result) String() string {
 type Flow[T any] struct {
 	name  string
 	steps []entry[T]
+
+	// rollbackTimeout 这个流程自己的回滚预算，0 表示跟着 XFlow.RollbackTimeout 走
+	rollbackTimeout time.Duration
 }
 
 // entry 一个步骤，连同构建时就定下来的名字和依赖强弱
@@ -199,6 +204,20 @@ func New[T any](name string, steps ...Processor[T]) *Flow[T] {
 
 // Name 流程名
 func (f *Flow[T]) Name() string { return f.name }
+
+// WithRollbackTimeout 给这个流程单独定回滚的总预算，压过配置里的 XFlow.RollbackTimeout。
+//
+// 不跑 xone.Run、单独用 xflow 时，这是改回滚预算的办法：配置文件只在框架启动时才读。
+// 返回一个新的 Flow，原来那个不变，所以已经在别处并发 Execute 的流程不受影响。
+// d 必须为正：0 会让回滚一进去就判超时、所有补偿被跳过，传进来就 panic。
+func (f *Flow[T]) WithRollbackTimeout(d time.Duration) *Flow[T] {
+	if d <= 0 {
+		panic(fmt.Sprintf("xflow: rollback timeout of flow %q must be > 0, got=%v", f.name, d))
+	}
+	g := *f
+	g.rollbackTimeout = d
+	return &g
+}
 
 // Execute 按顺序执行各步骤，data 贯穿全程供各步读写。
 //
@@ -278,7 +297,7 @@ func (f *Flow[T]) Execute(ctx context.Context, data T) *Result {
 // 一进去就被拒绝，资源就真的漏掉了。
 // 剥掉之后由 RollbackTimeout 单独限时，免得补偿无限期挂住退出流程。
 func (f *Flow[T]) rollback(ctx context.Context, data T, done []entry[T], res *Result, m Monitor) {
-	rbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.RollbackTimeout)
+	rbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cmp.Or(f.rollbackTimeout, cfg.RollbackTimeout))
 	defer cancel()
 
 	for i := len(done) - 1; i >= 0; i-- {

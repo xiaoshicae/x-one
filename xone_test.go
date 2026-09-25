@@ -510,6 +510,48 @@ func TestRun_只写Start的Runnable也能跑(t *testing.T) {
 	}
 }
 
+func TestFunc_函数返回Run就收尾_错误原样交回(t *testing.T) {
+	// 一次性任务：钩子建好组件，函数干完活返回，Run 逆序关掉组件、把函数的错误交回来
+	r := &recorder{}
+	comps(t, comp("a", hook.StageClient, r, nil))
+	boom := errors.New("migrate failed")
+	err := Run(Func(func(context.Context) error { r.add("job"); return boom }),
+		WithConfigPath(emptyConf(t)), WithLogger(quietLogger()))
+	if !errors.Is(err, boom) {
+		t.Fatalf("Run 该交回函数的错误，got=%v", err)
+	}
+	if got, want := r.String(), "init:a → job → close:a"; got != want {
+		t.Errorf("got=%s\nwant=%s", got, want)
+	}
+}
+
+func TestFunc_传nil直接panic(t *testing.T) {
+	// 不拦的话，nil 要等启动钩子全跑完、调 Start 的那一刻才炸
+	defer func() {
+		if recover() == nil {
+			t.Error("Func(nil) 该 panic")
+		}
+	}()
+	Func(nil)
+}
+
+func TestUntilSignal_阻塞到信号再逆序关闭(t *testing.T) {
+	// 活全在钩子里的进程：Run 跑完启动钩子就停住，收到信号才去跑停止钩子
+	r := &recorder{}
+	comps(t, comp("a", hook.StageClient, r, nil))
+	start := time.Now()
+	go func() { time.Sleep(120 * time.Millisecond); syscall.Kill(syscall.Getpid(), syscall.SIGTERM) }()
+	if err := Run(UntilSignal(), WithConfigPath(emptyConf(t)), WithLogger(quietLogger())); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took < 100*time.Millisecond {
+		t.Errorf("该一直阻塞到信号（120ms），却 %v 就返回了", took)
+	}
+	if got, want := r.String(), "init:a → close:a"; got != want {
+		t.Errorf("got=%s\nwant=%s", got, want)
+	}
+}
+
 // wrongStop 的 Stop 少了 ctx：编译得过，但不是框架认的那个签名
 type wrongStop struct{ started bool }
 

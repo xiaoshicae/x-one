@@ -120,7 +120,22 @@ type Runnable interface {
 - 服务那一段（`Stop` 加上等 `Start` 返回）最多用停止预算的 **2/3**（默认 10s），到点框架就不再等它、接着关各组件。
 - `Stop` 的签名写错（少了 `ctx`），或者写在指针上、传进来的却是值，`Run` 直接报错——否则它永远不会被调到。
 
-`xgin.New()` 就是一个 Runnable。
+`xgin.New()` 就是一个 Runnable。不想为此写一个类型的，用这两个现成的：
+
+| | 什么时候用 | Run 什么时候收尾 |
+|---|---|---|
+| `xone.Func(fn)` | 一次性任务；自己写循环的消费者 | `fn` 返回时，`fn` 的错误就是 `Run` 的错误 |
+| `xone.UntilSignal()` | 活全在钩子里：`BeforeStart` 里启动、`BeforeStop` 里关（SDK 自带协程的推送式消费者、只有后台任务的进程） | 收到退出信号时 |
+
+```go
+// 一次性任务：钩子把 xgorm 建好，干完活返回，框架逆序关掉
+xone.MustRun(xone.Func(func(ctx context.Context) error {
+	return xgorm.CWithCtx(ctx).Exec("UPDATE orders SET status = 'expired' WHERE expires_at < now()").Error
+}))
+
+// 活全在钩子里：跑完启动钩子就停在这，收到信号再跑停止钩子
+xone.MustRun(xone.UntilSignal())
+```
 
 ## 非 Web 服务：consumer / job
 
@@ -161,7 +176,8 @@ func main() { xone.MustRun(&Consumer{q: client, workers: 4, timeout: 5 * time.Se
 
 **单条消息的处理超时必须小于服务那一段停止预算**（`WithStopTimeout` 的 2/3，默认 10s），否则框架等不到就往下关资源了。
 
-一次性任务（迁移、批处理）：`Start` 干完 `return nil`。它返回的错误就是 `Run` 返回的错误。
+上面的 `Consumer` 也可以不写类型，把 `Start` 的内容放进 `xone.Func(func(ctx context.Context) error { … })`；三条规矩不变。
+一次性任务（迁移、批处理）用 `xone.Func`，干完 `return nil`，见 [Runnable](#runnable)。
 
 ## 多实例
 

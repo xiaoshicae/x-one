@@ -298,6 +298,36 @@ func TestRollback_预算耗尽时把剩下的记下来(t *testing.T) {
 	}
 }
 
+func TestWithRollbackTimeout_这个流程的回滚预算压过配置_原来的流程不变(t *testing.T) {
+	// 不跑 xone.Run、单独用 xflow 时，配置文件没人读，改回滚预算只有这一条路
+	withConfig(t, nil) // 配置里是默认的 30s
+	slow := &step{name: "慢补偿", dep: Strong, rbDelay: 60 * time.Millisecond}
+	base := New("下单", ok("第一步"), slow, failing("扣款", Strong))
+	short := base.WithRollbackTimeout(20 * time.Millisecond)
+
+	if res := short.Execute(context.Background(), &data{}); len(res.RollbackErrors) == 0 {
+		t.Error("回滚预算 20ms、补偿要 60ms，该记下没做完的补偿")
+	}
+	// 返回的是新流程：原来那个还跟着配置的 30s 走，补偿全部做完
+	if res := base.Execute(context.Background(), &data{}); len(res.RollbackErrors) != 0 {
+		t.Errorf("原来的流程不该被改掉，got=%v", res.RollbackErrors)
+	}
+}
+
+func TestWithRollbackTimeout_不是正数就panic(t *testing.T) {
+	// 0 会让回滚一进去就判超时、补偿全被跳过，而流程看起来一切正常
+	for _, d := range []time.Duration{0, -time.Second} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("WithRollbackTimeout(%v) 该 panic", d)
+				}
+			}()
+			New("下单", ok("第一步")).WithRollbackTimeout(d)
+		}()
+	}
+}
+
 func TestRollback_不看ctx的补偿也挂不住Execute(t *testing.T) {
 	// 预算只在步骤之间查的话，一个不看 ctx 的 Rollback 能把 Execute 挂住：
 	// 实测 50ms 的预算等了 2s，而且挂住的那一步不在 RollbackErrors 里

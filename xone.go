@@ -50,6 +50,39 @@ type Runnable interface {
 	Start(context.Context) error
 }
 
+// Func 把一个函数当成 Runnable：fn 返回，Run 就走退出流程，fn 的错误就是 Run 的错误。
+//
+// 一次性任务（迁移、批处理、只想借框架把组件建起来干一件事）：干完 return。
+// 自己写循环的消费者：循环到 ctx 被取消，把在途的做完再 return——
+// 框架在 fn 返回之后才关数据库和缓存（见 docs/guide.md「非 Web 服务」）。
+//
+//	xone.MustRun(xone.Func(func(ctx context.Context) error {
+//		return migrate(ctx, xgorm.CWithCtx(ctx))
+//	}))
+func Func(fn func(ctx context.Context) error) Runnable {
+	if fn == nil {
+		panic("xone: Func needs a function, got nil")
+	}
+	return funcRunnable(fn)
+}
+
+type funcRunnable func(context.Context) error
+
+func (f funcRunnable) Start(ctx context.Context) error { return f(ctx) }
+
+// UntilSignal 一个什么都不做、一直阻塞到退出信号的 Runnable。
+//
+// 活全在钩子里的进程用它：比如 SDK 自带协程的推送式消费者，在 xhook.BeforeStart 里启动、
+// xhook.BeforeStop 里关；Run 跑完启动钩子就停在这里，收到信号再逆序跑停止钩子。
+//
+//	xone.MustRun(xone.UntilSignal())
+func UntilSignal() Runnable {
+	return Func(func(ctx context.Context) error {
+		<-ctx.Done()
+		return nil
+	})
+}
+
 // stopper Runnable 可选的那个 Stop
 type stopper interface {
 	Stop(context.Context) error

@@ -60,9 +60,23 @@ func Place(ctx context.Context, o *Order) error {
 
 `charge` 失败时 `reserveStock` 被回滚、`notify` 不执行；`notify` 失败只记进 `res.Skipped`，订单照常成功。
 
+## 单独使用：不跑 `xone.Run`
+
+xflow 在核心 module 里（`go get github.com/xiaoshicae/x-one`，核心只依赖 yaml），上面的代码不调 `xone.Run` 也原样能跑。
+区别只在配置：`XFlow` 块只在框架启动时读，不跑框架就是默认值（监控开着、回滚预算 30s）。要改就写在代码里：
+
+```go
+var placeOrder = xflow.New[*Order]("place_order", reserveStock{}, charge{}, notify{}).
+	WithRollbackTimeout(10 * time.Second) // 只管这个流程，压过 XFlow.RollbackTimeout
+
+func init() { xflow.SetMonitor(nil) } // 不要每一步的监控日志；换成自己的实现就传它
+```
+
+`WithRollbackTimeout` 返回一个新流程，原来那个不变；传 0 或负数直接 panic。跑框架时也能用，给个别流程单独定预算。
+
 ## 重点
 
-- **回滚不沿用调用方的 ctx**：请求一超时，补偿最需要执行，那时原来的 ctx 已经取消了。回滚改由 `XFlow.RollbackTimeout`（默认 30s）限时。
+- **回滚不沿用调用方的 ctx**：请求一超时，补偿最需要执行，那时原来的 ctx 已经取消了。回滚改由 `XFlow.RollbackTimeout`（默认 30s）限时，个别流程可以用 `WithRollbackTimeout` 单独定。
 - **预算到点就不再等**：不看 ctx 的 `Rollback` 到点也会被放弃、记进 `RollbackErrors`，但它的协程仍在后台跑、仍可能读写 `data`。
 - 弱依赖失败之后同样会被纳入回滚范围，所以 `Rollback` 不能假设 `Process` 成功过。
 - xflow 不开 Span，要链路就在步骤里自己 `otel.Tracer(...).Start`。

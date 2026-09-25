@@ -147,6 +147,10 @@ mutate("多实例的每个实例都调一次 Validate", "internal/config/clients
 
 section("启动与退出")
 # Stop 是可选的：实现了才调。打在调用点上——绕开类型断言，写了 Stop 的服务就停不下来
+# xone.Func / UntilSignal：不写类型也能交给 Run 的两个 Runnable
+mutate("Func 的错误就是 Run 的错误", "xone.go", ".", "TestFunc_", swap('func (f funcRunnable) Start(ctx context.Context) error { return f(ctx) }', 'func (f funcRunnable) Start(ctx context.Context) error { _ = f(ctx); return nil }'))
+mutate("Func(nil) 当场 panic", "xone.go", ".", "TestFunc_", swap('\tif fn == nil {\n\t\tpanic("xone: Func needs', '\tif false {\n\t\tpanic("xone: Func needs'))
+mutate("UntilSignal 阻塞到退出信号", "xone.go", ".", "TestUntilSignal", swap('\t\t<-ctx.Done()\n\t\treturn nil\n', '\t\treturn nil\n'))
 mutate("写了 Stop 的才调它", "xone.go", ".", "TestRun_逆序关闭|TestRun_只写Start",
        swap('\tif s, ok := r.(stopper); ok {\n', '\tif s, ok := any(nil).(stopper); ok {\n'))
 # Stop 签名写错编译器不拦，那个 Stop 就永远不会被调到
@@ -261,6 +265,14 @@ mutate("没写 Dependency 时是强依赖", "xflow/xflow.go", ".", "TestNew_",
 mutate("写了 Dependency 就用写的", "xflow/xflow.go", ".", "TestNew_", swap('\t\ts.dep = d.Dependency()\n', '\t\t_ = d\n'))
 # 回滚的是已执行的那段前缀：失败的弱依赖算在内（它可能留下了副作用），
 # 失败的强依赖不算（它没成）
+# 单独用 xflow 时配置文件没人读，WithRollbackTimeout 是改回滚预算的唯一办法
+mutate("流程自己的回滚预算压过配置", "xflow/xflow.go", ".", "TestWithRollbackTimeout",
+       swap('cmp.Or(f.rollbackTimeout, cfg.RollbackTimeout)', 'cmp.Or(cfg.RollbackTimeout, f.rollbackTimeout)'))
+# 就地改的话，别处正在并发 Execute 的同一个流程也被改掉
+mutate("WithRollbackTimeout 返回新流程", "xflow/xflow.go", ".", "TestWithRollbackTimeout",
+       swap('\tg := *f\n\tg.rollbackTimeout = d\n\treturn &g\n', '\tf.rollbackTimeout = d\n\treturn f\n'))
+mutate("回滚预算不是正数要 panic", "xflow/xflow.go", ".", "TestWithRollbackTimeout",
+       swap('\tif d <= 0 {\n\t\tpanic(fmt.Sprintf("xflow: rollback timeout', '\tif d < 0 {\n\t\tpanic(fmt.Sprintf("xflow: rollback timeout'))
 mutate("失败的弱依赖也要回滚", "xflow/xflow.go", ".", "TestExecute", swap('\t\t\tn++ // 失败的弱依赖', '\t\t\t// 失败的弱依赖'))
 mutate("失败的强依赖那一步不回滚", "xflow/xflow.go", ".", "TestExecute",
        swap('''\t\tf.rollback(ctx, data, f.steps[:n], res, m)
@@ -291,7 +303,7 @@ mutate("默认监控记下 panic 的调用栈", "xflow/monitor.go", ".", "TestMo
 # 回滚沿用调用方的 ctx 的话，请求一超时补偿就全部失败——而补偿最需要执行的
 # 恰恰是那时候。剥掉取消之后另给一份 RollbackTimeout，是 xflow 最核心的一条承诺
 mutate("流程超时之后回滚仍有自己的预算", "xflow/xflow.go", ".", "TestRollback|TestExecute",
-       swap('context.WithTimeout(context.WithoutCancel(ctx), cfg.RollbackTimeout)', 'context.WithTimeout(ctx, cfg.RollbackTimeout)'))
+       swap('context.WithTimeout(context.WithoutCancel(ctx), cmp.Or(', 'context.WithTimeout(ctx, cmp.Or('))
 # 预算只在步骤之间查的话，一个不看 ctx 的 Rollback 能把 Execute 挂住：
 # 50ms 的预算等了 2s，挂住的那一步还不在 RollbackErrors 里
 mutate("不看 ctx 的补偿也受回滚预算约束", "xflow/xflow.go", ".", "TestRollback",
