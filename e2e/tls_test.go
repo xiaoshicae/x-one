@@ -344,10 +344,14 @@ func TestTLS_Redis(t *testing.T) {
 			[]string{"certificate signed by unknown authority"}},
 		{"ServerName对不上", redisTLSConfig(rd.Addr, xtls.Config{Enable: true, CAFile: certs.CAFile, ServerName: "wrong.e2e.internal"}),
 			[]string{"certificate is valid for", "wrong.e2e.internal"}},
-		{"要客户端证书却没带", redisTLSConfig(rd.MTLSAddr, ca), []string{"certificate required"}},
+		// 下面两条服务端都拒了，但客户端报什么说不准（同 tls_http_test.go）：TLS 1.3 下客户端发完 Finished
+		// 就当握手成功、开始写命令，服务端的告警要等下一次读才到。实测报的有时是
+		// remote error: tls: certificate required / unknown certificate authority，
+		// 有时是 write: connection reset by peer。所以只断言被拒、且归为连不上而不是认证失败
+		{"要客户端证书却没带", redisTLSConfig(rd.MTLSAddr, ca), []string{"cannot reach"}},
 		{"客户端证书不是服务端认的CA签的", redisTLSConfig(rd.MTLSAddr,
 			xtls.Config{Enable: true, CAFile: certs.CAFile, CertFile: certs.StrangerCert, KeyFile: certs.StrangerKey}),
-			[]string{"unknown certificate authority"}},
+			[]string{"cannot reach"}},
 		{"明文", redisTLSConfig(rd.Addr, xtls.Config{}), nil},
 	}
 	for _, c := range cases {
