@@ -31,14 +31,14 @@ func getSwaggerDoc(t *testing.T, p *harness.Process, prefix string) swaggerDoc {
 	t.Helper()
 	r := p.Get(t, prefix+"/swagger/doc.json")
 	if r.Status != http.StatusOK {
-		t.Fatalf("docs/config.md XGinSwagger：doc.json 应挂在 %s/swagger/ 下，GET %s/swagger/doc.json 实际 %v", prefix, prefix, r)
+		t.Fatalf("xginswagger/README.md XGinSwagger：doc.json 应挂在 %s/swagger/ 下，GET %s/swagger/doc.json 实际 %v", prefix, prefix, r)
 	}
 	var d swaggerDoc
 	r.JSON(t, &d)
 	return d
 }
 
-// docs/config.md XGinSwagger：
+// xginswagger/README.md XGinSwagger：
 //
 //	URLPrefix  UI 挂载路径前缀，默认挂在 /swagger/*any；留空，或以 / 开头、不以 / 结尾，否则启动失败
 //	Schemes    默认留空：沿用注解里的 @schemes，写了才覆盖

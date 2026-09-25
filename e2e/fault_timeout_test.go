@@ -74,7 +74,7 @@ func TestFault_Redis慢或宕机时_命令在调用方给的截止时间返回_�
 	}
 }
 
-// docs/config.md XRedis.ReadTimeout：调用方没给截止时间时，管住一条命令的是它。
+// xredis/README.md XRedis.ReadTimeout：调用方没给截止时间时，管住一条命令的是它。
 // 配一个和默认值（500ms）明显不同的 300ms，看到的应该是 300ms——听的是配置，不是别的什么数。
 //
 // 实测：故障之后的第一条命令约 2×ReadTimeout（本机 0.63–0.66s；默认 500ms 时 1.03–1.05s），
@@ -108,7 +108,7 @@ func TestFault_Redis不回话且调用方没给截止时间_命令在配置的Re
 
 // Redis 主机宕机、调用方没给截止时间时，一条命令要多久。
 //
-// docs/config.md XRedis：一条命令最多 (MaxRetries+1)×(DialTimeout+ReadTimeout)+MaxRetries×MaxRetryBackoff，
+// xredis/README.md XRedis：一条命令最多 (MaxRetries+1)×(DialTimeout+ReadTimeout)+MaxRetries×MaxRetryBackoff，
 // 默认 7s（faultRedisCmdBudget）；MaxRetries: -1 时只剩一次尝试，不超过 DialTimeout+ReadTimeout（1s）。
 //
 // 这条式子成立靠的是 xredis 把 DialerRetries 配成 1：go-redis v9.22.0 默认每次建连内部还要
@@ -166,7 +166,7 @@ func TestFault_Redis主机宕机且调用方没给截止时间_一条命令不�
 	}
 }
 
-// 调用方给了截止时间，gorm 的查询就在那一刻返回：docs/config.md 没有单写这一条，
+// 调用方给了截止时间，gorm 的查询就在那一刻返回：xgorm/README.md 没有单写这一条，
 // 依据是 xgorm.CWithCtx 的注释「取实例并绑定 ctx，链路和超时才能传到下游」。
 // 池里的连接（卡在读上）和新建的连接（卡在 startup 或 SYN 上）都要听，所以连发 6 次
 func TestFault_PG慢或宕机时_查询在调用方给的截止时间返回(t *testing.T) {
@@ -203,7 +203,7 @@ func TestFault_PG慢或宕机时_查询在调用方给的截止时间返回(t *t
 	}
 }
 
-// docs/config.md XGorm.DialTimeout：「PostgreSQL 注入 connect_timeout（向上取整为秒）」，
+// xgorm/README.md XGorm.DialTimeout：「PostgreSQL 注入 connect_timeout（向上取整为秒）」，
 // 以及「pgx 拿 connect_timeout 管的是每个主机的整个建连……实测 TCP 秒连、startup 不回话的服务端，
 // connect_timeout=1 等满 1.0s」。
 //
@@ -258,7 +258,7 @@ func TestFault_PG慢或宕机时_新建连接在注入的connect_timeout失败(t
 	}
 }
 
-// 调用方没给截止时间、池里的连接遇上不回话的 PG：docs/behavior.md「XGorm：PostgreSQL」——
+// 调用方没给截止时间、池里的连接遇上不回话的 PG：xgorm/README.md「PostgreSQL」——
 // Postgres.StatementTimeout「默认不限制」，PG 也没有 MySQL 那样的 ReadTimeout 可配，
 // 而且 statement_timeout 是服务端的 GUC，网络那头没了它根本管不到。
 // 所以按文档，这个查询会一直等下去。这里钉住这个行为：3s 后仍没返回。

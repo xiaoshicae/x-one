@@ -13,7 +13,7 @@ import (
 )
 
 // 这一组钉的是 Redis 出故障时的行为：建连拨几次号、ctx 的取消和截止时间各管什么、
-// 认证失败怎么报、go-redis 自己的日志去了哪。数字都写进了 docs/config.md XRedis 一节
+// 认证失败怎么报、go-redis 自己的日志去了哪。数字都写进了 xredis/README.md XRedis 一节
 
 func TestNew_Redis挂了时一次建连只拨一次号(t *testing.T) {
 	// go-redis v9.22.0 默认每次建连内部重拨 5 次、间隔 100ms：拒绝连接时一次建连白等 400ms，
@@ -47,7 +47,7 @@ func TestNew_Redis挂了时一次建连只拨一次号(t *testing.T) {
 }
 
 func TestNew_命令不听ctx的取消只听截止时间(t *testing.T) {
-	// 钉住 go-redis 的行为，文档（ContextTimeoutEnabled 的注释、docs/config.md XRedis）照这个写：
+	// 钉住 go-redis 的行为，文档（ContextTimeoutEnabled 的注释、xredis/README.md XRedis）照这个写：
 	// ctx 被取消叫不醒一个阻塞在读上的命令，它等到 ReadTimeout 才返回。
 	// 哪天升级之后这条挂了，是 go-redis 开始听取消了——把文档里那句限制删掉
 	f := newFakeRedis(t)

@@ -126,7 +126,7 @@ func TestClickHouse_运行中ClickHouse拒绝连接_用到它的操作当场报�
 
 // 运行中 ClickHouse 不回话 / 主机宕机，调用方给了 200ms 的截止时间。
 //
-// docs/behavior.md「XGorm：ClickHouse」：「每条查询开始时设一次读 deadline；调用方的 ctx 有截止时间时改用它」。
+// xgorm/clickhouse/README.md「行为与实测」：「每条查询开始时设一次读 deadline；调用方的 ctx 有截止时间时改用它」。
 // 这一条只对池里现成的连接成立。新建连接走的是 database/sql 的 driver.Open（clickhouse-go v2.48.0 的 stdDriver
 // 仍没有实现 driver.DriverContext，database/sql 拿不到 ctx 传给它）：拨号是 net.DialTimeout、握手按 dial_timeout
 // 设整条连接的 deadline，都不看调用方的 ctx。所以卡住之后先是几条 200ms 返回的（池里的连接，被取消之后关掉），
@@ -179,7 +179,7 @@ func TestClickHouse_卡住或宕机时_池里的连接听调用方的截止时�
 //   - 管住这一条查询的只有驱动的 read_timeout：DSN 里写了 read_timeout=2s，2s 时这条连接读超时。
 //     v2.48.0 把读超时认成坏连接、报 driver.ErrBadConn，database/sql 换一条连接再发一次：
 //     新连接的握手撞上不回话的对端，等满 dial_timeout（500ms）失败，所以一共 2.5s，错误是握手那次的 i/o timeout；
-//   - 没写时它是 300s（docs/config.md：「read_timeout 没写时是 300s」）。等 5 分钟不现实：这里只确认 8s 后查询还挂着（clickhouse-go v2.48.0 实测
+//   - 没写时它是 300s（xgorm/clickhouse/README.md：「read_timeout 没写时是 300s」）。等 5 分钟不现实：这里只确认 8s 后查询还挂着（clickhouse-go v2.48.0 实测
 //     300.6s 才返回：300s 读超时之后 database/sql 换新连接重发，握手再等满 dial_timeout=500ms，
 //     错误是握手那次的 i/o timeout；量的时候单独跑了一次）；
 //   - 同一时刻 PG、MySQL 照常，而且快
@@ -250,7 +250,7 @@ func TestClickHouse_运行中ClickHouse不回话_不给截止时间只有read_ti
 // 调用方的截止时间代替 read_timeout（SetDeadline 在 SetReadDeadline 之后，盖掉它），比 read_timeout 长也照它来。
 //
 // v2.30.0 时相反：收到表头就把读 deadline 清掉，余下的一直读，流到一半对端不回话、又没给截止时间就一直挂着。
-// docs/behavior.md「XGorm：ClickHouse」按量出来的写了这一条
+// xgorm/clickhouse/README.md「行为与实测」按量出来的写了这一条
 func TestClickHouse_表头之后_read_timeout管余下结果的整段读_调用方的截止时间代替它(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
@@ -365,7 +365,7 @@ func chQueryStarts(t *testing.T, marker string) int {
 
 // 启动时 ClickHouse 不可达，三种不可达：拒绝连接 / 对端不回话 / 主机宕机。
 //
-// docs/config.md：「建连重试：连不上时按 3 次重试」「其余驱动是 2 × DialTimeout」，所以启动最多等
+// docs/config.md、xgorm/README.md：「建连重试：连不上时按 3 次重试」「其余驱动是 2 × DialTimeout」，所以启动最多等
 // 3 × 1s + 3s = 6s（chStartBudget）；错误要说清是哪个实例、哪个地址，不能有密码和 DSN。
 //
 // 「对端不回话」那一种数得到尝试次数，它守的是「其它驱动」那一节：驱动在 Initialize 里查版本那一次
@@ -410,7 +410,7 @@ func TestClickHouse_启动时ClickHouse不可达_在文档的预算内失败_错
 
 // 启动时 ClickHouse 不回话 / 主机宕机，这时收到 SIGTERM。
 //
-// MySQL、PG 的建连在信号之后几毫秒就放弃；ClickHouse 做不到：docs/behavior.md「XGorm：ClickHouse」——
+// MySQL、PG 的建连在信号之后几毫秒就放弃；ClickHouse 做不到：xgorm/clickhouse/README.md「行为与实测」——
 // 「建连用 net.DialTimeout，不看 ctx，只受 dial_timeout 管；握手阶段同样按 dial_timeout 设整条连接的 deadline」，
 // 「Ping 只认截止时间、不认取消」。xgorm 的探测是在当前协程里等的（sql.DB 的 Close 会等在途的查询，丢给别的协程
 // 也关不掉它），所以信号之后要等这一次拨号或握手撞上 dial_timeout 才退出：上界是 dial_timeout（默认 500ms），

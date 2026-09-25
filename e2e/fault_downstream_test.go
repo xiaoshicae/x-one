@@ -11,14 +11,14 @@ import (
 	"github.com/xiaoshicae/x-one/e2e/harness"
 )
 
-// docs/config.md XHttp 的默认值，以及这组用例配的 Timeout
+// xhttp/README.md XHttp 的默认值，以及这组用例配的 Timeout
 const (
 	faultHTTPTimeout          = 300 * time.Millisecond // XHttp.Timeout，和文档里「实测 1.24s」那一例同一个数
 	faultHTTPRetryWaitTime    = 100 * time.Millisecond // RetryWaitTime 默认
 	faultHTTPRetryMaxWaitTime = 2 * time.Second        // RetryMaxWaitTime 默认
 )
 
-// faultHTTPWorstCase docs/config.md：「开了 RetryCount 之后最坏情况是 (RetryCount+1) × Timeout
+// faultHTTPWorstCase xhttp/README.md：「开了 RetryCount 之后最坏情况是 (RetryCount+1) × Timeout
 // 再加上几次退避等待」。每次退避不超过 RetryMaxWaitTime
 func faultHTTPWorstCase(retries int) time.Duration {
 	return time.Duration(retries+1)*faultHTTPTimeout + time.Duration(retries)*faultHTTPRetryMaxWaitTime
@@ -49,7 +49,7 @@ func faultCallDownstream(t *testing.T, p *harness.Process, token, method string)
 
 // faultRestyLogs xhttp 接到 slog 上的 resty 日志，按级别数一下。
 // resty 只在 RetryCount > 0 时记：每次失败的尝试一行 WARN（…, Attempt N），用完再一行 ERROR
-// （resty v2.17.2 request.go 的 Execute；docs/behavior.md XHttp 那张表的第一行）
+// （resty v2.17.2 request.go 的 Execute；xhttp/README.md「行为与实测」那张表的第一行）
 func faultRestyLogs(p *harness.Process) (warn, errs int, lines []harness.Log) {
 	for _, l := range p.FindLogs(func(l harness.Log) bool { return l.Msg() == "xhttp resty log" }) {
 		switch l.Level() {
@@ -66,14 +66,14 @@ func faultRestyLogs(p *harness.Process) (warn, errs int, lines []harness.Log) {
 // faultWaitRestyLogs 等到 resty 的 ERROR 那一行出现（它在 handler 返回之前写，但 harness 读输出有先后），
 // 再核对这次请求查询串里的 token 没有落进日志：
 //
-//	接到 slog 的每一行里都不该有它（docs/config.md XHttp：「URL 去掉查询串」）
+//	接到 slog 的每一行里都不该有它（xhttp/README.md XHttp：「URL 去掉查询串」）
 //	stderr 里也不该有它：resty 的日志没接到 slog 时，resty 自己的 logger 往 stderr 写
 //	「WARN RESTY Get "…/echo?token=…"」，这几行不经 slog，只查 slog 的那几行查不到它们。
 //	xlog 运行期间写 stdout，stderr 上只剩绕开 slog 的输出，所以这里整段查
 func faultWaitRestyLogs(t *testing.T, p *harness.Process, token string) (warn, errs int, lines []harness.Log) {
 	t.Helper()
 	if _, ok := p.LookForLog(waitFor, func(l harness.Log) bool { return l.Msg() == "xhttp resty log" && l.Level() == "ERROR" }); !ok {
-		t.Errorf("docs/config.md 说 resty 的日志接到 slog（消息 xhttp resty log）：%v 内没等到重试用完的那行 ERROR；stderr 里 resty 自己写的纯文本有 %d 行",
+		t.Errorf("xhttp/README.md 说 resty 的日志接到 slog（消息 xhttp resty log）：%v 内没等到重试用完的那行 ERROR；stderr 里 resty 自己写的纯文本有 %d 行",
 			waitFor, strings.Count(p.Stderr(), " RESTY "))
 	}
 	warn, errs, lines = faultRestyLogs(p)
@@ -86,7 +86,7 @@ func faultWaitRestyLogs(t *testing.T, p *harness.Process, token string) (warn, e
 
 // 下游慢过 XHttp.Timeout（桩每个请求等 2s）：
 //
-//	docs/config.md XHttp.Timeout：「一次尝试的超时」「管的是一次尝试，不是一次逻辑请求：开了 RetryCount 之后，
+//	xhttp/README.md XHttp.Timeout：「一次尝试的超时」「管的是一次尝试，不是一次逻辑请求：开了 RetryCount 之后，
 //	  最坏情况是 (RetryCount+1) × Timeout 再加上几次退避等待」
 //	RetryCount：「默认 0，即不重试」
 //	RetryOnlyIdempotent：「默认只重试幂等方法」「确认接口幂等之后再关掉它」
@@ -156,7 +156,7 @@ func TestFault_下游慢过xhttp的Timeout_每次尝试在Timeout失败_只有�
 		t.Logf("数字：Timeout=%v、RetryCount=%d：下游收到 %d 次，间隔 %v，最后一次 %s 后被掐断，总共 %s（文档的最坏情况 %v）",
 			faultHTTPTimeout, retries, len(reqs), gaps, faultMS(last), faultMS(c.took), faultHTTPWorstCase(retries))
 
-		// docs/behavior.md XHttp 那张表：resty 的日志「接到 slog（消息 xhttp resty log，内容在 detail 字段），
+		// xhttp/README.md「行为与实测」那张表：resty 的日志「接到 slog（消息 xhttp resty log，内容在 detail 字段），
 		// 级别照搬，URL 去掉查询串」；「开了重试后每次失败打一行 WARN……用完再打一行 ERROR」
 		warn, errs, lines := faultWaitRestyLogs(t, p, token)
 		if warn != retries+1 || errs != 1 {
@@ -249,7 +249,7 @@ func TestFault_下游慢过xhttp的Timeout_每次尝试在Timeout失败_只有�
 }
 
 // 下游进程挂了（拒绝连接）和主机宕机（SYN 没回音）：都是传输层的错，GET 照样按 RetryCount 重试。
-// 宕机时拨号会一直挂着，管住它的是 Timeout：docs/config.md 说它是「一次尝试的超时」，
+// 宕机时拨号会一直挂着，管住它的是 Timeout：xhttp/README.md 说它是「一次尝试的超时」，
 // 拨号在一次尝试之内（DialTimeout 默认 30s，远大于 Timeout，所以先到的是 Timeout）。
 // 拒绝连接时每次尝试立刻失败，总耗时只剩退避。
 // 下游桩数不到次数（连接根本没到它），改数 resty 每次失败记的那行 WARN

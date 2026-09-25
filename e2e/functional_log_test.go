@@ -42,7 +42,7 @@ func TestFunctional_访问日志字段齐全并和业务日志与Span共用trace
 	t.Run("字段齐全", func(t *testing.T) {
 		for k, want := range map[string]string{
 			"level": "INFO", "method": "POST", "route": "/users", "path": "/users", "status": "201",
-			// docs/config.md XGin.TrustedProxies：默认一个都不信，X-Forwarded-For 改不了 client_ip
+			// xgin/README.md XGin.TrustedProxies：默认一个都不信，X-Forwarded-For 改不了 client_ip
 			"client_ip":                    "127.0.0.1",
 			"request_headers.X-Visible":    "keep-me",
 			"request_headers.Content-Type": "application/json",
@@ -62,7 +62,7 @@ func TestFunctional_访问日志字段齐全并和业务日志与Span共用trace
 		if !hexSpanID.MatchString(al.Str("span_id")) {
 			t.Errorf("span_id 应是 16 位十六进制，实际 %q", al.Str("span_id"))
 		}
-		// docs/config.md：LogRequestBody / LogResponseBody 默认关
+		// xgin/README.md：LogRequestBody / LogResponseBody 默认关
 		for _, k := range []string{"request_body", "response_body"} {
 			if _, ok := al.Get(k); ok {
 				t.Errorf("文档说 %s 默认不记，实际访问日志里有：%s", k, al.Line)
@@ -92,7 +92,7 @@ func TestFunctional_访问日志字段齐全并和业务日志与Span共用trace
 		if l.Str("route") != "/users/:id" || l.Str("path") != fmt.Sprintf("/users/%d", u.ID) {
 			t.Errorf("route 应是 /users/:id、path 应是 /users/%d（不带查询串），实际 route=%q path=%q", u.ID, l.Str("route"), l.Str("path"))
 		}
-		// docs/config.md：「path 不带查询串」——链接上的 ?token= 不会从这里进日志
+		// xgin/README.md：「path 不带查询串」——链接上的 ?token= 不会从这里进日志
 		mustNotContain(t, "访问日志", l.Line, "query-token-in-url")
 	})
 
@@ -118,7 +118,7 @@ func TestFunctional_访问日志字段齐全并和业务日志与Span共用trace
 		// 再发一个请求当界碑：它的访问日志出来了，前面 /metrics 的就该已经出来了
 		accessLog(t, p, traceIDOf(t, p.Get(t, "/ping")))
 		if n := len(p.FindLogs(func(l harness.Log) bool { return l.Msg() == "request completed" && l.Str("path") == "/metrics" })); n != 0 {
-			t.Errorf("docs/config.md LogSkipPaths：Metric 开着时指标端点自动不记访问日志，实际记了 %d 条", n)
+			t.Errorf("xgin/README.md LogSkipPaths：Metric 开着时指标端点自动不记访问日志，实际记了 %d 条", n)
 		}
 	})
 
@@ -131,7 +131,7 @@ func TestFunctional_访问日志字段齐全并和业务日志与Span共用trace
 	})
 }
 
-// 打开 LogRequestBody / LogResponseBody 之后，docs/observability.md「访问日志」那一节承诺的每一条脱敏：
+// 打开 LogRequestBody / LogResponseBody 之后，xgin/README.md「访问日志」那一节承诺的每一条脱敏：
 // 按敏感词「含」匹配、任意嵌套、Unicode 折叠、表单、纯文本整段遮、请求头名单与词表、
 // 值是 URL 的头去掉查询串、multipart / octet-stream 不读
 func TestFunctional_打开请求体日志后敏感信息全部被遮掉(t *testing.T) {
@@ -232,7 +232,7 @@ func TestFunctional_打开请求体日志后敏感信息全部被遮掉(t *testi
 		})
 		part.Write(content)
 		mw.Close()
-		// docs/config.md：「Content-Type 大小写不敏感，Multipart/Form-Data 一样不读」
+		// xgin/README.md：「Content-Type 大小写不敏感，Multipart/Form-Data 一样不读」
 		ct := "Multipart/Form-Data; boundary=" + mw.Boundary()
 
 		r := p.Do(t, http.MethodPost, "/upload", buf.Bytes(), "Content-Type", ct)
@@ -347,7 +347,7 @@ func TestFunctional_打开请求体日志后敏感信息全部被遮掉(t *testi
 // PG 的密码在 DSN 里（harness 默认 e2e-secret-pw）。正常跑、出错、启动失败、DSN 写错，
 // 日志、响应体、Span、/metrics 里都不该有它。
 //
-// docs/config.md XGorm：DSN 预检失败「不回传」pgx 的原始错误（那里面是整串 DSN）；
+// xgorm/README.md XGorm：DSN 预检失败「不回传」pgx 的原始错误（那里面是整串 DSN）；
 // Log: true 记的是带占位符的 SQL
 func TestFunctional_PG密码不出现在任何日志和错误里(t *testing.T) {
 	harness.Require(t)
@@ -483,11 +483,11 @@ func TestFunctional_PG密码不出现在任何日志和错误里(t *testing.T) {
 		{"URL 里 sslmode 写错", strings.Replace(dsn, "sslmode=disable", "sslmode=bogus", 1)},
 		{"URL 里 pgx 专有参数写错", dsn + "&default_query_exec_mode=bogus"},
 		{"URL 里端口不是数字", strings.Replace(dsn, harness.PGAddr(), "127.0.0.1:notaport", 1)},
-		// docs/config.md：pgx 的原始错误「只遮得住 password=x 这种规整写法，password = hunter2 原样带出」
+		// xgorm/README.md：pgx 的原始错误「只遮得住 password=x 这种规整写法，password = hunter2 原样带出」
 		{"key=value 写法、等号两边有空格", "host=127.0.0.1 user=xone password = " + pw + " dbname=xone_e2e sslmode=bogus"},
 		// xgorm/dsn.go parsePostgres：预检必须用 pgx.ParseConfig，只用 pgconn 的话 pgx 专有参数写错照样放行，
 		// 错误留到 gorm.Open 才由 pgx 报出来、原文带着整串 DSN。URL 写法的密码 pgx 自己会遮成 xxxxx，
-		// 所以上面那条 URL 的用例看不出密码漏没漏；这一条是 docs/config.md 点名的组合，漏了就是明文
+		// 所以上面那条 URL 的用例看不出密码漏没漏；这一条是 xgorm/README.md 点名的组合，漏了就是明文
 		{"key=value 写法、等号两边有空格、pgx 专有参数写错", "host=127.0.0.1 user=xone password = " + pw + " dbname=xone_e2e sslmode=disable default_query_exec_mode=bogus"},
 	} {
 		t.Run("启动失败：DSN 写错（"+c.name+"）", func(t *testing.T) {
@@ -501,7 +501,7 @@ func TestFunctional_PG密码不出现在任何日志和错误里(t *testing.T) {
 	}
 }
 
-// docs/config.md XGorm.Log：「记的是带占位符的 SQL，不含参数值」
+// xgorm/README.md XGorm.Log：「记的是带占位符的 SQL，不含参数值」
 func TestFunctional_SQL日志只记占位符不记参数值(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()

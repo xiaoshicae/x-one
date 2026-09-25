@@ -19,7 +19,7 @@ func covLogLine(t *testing.T, p *harness.Process, level, msg string) {
 	}
 }
 
-// docs/config.md XLog.File：
+// xlog/README.md XLog.File：
 //
 //	Name        实际文件是 app.log.<时间后缀>，另有同名符号链接指向当前文件
 //	RotateTime  轮转周期，按本地时区对齐，至少 1m；后缀最细到分钟
@@ -150,7 +150,7 @@ func TestCoverage_日志文件按RotateTime轮转_MaxAge清理自己命名的旧
 	})
 }
 
-// docs/config.md XLog：Level（debug / info / warn / error，默认 info）、Format（json / text，默认 json）、
+// xlog/README.md XLog：Level（debug / info / warn / error，默认 info）、Format（json / text，默认 json）、
 // Timezone（IANA 时区名，配了却加载不到直接启动失败）、AddSource（是否记代码位置，默认关）
 func TestCoverage_日志的Level_Format_Timezone_AddSource(t *testing.T) {
 	harness.Require(t)

@@ -85,7 +85,7 @@ func TestMySQL_运行中MySQL拒绝连接_用到它的操作当场报错_PG不�
 }
 
 // 运行中 MySQL 不回话（SetDelay(time.Hour)）、调用方不给截止时间：
-// docs/config.md XGorm.MySQL.ReadTimeout「读超时，对应 DSN 的 readTimeout。默认 3s」——
+// xgorm/README.md XGorm.MySQL.ReadTimeout「读超时，对应 DSN 的 readTimeout。默认 3s」——
 // 池里的每一条连接都卡在读上，一条查询在 ReadTimeout 失败，不会一直挂住；并发地打也一样。
 // 同一时刻 PG 那个实例照常、而且快：两个实例的连接池互不牵连。
 //
@@ -147,7 +147,7 @@ func TestMySQL_运行中MySQL不回话_查询在ReadTimeout失败_PG不受影响
 	t.Logf("数字：MySQL 恢复回话之后 %s（第 %d 次探测）回到 200", faultMS(took2), n)
 
 	t.Run("go-sql-driver自己的日志也走slog", func(t *testing.T) {
-		// docs/config.md XGorm：go-sql-driver 自己的日志接到了 slog，一条 xgorm go-sql-driver log，级别 WARN，原文在 detail。
+		// xgorm/README.md XGorm：go-sql-driver 自己的日志接到了 slog，一条 xgorm go-sql-driver log，级别 WARN，原文在 detail。
 		// 这条原先是 KNOWN BUG：xgorm 没调 mysql.SetLogger，驱动用它自己的 log.New(os.Stderr, "[mysql] ", …)，
 		// 本用例里 8 条读超时就是 stderr 里 8 行 [mysql] … packets.go:58 read tcp …: i/o timeout
 		if lines := mysqlDriverLogLine.FindAllString(p.Stderr(), -1); len(lines) > 0 {
@@ -169,7 +169,7 @@ func TestMySQL_运行中MySQL不回话_查询在ReadTimeout失败_PG不受影响
 
 // 启动时 MySQL 不可达，三种不可达：拒绝连接 / 对端不回话 / 主机宕机。
 //
-// docs/config.md：「建连重试：连不上时按 3 次重试」「单次建连探测的预算：MySQL 是 DialTimeout + MySQL.ReadTimeout」，
+// docs/config.md、xgorm/README.md：「建连重试：连不上时按 3 次重试」「单次建连探测的预算：MySQL 是 DialTimeout + MySQL.ReadTimeout」，
 // 所以启动最多等 3 × 3.5s + 3s = 13.5s（mysqlStartBudget）；错误要说清连不上的是哪个实例、哪个地址，
 // 不能有密码和 DSN。
 //

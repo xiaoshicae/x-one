@@ -7,51 +7,100 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"go.yaml.in/yaml/v3"
 )
 
-// checkDocs 对照 schema 检查 docs/config.md，返回全部问题。
+// configDocs 每个配置块写在哪一节：模块的配置块在那个模块 README 的「## 配置」，
+// 配置加载自己的两个 key 在 docs/config.md 以 key 开头的那一节（`## Import —— …`）。
+// 加了一个配置块就在这里登记，没登记的 checkDocs 会报出来
+var configDocs = map[string]docSection{
+	"Profiles":    {"docs/config.md", "Profiles"},
+	"Import":      {"docs/config.md", "Import"},
+	"App":         {"xapp/README.md", "配置"},
+	"XLog":        {"xlog/README.md", "配置"},
+	"XTrace":      {"xtrace/README.md", "配置"},
+	"XMetric":     {"xmetric/README.md", "配置"},
+	"XGorm":       {"xgorm/README.md", "配置"},
+	"XRedis":      {"xredis/README.md", "配置"},
+	"XCache":      {"xcache/README.md", "配置"},
+	"XHttp":       {"xhttp/README.md", "配置"},
+	"XGin":        {"xgin/README.md", "配置"},
+	"XGinSwagger": {"xginswagger/README.md", "配置"},
+	"XFlow":       {"xflow/README.md", "配置"},
+}
+
+// exampleDocs 自己没有配置块、却写了 YAML 示例的节：只校验示例。
+// xgorm/clickhouse 的示例写的是 XGorm 块
+var exampleDocs = []docSection{{"xgorm/clickhouse/README.md", "配置"}}
+
+// docSection 一份文档里的一个二级标题：path 相对仓库根，title 是标题的第一个词
+type docSection struct{ path, title string }
+
+func (d docSection) String() string { return fmt.Sprintf("%s「## %s」", d.path, d.title) }
+
+// checkDocs 对照 schema 检查每个配置块的文档（configDocs 登记的那一节），返回全部问题。
+// docs 是文档的路径（相对仓库根）→ 全文。
 //
-// 文档的结构是固定的：每个配置块一节，标题以它的顶层 key 开头
-// （`## XLog —— 日志`），这一节里有它的 YAML 示例。两个方向都查，而且都按节查：
+// 两个方向都查，而且都按节查：
 //
-//   - 每个字段都要在**它自己那一节**里出现。从前的检查是在整份文档里 grep
-//     字段名，Name、Timeout、Enable 这种名字总能在别的节里找到，永远通过。
+//   - 每个字段都要在**它自己那一节**里出现，不是那份 README 的别处。从前的检查是在整份
+//     文档里 grep 字段名，Name、Timeout、Enable 这种名字总能在别处找到，永远通过。
 //   - 每一节里的 YAML 示例都得是真的能用的配置：字段存在、类型对、
 //     单实例和多实例的写法没混。文档里多写一个不存在的 key，
 //     照着配的人会发现它不生效——运行时直接启动失败。
-func checkDocs(r *root, md string) []string {
+func checkDocs(r *root, docs map[string]string) []string {
 	rs, err := compile(r)
 	if err != nil {
 		return []string{fmt.Sprintf("schema 本身不合法：%v", err)}
 	}
-	sections := docSections(md)
 	var out []string
 	for _, key := range slices.Sorted(maps.Keys(r.Properties)) {
-		text, ok := sections[key]
+		d, ok := configDocs[key]
 		if !ok {
-			out = append(out, fmt.Sprintf("没有「## %s」这一节", key))
+			out = append(out, fmt.Sprintf("配置块 %s 没有登记在 configDocs 里", key))
+			continue
+		}
+		md := docs[d.path]
+		text, ok := docSections(md)[d.title]
+		if !ok {
+			out = append(out, fmt.Sprintf("没有 %s 这一节", d))
 			continue
 		}
 		for _, f := range fieldNames(r.Properties[key]) {
 			if !regexp.MustCompile(`\b` + regexp.QuoteMeta(f) + `\b`).MatchString(text) {
-				out = append(out, fmt.Sprintf("「## %s」一节里没有提到字段 %s", key, f))
+				out = append(out, fmt.Sprintf("%s 里没有提到 %s 的字段 %s", d, key, f))
 			}
 		}
-		for i, block := range yamlBlocks(text) {
-			var doc map[string]any
-			if err := yaml.Unmarshal([]byte(block), &doc); err != nil {
-				out = append(out, fmt.Sprintf("「## %s」第 %d 个 YAML 示例解析失败：%v", key, i+1, err))
-				continue
+		out = append(out, checkExamples(r, rs, d, text)...)
+	}
+	for _, d := range exampleDocs {
+		text, ok := docSections(docs[d.path])[d.title]
+		if !ok {
+			out = append(out, fmt.Sprintf("没有 %s 这一节", d))
+			continue
+		}
+		out = append(out, checkExamples(r, rs, d, text)...)
+	}
+	return out
+}
+
+// checkExamples 一节里的每个 YAML 示例都要过得了 schema，顶层 key 也得是认识的配置块
+func checkExamples(r *root, rs *jsonschema.Resolved, d docSection, text string) []string {
+	var out []string
+	for i, block := range yamlBlocks(text) {
+		var doc map[string]any
+		if err := yaml.Unmarshal([]byte(block), &doc); err != nil {
+			out = append(out, fmt.Sprintf("%s 第 %d 个 YAML 示例解析失败：%v", d, i+1, err))
+			continue
+		}
+		for _, top := range slices.Sorted(maps.Keys(doc)) {
+			if _, ok := r.Properties[top]; !ok {
+				out = append(out, fmt.Sprintf("%s 第 %d 个 YAML 示例里有不存在的顶层 key %s", d, i+1, top))
 			}
-			for _, top := range slices.Sorted(maps.Keys(doc)) {
-				if _, ok := r.Properties[top]; !ok {
-					out = append(out, fmt.Sprintf("「## %s」第 %d 个 YAML 示例里有不存在的顶层 key %s", key, i+1, top))
-				}
-			}
-			for _, p := range problems(rs, doc) {
-				out = append(out, fmt.Sprintf("「## %s」第 %d 个 YAML 示例：%s", key, i+1, p))
-			}
+		}
+		for _, p := range problems(rs, doc) {
+			out = append(out, fmt.Sprintf("%s 第 %d 个 YAML 示例：%s", d, i+1, p))
 		}
 	}
 	return out

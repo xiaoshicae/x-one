@@ -29,7 +29,7 @@ func covFlow(t *testing.T, p *harness.Process, hangMS int) covFlowResult {
 	return res
 }
 
-// docs/config.md XFlow.RollbackTimeout：「回滚全部步骤的总预算」，「这份预算对不看 ctx 的 Rollback 同样有效：
+// xflow/README.md XFlow.RollbackTimeout：「回滚全部步骤的总预算」，「这份预算对不看 ctx 的 Rollback 同样有效：
 // 到点就不再等它，那一步记进 RollbackErrors（错误里带 context.DeadlineExceeded），没轮到的步骤也逐个记下，
 // Execute 随即返回」；写 0 启动失败。
 // 流程三步 first → hang → fail，fail 失败后逆序回滚：hang 的 Rollback 不看 ctx 地睡 4s
@@ -74,7 +74,7 @@ func TestCoverage_不看ctx的回滚挂住时Execute在RollbackTimeout返回(t *
 	})
 }
 
-// docs/config.md XFlow.Monitor：「关掉之后 Execute 一次监控回调都不走」。默认的监控写 slog：
+// xflow/README.md XFlow.Monitor：「关掉之后 Execute 一次监控回调都不走」。默认的监控写 slog：
 // 失败的步骤记 WARN，回滚没做完记 ERROR（xflow/monitor.go slogMonitor）
 func TestCoverage_xflow的Monitor开着记步骤和流程日志_关掉一条都没有(t *testing.T) {
 	harness.Require(t)

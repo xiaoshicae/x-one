@@ -94,22 +94,22 @@ cd example/component && go run . --config=application.yml  # 自己写一个集�
 
 | 模块 | 给你什么 | 怎么用 | 配置 |
 |---|---|---|---|
-| `xlog`（核心） | 基于 `log/slog` 的日志，有链路时自动带 `trace_id` | `slog.InfoContext(ctx, ...)` | [XLog](docs/config.md#xlog--日志) |
-| `xapp`（核心） | 应用名、版本 | `xapp.Name()` / `xapp.Version()` | [App](docs/config.md#app--应用身份) |
-| `xflow`（核心） | 流程编排，失败自动回滚 | `xflow.New[T](name, steps...).Execute(ctx, data)` | [XFlow](docs/config.md#xflow--流程编排) |
+| `xlog`（核心） | 基于 `log/slog` 的日志，有链路时自动带 `trace_id` | `slog.InfoContext(ctx, ...)` | [XLog](xlog/README.md#配置) |
+| `xapp`（核心） | 应用名、版本 | `xapp.Name()` / `xapp.Version()` | [App](xapp/README.md#配置) |
+| `xflow`（核心） | 流程编排，失败自动回滚 | `xflow.New[T](name, steps...).Execute(ctx, data)` | [XFlow](xflow/README.md#配置) |
 | `xconfig` / `xhook`（核心） | 读自己的配置、在启动前 / 停止前做事 | `xconfig.Unmarshal("MyApp", &c)`、`xhook.BeforeStart(fn)` | [指南](docs/guide.md#读自己的配置) |
 | `xerror`（核心） | 带模块名和操作名的错误 | `xerror.Is(err, "xconfig")`、`xerror.Module(err)` | [指南](docs/guide.md#错误处理) |
-| `xtls`（核心） | 客户端 TLS 块，XGorm / XRedis / XHttp 共用 | 配置里的 `TLS:` | [TLS 块](docs/config.md#tls-块) |
+| `xtls`（核心） | 客户端 TLS 块，XGorm / XRedis / XHttp 共用 | 配置里的 `TLS:` | [TLS 块](xtls/README.md#配置) |
 | `xonetest`（核心） | 测试里换一份配置、跑一遍钩子 | `xonetest.UseConfigYAML(t, yml)`、`xonetest.StartHooks(t)` | [指南](docs/guide.md#测试) |
-| `xtrace` | OpenTelemetry 链路，设为全局 TracerProvider；xgin / xgorm / xredis / xhttp 自带 | `otel.Tracer("app").Start(ctx, "op")` | [XTrace](docs/config.md#xtrace--链路) |
-| `xmetric` | Prometheus 指标 | `xmetric.CounterInc(...)`、`xmetric.Registry()` | [XMetric](docs/config.md#xmetric--指标) |
-| `xgorm` | `*gorm.DB`，内置 MySQL / PostgreSQL | `xgorm.CWithCtx(ctx)`、`xgorm.C("name")` | [XGorm](docs/config.md#xgorm--数据库) |
-| `xgorm/clickhouse` | 给 xgorm 加 ClickHouse 驱动 | 匿名 import，配置里 `Driver: clickhouse` | [其它驱动](docs/config.md#其它驱动) |
-| `xredis` | `*redis.Client` | `xredis.C().Get(ctx, k)`、`xredis.C("name")` | [XRedis](docs/config.md#xredis--redis) |
-| `xcache` | 本地缓存（ristretto） | `xcache.Get` / `xcache.Set`，原生实例 `xcache.C()` | [XCache](docs/config.md#xcache--本地缓存) |
-| `xhttp` | 出站 HTTP（`*resty.Client`），带链路与指标 | `xhttp.R(ctx).Get(url)` | [XHttp](docs/config.md#xhttp--出站-http) |
-| `xgin` | Gin Web 服务，内置访问日志、链路、指标、panic 恢复 | `xone.MustRun(xgin.New().WithRoutes(...))` | [XGin](docs/config.md#xgin--web-服务) |
-| `xginswagger` | Swagger UI | 在路由里 `xginswagger.Register(e, docs.SwaggerInfo)` | [XGinSwagger](docs/config.md#xginswagger--接口文档) |
+| `xtrace` | OpenTelemetry 链路，设为全局 TracerProvider；xgin / xgorm / xredis / xhttp 自带 | `otel.Tracer("app").Start(ctx, "op")` | [XTrace](xtrace/README.md#配置) |
+| `xmetric` | Prometheus 指标 | `xmetric.CounterInc(...)`、`xmetric.Registry()` | [XMetric](xmetric/README.md#配置) |
+| `xgorm` | `*gorm.DB`，内置 MySQL / PostgreSQL | `xgorm.CWithCtx(ctx)`、`xgorm.C("name")` | [XGorm](xgorm/README.md#配置) |
+| `xgorm/clickhouse` | 给 xgorm 加 ClickHouse 驱动 | 匿名 import，配置里 `Driver: clickhouse` | [其它驱动](xgorm/clickhouse/README.md#配置) |
+| `xredis` | `*redis.Client` | `xredis.C().Get(ctx, k)`、`xredis.C("name")` | [XRedis](xredis/README.md#配置) |
+| `xcache` | 本地缓存（ristretto） | `xcache.Get` / `xcache.Set`，原生实例 `xcache.C()` | [XCache](xcache/README.md#配置) |
+| `xhttp` | 出站 HTTP（`*resty.Client`），带链路与指标 | `xhttp.R(ctx).Get(url)` | [XHttp](xhttp/README.md#配置) |
+| `xgin` | Gin Web 服务，内置访问日志、链路、指标、panic 恢复 | `xone.MustRun(xgin.New().WithRoutes(...))` | [XGin](xgin/README.md#配置) |
+| `xginswagger` | Swagger UI | 在路由里 `xginswagger.Register(e, docs.SwaggerInfo)` | [XGinSwagger](xginswagger/README.md#配置) |
 
 ## 核心概念
 
@@ -122,9 +122,10 @@ cd example/component && go run . --config=application.yml  # 自己写一个集�
 ## 接下来
 
 - [`docs/guide.md`](docs/guide.md)：使用指南——钩子、Runnable、读配置、非 Web 服务、测试、部署、写自己的集成
-- [`docs/config.md`](docs/config.md)：配置参考——文件位置、Profile、Import、合并规则、每个模块的全部字段
-- [`docs/behavior.md`](docs/behavior.md)：与底层库不同的默认值，以及量出来的行为
-- [`docs/observability.md`](docs/observability.md)：日志字段、指标、Span、链路传播
-- [`docs/troubleshooting.md`](docs/troubleshooting.md)：按错误原文排错
+- 各模块目录下的 `README.md`（上面「模块一览」的配置一列链到它）：这个模块的全部配置字段、量出来的行为、日志 / 指标 / Span、排错
+- [`docs/config.md`](docs/config.md)：配置参考——文件位置、Profile、Import、合并规则、占位符，以及配置块到模块文档的索引
+- [`docs/behavior.md`](docs/behavior.md)：与底层库不同的默认值总表，以及跨模块的启动期建连探测
+- [`docs/observability.md`](docs/observability.md)：日志、指标、链路的全局约定，链路传播与信任边界
+- [`docs/troubleshooting.md`](docs/troubleshooting.md)：按错误原文排错（跨模块的那些）
 - [`docs/architecture.md`](docs/architecture.md)：为什么是现在这个样子
 - [`docs/development.md`](docs/development.md)：给贡献者——仓库结构、脚本、e2e、规矩

@@ -136,7 +136,7 @@ func TestFault_启动时PG密码错误_错误说清是认证失败_没有密码(
 }
 
 // 启动时 Redis 不可达。配了密码（随机串，反正连不上，服务端不会校验）：错误里要有地址、没有它。
-// docs/config.md XRedis.Password：「本模块不会把它写进任何日志」。
+// xredis/README.md XRedis.Password：「本模块不会把它写进任何日志」。
 // 预算 faultRedisStartBudget（6s）：3 次 × (DialTimeout + ReadTimeout) + 两次退避的上界
 func TestFault_启动时Redis不可达_在文档的预算内失败_错误里有地址没有密码(t *testing.T) {
 	harness.Require(t)
@@ -176,7 +176,7 @@ func TestFault_启动时Redis不可达_在文档的预算内失败_错误里有�
 	}
 }
 
-// 启动时 Redis 密码错误：docs/config.md XRedis「认证失败（WRONGPASS / NOAUTH）报的是
+// 启动时 Redis 密码错误：xredis/README.md XRedis「认证失败（WRONGPASS / NOAUTH）报的是
 // authentication to <地址> failed，不重试」，错误里是服务端回的原文，不含凭证。
 //
 // 「不重试」数连接：经代理连 Redis、不预热（MinIdleConns: 0），建连验证每试一次是一条新连接
@@ -207,7 +207,7 @@ func TestFault_启动时Redis密码错误_错误说清是认证失败_不重试_
 
 // 回归：key=value 写法里 password 的等号两边带空格，同时另一个参数写错。
 //
-// docs/config.md XGorm：「pgx 自己的错误原文是整串 DSN、只遮得住 password=x 这种规整写法
+// xgorm/README.md XGorm：「pgx 自己的错误原文是整串 DSN、只遮得住 password=x 这种规整写法
 // （实测 v5.10.0，password = hunter2 原样带出），所以不回传它」；预检用 pgx.ParseConfig，
 // 「它比 pgconn.ParseConfig 多校验 default_query_exec_mode、statement_cache_capacity、
 // description_cache_capacity，这三项写错也在预检时报一句不带 DSN 的错」。

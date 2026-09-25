@@ -81,7 +81,7 @@ type ClientConfig struct {
 	// 开着时 TLS 全由这一块决定：证书一律校验，**不会退回明文**。DSN 里再写 TLS 参数
 	// （PostgreSQL 的 sslmode、sslrootcert 等 ssl 开头的那几个，MySQL 的 tls）
 	// 是配置错误——两处说法不一，哪处作数都会让另一处白写。
-	// 驱动怎么接、量出来的行为见 docs/behavior.md「TLS」。
+	// 驱动怎么接、量出来的行为见 xtls/README.md「行为与实测」。
 	TLS xtls.Config `yaml:"TLS"`
 
 	// MaxOpenConns 最大连接数。默认 50。
@@ -163,7 +163,7 @@ type PostgresConfig struct {
 	// default_query_exec_mode: exec——pgx 默认的 cache_statement 用具名预备语句，
 	// 实测 PgBouncer 1.22 事务池（max_prepared_statements 为 0，1.24 之前的默认值）
 	// 20 个协程并发 1000 条查询，701 条报 prepared statement "stmtcache_…" already exists
-	// （42P05）。细节和各模式的代价见 docs/behavior.md「XGorm：PostgreSQL」。
+	// （42P05）。细节和各模式的代价见 xgorm/README.md「PostgreSQL」。
 	Params map[string]string `yaml:"Params"`
 }
 

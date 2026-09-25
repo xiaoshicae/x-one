@@ -1,8 +1,10 @@
 package main
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -109,28 +111,33 @@ func TestSchema_示例配置都能通过(t *testing.T) {
 }
 
 func TestCheckDocs_配置文档与结构体一致(t *testing.T) {
-	md, err := os.ReadFile(filepath.Join(repo, "docs", "config.md"))
-	if err != nil {
-		t.Fatal(err)
+	docs := map[string]string{}
+	for _, d := range append(slices.Collect(maps.Values(configDocs)), exampleDocs...) {
+		md, err := os.ReadFile(filepath.Join(repo, d.path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		docs[d.path] = string(md)
 	}
-	if problems := checkDocs(schemaOf(t), string(md)); len(problems) > 0 {
-		t.Errorf("docs/config.md 对不上：\n%s", strings.Join(problems, "\n"))
+	if problems := checkDocs(schemaOf(t), docs); len(problems) > 0 {
+		t.Errorf("文档与 Config 结构体对不上：\n%s", strings.Join(problems, "\n"))
 	}
 }
 
 func TestCheckDocs_按节检查而不是整份文档里找(t *testing.T) {
-	// 从前在整份文档里 grep 字段名：Name 在 App 一节出现过，
-	// XLog.File.Name 没写也照样通过
+	// 从前在整份文档里 grep 字段名：Name 在别处出现过，
+	// XLog.File.Name 没写也照样通过。现在只看 xlog/README.md 的「## 配置」一节
 	r := &root{Properties: map[string]*node{
-		"App": {Type: "object", Properties: map[string]*node{"Name": {Type: "string"}}},
 		"XLog": {Type: "object", AdditionalProperties: false, Properties: map[string]*node{
 			"File": {Type: "object", AdditionalProperties: false, Properties: map[string]*node{"Name": {Type: "string"}}},
 		}},
 	}}
-	md := "## App\n\n```yaml\nApp:\n  Name: a\n```\n\n## XLog —— 日志\n\nFile 下面写文件。\n"
-	got := strings.Join(checkDocs(r, md), "\n")
+	docs := map[string]string{
+		"xlog/README.md": "# xlog\n\n## 配置\n\nFile 下面写文件。\n\n## 行为与实测\n\nName 是文件名。\n",
+	}
+	got := strings.Join(checkDocs(r, docs), "\n")
 	if !strings.Contains(got, "XLog") || !strings.Contains(got, "Name") {
-		t.Errorf("XLog 一节没提到 Name，该报出来，got=%q", got)
+		t.Errorf("XLog 的「## 配置」没提到 Name，该报出来，got=%q", got)
 	}
 }
 
@@ -138,16 +145,24 @@ func TestCheckDocs_示例里不存在的字段要报出来(t *testing.T) {
 	r := &root{Properties: map[string]*node{
 		"XGin": {Type: "object", AdditionalProperties: false, Properties: map[string]*node{"UseH2C": orPlaceholder("boolean")}},
 	}}
-	for name, md := range map[string]string{
-		"不存在的字段":  "## XGin\n\nUseH2C\n\n```yaml\nXGin:\n  UseH2C: true\n  Bogus: 1\n```\n",
-		"类型不对":    "## XGin\n\nUseH2C\n\n```yaml\nXGin:\n  UseH2C: 1\n```\n",
-		"没有这一节":   "## XLog\n",
-		"顶层key不对": "## XGin\n\nUseH2C\n\n```yaml\nXGni:\n  UseH2C: true\n```\n",
+	// 每种写坏的示例都要报出它自己的那一条，不能靠别的问题（比如缺了某份文档）凑数
+	for name, c := range map[string]struct{ md, want string }{
+		"不存在的字段":  {"## 配置\n\nUseH2C\n\n```yaml\nXGin:\n  UseH2C: true\n  Bogus: 1\n```\n", "YAML 示例"},
+		"类型不对":    {"## 配置\n\nUseH2C\n\n```yaml\nXGin:\n  UseH2C: 1\n```\n", "YAML 示例"},
+		"没有这一节":   {"## 行为与实测\n\nUseH2C\n", "没有 xgin/README.md「## 配置」"},
+		"顶层key不对": {"## 配置\n\nUseH2C\n\n```yaml\nXGni:\n  UseH2C: true\n```\n", "XGni"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := checkDocs(r, md); len(got) == 0 {
-				t.Error("该报出问题")
+			if got := strings.Join(checkDocs(r, map[string]string{"xgin/README.md": c.md}), "\n"); !strings.Contains(got, c.want) {
+				t.Errorf("该报出含 %q 的问题，got=%q", c.want, got)
 			}
 		})
+	}
+}
+
+func TestCheckDocs_没登记文档的配置块要报出来(t *testing.T) {
+	r := &root{Properties: map[string]*node{"XNew": {Type: "object"}}}
+	if got := strings.Join(checkDocs(r, nil), "\n"); !strings.Contains(got, "XNew") {
+		t.Errorf("XNew 没登记在 configDocs 里，该报出来，got=%q", got)
 	}
 }

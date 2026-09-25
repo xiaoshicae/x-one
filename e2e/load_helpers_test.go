@@ -243,7 +243,7 @@ func requestCount(m harness.Metrics, route string) (total, hist float64) {
 
 // checkRequestMetric 指标对账：这一档（预热加正式）发出去多少个，xgin 的请求指标就该多多少。
 //
-// docs/config.md XGin：「Metric: true # 请求指标」；xgin/middleware/metric.go 用 defer 记，
+// xgin/README.md XGin：「Metric: true # 请求指标」；xgin/middleware/metric.go 用 defer 记，
 // 每个请求都计入。并发下丢计数、重复计数都会在这里现形
 func checkRequestMetric(t *testing.T, c cell, route string, before, after harness.Metrics) {
 	t.Helper()

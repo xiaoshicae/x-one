@@ -4,7 +4,7 @@ package e2e
 //
 //	scripts/e2e.sh -run Functional
 //
-// 每一条断言都对照 README.md / docs/architecture.md / docs/config.md 里写下的行为（没写进文档、只在代码里的，
+// 每一条断言都对照 README.md / docs/architecture.md / docs/config.md / 各模块 README 里写下的行为（没写进文档、只在代码里的，
 // 以代码为准并在注释里注明出处）。失败信息一律写成「文档说 X，实际 Y」。
 //
 // 文件划分：
@@ -48,7 +48,7 @@ func randomTraceID() string { return harness.NewID() + harness.NewID() + harness
 func randomSpanID() string  { return harness.NewID() + harness.NewID()[:4] }
 
 // traceIDOf 响应头里的 X-Trace-Id。
-// docs/config.md XGin.Trace：「每个请求一个服务端 Span，响应头回带 X-Trace-Id」
+// xgin/README.md XGin.Trace：「每个请求一个服务端 Span，响应头回带 X-Trace-Id」
 func traceIDOf(t *testing.T, r harness.Response) string {
 	t.Helper()
 	id := r.Header.Get("X-Trace-Id")

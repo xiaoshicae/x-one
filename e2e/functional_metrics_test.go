@@ -12,7 +12,7 @@ import (
 // /metrics：
 //   - xgin 的请求计数和耗时直方图按路由模板打标签（/users/:id 而不是 /users/42），
 //     没匹配上的收敛成 unmatched，不认识的方法收敛成 OTHER
-//   - 桶是 docs/config.md XMetric 写的默认值
+//   - 桶是 xmetric/README.md XMetric 写的默认值
 //   - 业务的自定义指标（namespace e2e）、log_errors_total、xhttp 出站直方图、
 //     xgorm / xredis 连接池指标、Go 运行时与进程指标都在
 func TestFunctional_指标按路由模板打标签并带上自定义和连接池指标(t *testing.T) {
@@ -94,7 +94,7 @@ func TestFunctional_指标按路由模板打标签并带上自定义和连接池
 		if got := m.Sum("e2e_http_request_duration_seconds_sum", lbl...); got <= 0 {
 			t.Errorf("耗时直方图 _sum 应大于 0，实际 %v", got)
 		}
-		// docs/config.md XMetric.HTTPDurationBuckets 的默认值
+		// xmetric/README.md XMetric.HTTPDurationBuckets 的默认值
 		want := "0.001,0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10,+Inf"
 		if got := bucketBounds(m, "e2e_http_request_duration_seconds_bucket", lbl...); got != want {
 			t.Errorf("HTTP 耗时的桶应是文档写的默认值 %s，实际 %s", want, got)
@@ -128,7 +128,7 @@ func TestFunctional_指标按路由模板打标签并带上自定义和连接池
 				t.Errorf("%s%v 应是 %v，实际 %v", c.name, c.labels, c.want, got)
 			}
 		}
-		// docs/config.md XMetric.HistogramBuckets：快捷方法建的业务直方图，默认即 prometheus.DefBuckets
+		// xmetric/README.md XMetric.HistogramBuckets：快捷方法建的业务直方图，默认即 prometheus.DefBuckets
 		want := "0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10,+Inf"
 		if got := bucketBounds(m, "e2e_order_flow_seconds_bucket"); got != want {
 			t.Errorf("业务直方图的桶应是文档写的默认值 %s，实际 %s", want, got)
@@ -136,7 +136,7 @@ func TestFunctional_指标按路由模板打标签并带上自定义和连接池
 	})
 
 	t.Run("log_errors_total 与 Error 级别的日志条数一致", func(t *testing.T) {
-		// docs/config.md XMetric.LogErrorMetric：「Error 级别日志计入 log_errors_total」
+		// xmetric/README.md XMetric.LogErrorMetric：「Error 级别日志计入 log_errors_total」
 		// Error 及以上（slog 写成 ERROR、ERROR+4……）；xmetric/log_counter.go 按级别打 level 标签
 		errLogs := p.FindLogs(func(l harness.Log) bool { return strings.HasPrefix(l.Level(), "ERROR") })
 		if len(errLogs) == 0 {
@@ -178,10 +178,10 @@ func TestFunctional_指标按路由模板打标签并带上自定义和连接池
 			"e2e_redis_pool_hits_total", "e2e_redis_pool_misses_total", "e2e_redis_pool_timeouts_total",
 		} {
 			if len(m.Find(name, "name", "default")) != 1 {
-				t.Errorf("/metrics 里应有 %s{name=\"default\"}（docs/config.md：Metric: true 连接池指标按实例生效）", name)
+				t.Errorf("/metrics 里应有 %s{name=\"default\"}（xgorm/README.md、xredis/README.md：Metric: true 连接池指标按实例生效）", name)
 			}
 		}
-		// docs/config.md XGorm.MaxOpenConns 默认 50
+		// xgorm/README.md XGorm.MaxOpenConns 默认 50
 		if got := m.Sum("e2e_db_pool_max_open", "name", "default"); got != 50 {
 			t.Errorf("e2e_db_pool_max_open 应是默认的 50，实际 %v", got)
 		}
@@ -198,7 +198,7 @@ func TestFunctional_指标按路由模板打标签并带上自定义和连接池
 	})
 
 	t.Run("Go 运行时与进程指标默认开着", func(t *testing.T) {
-		// docs/config.md XMetric：GoMetrics / ProcessMetrics 默认开
+		// xmetric/README.md XMetric：GoMetrics / ProcessMetrics 默认开
 		for _, name := range []string{"go_goroutines", "go_memstats_heap_alloc_bytes", "process_resident_memory_bytes", "process_cpu_seconds_total"} {
 			if !m.Has(name) {
 				t.Errorf("/metrics 里应有 %s", name)

@@ -13,7 +13,7 @@ import (
 	"github.com/xiaoshicae/x-one/e2e/harness"
 )
 
-// 增删改查走的是第二个实例：docs/config.md XGorm「多实例」——C() 取 default，C("name") 取具名的那个。
+// 增删改查走的是第二个实例：xgorm/README.md XGorm「多实例」——C() 取 default，C("name") 取具名的那个。
 // 数据直连 MySQL 核对，同时确认 PG 上的同名表里没有这些行：写进了 default 的话，
 // 接口照样回 201 / 200，只看接口是看不出来的
 func TestMySQL_增删改查走第二个实例且数据真的落在MySQL上(t *testing.T) {
@@ -79,7 +79,7 @@ func TestMySQL_增删改查走第二个实例且数据真的落在MySQL上(t *te
 	}
 }
 
-// docs/config.md XGorm.Log：「记的是带占位符的 SQL，不含参数值」「占位符就是发给数据库的那样：MySQL 是 ?」；
+// xgorm/README.md XGorm.Log：「记的是带占位符的 SQL，不含参数值」「占位符就是发给数据库的那样：MySQL 是 ?」；
 // 日志里的语句就是 Span 的 db.query.text（xgorm/trace.go：「记的是带占位符的 SQL，不记 Statement.Vars」）。
 //
 // Log 按实例生效（它是 ClientConfig 的字段）：只给 mysql 开，default（PG）那边的 SQL 一条都不该记
@@ -198,7 +198,7 @@ func TestMySQL_SQL的Span带上这个实例自己的连接信息(t *testing.T) {
 	})
 }
 
-// docs/config.md XGorm：「Metric: true # 连接池指标，按实例生效：Metric: false 的实例不出现在 /metrics 里」。
+// xgorm/README.md XGorm：「Metric: true # 连接池指标，按实例生效：Metric: false 的实例不出现在 /metrics 里」。
 // 指标按实例名打 name 标签，每个实例报自己的池子：给 mysql 配 MaxOpenConns: 7，
 // e2e_db_pool_max_open{name="mysql"} 就是 7，default 仍是默认的 50
 func TestMySQL_连接池指标按实例名打标签_Metric按实例关得掉(t *testing.T) {
@@ -315,7 +315,7 @@ func TestMySQL_密码不出现在任何日志Span指标和响应里(t *testing.T
 	t.Logf("数字：核对了 %d 字节输出、%d 字节 Span、%d 个响应体", len(out), len(spans), len(bodies))
 }
 
-// docs/config.md XGorm：「DSN 里已经写了的 timeout 之类的参数不会被配置覆盖——配置里的值只是默认值」；
+// xgorm/README.md XGorm：「DSN 里已经写了的 timeout 之类的参数不会被配置覆盖——配置里的值只是默认值」；
 // 「MySQL 注入 DSN 的 timeout」「ReadTimeout 读超时，对应 DSN 的 readTimeout。默认 3s」。
 //
 // 读超时：对端不回话（SetDelay(time.Hour)），池里的连接上一条不给截止时间的查询该在 readTimeout 失败。
@@ -418,7 +418,7 @@ func TestMySQL_卡住或宕机时_查询在调用方给的截止时间返回(t *
 	}
 }
 
-// docs/behavior.md「XGorm：通用」：服务端报错的原文里就是参数值
+// xgorm/README.md「通用」：服务端报错的原文里就是参数值
 // （实测 MySQL 8.0.46 的 1366 是 Incorrect integer value: '<值>' for column 'id'，
 // PG 16 的 22P02 是 invalid input syntax for type bigint: "<值>"）。
 // SQL failed 日志的 error 字段和 Span 的状态、属性、事件里只有错误码；返回给业务的错误原样不变

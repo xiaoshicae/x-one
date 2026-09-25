@@ -34,7 +34,7 @@ xone/
 │   ├── hook/            钩子登记、配对与按档位执行
 │   ├── xclient/         xgorm / xredis / xcache 共用的具名实例管理和启动期探测
 │   ├── testkit/         仓库自己的单元测试共用的小工具，只依赖标准库
-│   └── schemagen/       生成 config_schema.json、核对 docs/config.md（独立的工具 module）
+│   └── schemagen/       生成 config_schema.json、核对各模块 README 的「配置」一节（独立的工具 module）
 ├── xtrace/              链路，基于 OpenTelemetry（独立 module）
 ├── xmetric/             指标，基于 Prometheus（独立 module）
 ├── xgorm/               数据库，基于 GORM（独立 module）
@@ -45,7 +45,8 @@ xone/
 ├── xgin/                Web 服务，基于 Gin（独立 module）
 │   └── middleware/      访问日志、链路、指标、panic 恢复，外加 LogScope / Propagate
 ├── xginswagger/         Swagger UI（独立 module）
-├── docs/                使用者文档（README 里有导航）+ 本文件 + CHANGELOG.md
+├── docs/                跨模块的使用者文档（README 里有导航）+ 本文件 + CHANGELOG.md；
+│                        每个模块自己的文档在它目录下的 README.md（见「配置与文档」）
 ├── example/             一个 module：可直接跑的示例，同时是进程内的跨模块集成测试
 │   ├── consumer/        消息队列消费者：非 Web 服务的形状
 │   └── component/       自己写一个集成：两个钩子 + 一个 C() 的完整样例
@@ -93,7 +94,7 @@ xone/
 - `init()` 只出现在集成包里；
 - 公开 API 数量上限：根包 15、`xhook` 6、`xconfig` 6、`xonetest` 3、`xtls` 3；
 - 集成包必须导出 `New`，且不许 import 根包；`example/` 不许 import `internal/`（使用者 import 不到）；
-- **每个配置字段都写进了 `docs/config.md` 自己那一节**（`## XLog` 这样以顶层 key 开头的二级标题），每一节的 YAML 示例都过得了 schema；
+- **每个配置字段都写进了它那个模块 README 的 `## 配置` 一节**（配置块 → README 的对应表在 `internal/schemagen/docs.go`），每一节的 YAML 示例都过得了 schema；
 - `config_schema.json` 与结构体一致；
 - 错误和日志等运行期字符串是英文；错误走 `xerror`、用 `%w` 包底层错误；
 - `*.go` / `*.md` / `*.yml` 里不再出现已经删掉的公开名字（删一个公开名字时把它加进脚本里 `gone` 那张表）；
@@ -103,7 +104,7 @@ xone/
 ### config_schema.json
 
 由 `go run ./internal/schemagen` 从各模块的 Config 结构体生成，字段说明直接取结构体上的注释——注释、文档、schema 是同一个来源。
-改了 Config 字段（包括字段上的注释）之后重新生成，再把字段写进 `docs/config.md` 对应的那一节。忘了任何一步 `check.sh` 都会红。
+改了 Config 字段（包括字段上的注释）之后重新生成，再把字段写进那个模块 README 的 `## 配置` 一节。忘了任何一步 `check.sh` 都会红。
 
 ### mutate.py
 
@@ -299,7 +300,7 @@ return xerror.New("xgorm", "init", err)
 
 1. **写进文档的每一句行为描述，先用一段代码量出来**，别照抄它的 README。
 2. **我们没显式设的字段就是我们接受了它的默认值**——列一遍这些字段，逐个问「它的默认值是什么，我知道吗」。
-3. 量出来的数字（连同依赖版本）写进注释和 [`behavior.md`](behavior.md)。后来的人不必再量一次，升级依赖之后数字对不上也能立刻看出来。
+3. 量出来的数字（连同依赖版本）写进注释和那个模块 README 的「行为与实测」一节（跨模块的写进 [`behavior.md`](behavior.md)）。后来的人不必再量一次，升级依赖之后数字对不上也能立刻看出来。
 
 ### 变异测试
 
@@ -322,10 +323,21 @@ return xerror.New("xgorm", "init", err)
 ### 配置与文档
 
 - 默认值预填在结构体里，未知字段是错误，`${VAR}` 未设置是错误，校验写在 `Validate()` 里（读配置时就跑）。
-- 新增或改动 Config 字段：重新生成 schema，写进 `docs/config.md` 自己那一节（`check.sh` 双向检查）。
-  `config.md` 只放参考（YAML 块 + 几条要点）；长的解释和实测数字放 `behavior.md`，日志 / 指标 / Span 的名字放 `observability.md`，
-  新的报错文案放 `troubleshooting.md`。
-- README 的第一个 ```go 代码块由 `example/readme_test.go` 编译一遍，改公开 API 时跟着改。
+- 新增或改动 Config 字段：重新生成 schema，写进那个模块 README 的 `## 配置` 一节（`check.sh` 双向检查）。
+- **文档按模块放。** 每个模块目录下的 `README.md` 管这个模块的全部文档，固定四节（没有内容的那节省掉），节里再分用 `###`：
+
+  | 一节 | 放什么 |
+  |---|---|
+  | `## 配置` | 参考：YAML 块 + 几条要点。`check.sh` 按这一节核对字段 |
+  | `## 行为与实测` | 长的解释、库的默认、量出来的数字和依赖版本 |
+  | `## 可观测` | 这个模块产出的日志消息和字段、指标、Span 名和属性 |
+  | `## 排错` | 这个模块自己的报错文案 |
+
+  `docs/` 只放跨模块的：`config.md` 是配置文件的加载、合并、占位符和「配置块 → 模块文档」的索引，`behavior.md` 是总表和
+  启动期建连探测，`observability.md` 是日志 / 指标 / 链路的全局约定和传播规则，`troubleshooting.md` 是配置加载、`C()`、
+  Runnable 与退出、建连这些不属于某一个模块的报错。一句话同时说到几个模块时写进 `docs/`，模块 README 里放链接。
+- 代码注释和测试里引用文档写成 `xgin/README.md「访问日志」`（路径 + 标题），挪了标题要跟着改。
+- 根目录 README 的第一个 ```go 代码块由 `example/readme_test.go` 编译一遍，改公开 API 时跟着改。
 
 ### 更新日志
 

@@ -16,7 +16,7 @@ xone 是一个 Go 三方库集成框架：统一读配置、按阶段初始化�
   - 底层错误用 `%w`，不用 `%v`；一个模块边界只包一次，内部的中间错误保持普通 error；消息里不重复模块名。
   - op 只从这组词里选：`config` `init` `new` `connect` `close` `register` `start` `stop` `execute`。
 - 接一个库或升级一个库：写进文档的每一句行为描述先用代码量出来；没显式设的字段逐个确认它的默认值；
-  数字连同依赖版本写进注释和 `docs/behavior.md`。
+  数字连同依赖版本写进注释和那个模块 README 的 `## 行为与实测`。
 - 设计原则（全文见 `docs/architecture.md`）：
   - 给使用者的接口保持最简，复杂性沉到框架里——先问「使用者要多学什么」。
   - `init()` 只登记，不初始化；真正的初始化由框架按档位执行。
@@ -29,10 +29,12 @@ xone 是一个 Go 三方库集成框架：统一读配置、按阶段初始化�
 ## 配置与文档
 
 - 默认值预填在结构体里，未知字段是错误，`${VAR}` 未设置是错误，校验写在 `Validate()` 里。
-- 新增或改动 Config 字段（含字段注释）：`go run ./internal/schemagen`，再写进 `docs/config.md` 自己那一节（`check.sh` 双向检查）。
-- `config.md` 只放参考；实测数字放 `behavior.md`，日志 / 指标 / Span 名放 `observability.md`，新的报错文案放 `troubleshooting.md`。
+- 新增或改动 Config 字段（含字段注释）：`go run ./internal/schemagen`，再写进那个模块 README 的 `## 配置` 一节（`check.sh` 双向检查）。
+- 每个模块的文档在它目录下的 `README.md`：`## 配置` 只放参考，实测数字放 `## 行为与实测`，日志 / 指标 / Span 名放 `## 可观测`，
+  新的报错文案放 `## 排错`。`docs/` 只放跨模块的：配置加载规则（`config.md`）、总表（`behavior.md`）、全局约定（`observability.md`）、
+  通用报错（`troubleshooting.md`）。挪了标题就搜一遍 `README.md#` / `docs/` 的引用（Go 注释里也有）。
 - 删掉一个公开名字时，把它加进 `scripts/check.sh` 里的 `gone` 表。
-- README 的第一个 ```go 代码块会被 `example/readme_test.go` 编译，改公开 API 时跟着改。
+- 根目录 README 的第一个 ```go 代码块会被 `example/readme_test.go` 编译，改公开 API 时跟着改。
 - 更新日志：打第一个版本 tag 之前不记录；之后使用者可见的变化在同一提交写进 `docs/CHANGELOG.md` 的「未发布」。
 
 ## 变异测试

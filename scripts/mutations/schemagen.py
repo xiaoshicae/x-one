@@ -10,9 +10,10 @@ mutate("schema 里 Import 写一个字符串也行", "internal/schemagen/schema.
        swap('stringOrList = []string{"string", "array"}', 'stringOrList = "array"'))
 mutate("schema 里数字字段收占位符", "internal/schemagen/schema.go", "./internal/schemagen", "TestSchema|TestCheckDocs",
        swap('return &node{Type: []string{typ, "string"}, Pattern: placeholder}', 'return &node{Type: typ}'))
-# 从前在整份文档里 grep 字段名，XLog.File.Name 没写也会因为 App.Name 写了而通过
+# 从前在整份文档里 grep 字段名，XLog.File.Name 没写也会因为别处写了 Name 而通过；
+# 现在只认它 README 的「## 配置」一节，README 的其余几节不算
 mutate("文档按节检查字段", "internal/schemagen/docs.go", "./internal/schemagen", "TestCheckDocs",
        swap('\t\tif !regexp.MustCompile(`\\b` + regexp.QuoteMeta(f) + `\\b`).MatchString(text) {',
      '\t\tif !regexp.MustCompile(`\\b` + regexp.QuoteMeta(f) + `\\b`).MatchString(md) {'))
 mutate("文档里的 YAML 示例要过得了 schema", "internal/schemagen/docs.go", "./internal/schemagen", "TestCheckDocs",
-       swap('\t\t\tfor _, p := range problems(rs, doc) {', '\t\t\tfor _, p := range problems(rs, map[string]any{}) {'))
+       swap('\t\tfor _, p := range problems(rs, doc) {', '\t\tfor _, p := range problems(rs, map[string]any{}) {'))

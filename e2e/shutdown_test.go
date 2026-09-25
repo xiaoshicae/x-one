@@ -16,11 +16,11 @@ import (
 
 // 优雅退出这一类：真的进程、真的信号、真的 PG / Redis。
 // 对照的承诺出自 docs/architecture.md「退出信号：从进程起步的第一毫秒就接管」「停止预算是一份」
-// 两节，和 docs/config.md 里 XGin 的停止说明、xone.WithStopTimeout 的注释。
+// 两节，和 xgin/README.md 里 XGin 的停止说明、xone.WithStopTimeout 的注释。
 
 // TestShutdown_压力下收到SIGTERM_在途请求全部做完_新连接被拒_以0退出
 //
-// 文档的承诺（docs/architecture.md「停止预算是一份」、docs/config.md XGin 一节）：
+// 文档的承诺（docs/architecture.md「停止预算是一份」、xgin/README.md XGin 一节）：
 //   - Stop 等在途请求做完，最多等到服务那一段预算（WithStopTimeout 的 2/3）；
 //   - 服务那一段（Stop + 等 Start 返回）结束之后才关数据库和缓存，在途请求摸不到已经关掉的连接池；
 //   - 整个退出流程在 WithStopTimeout 之内结束，服务自己按要求退出是 0。
@@ -342,7 +342,7 @@ func TestShutdown_关闭顺序是启动顺序的逆序_xlog最后关(t *testing.
 
 // TestShutdown_不看ctx的handler在途时收到SIGTERM_报出仍在运行的个数并在预算内退出
 //
-// 文档（docs/config.md XGin 一节）：
+// 文档（xgin/README.md XGin 一节）：
 //  1. Shutdown 只用到截止时间前的一截（留出剩余时间的 20%，最多 1s），到那时还有请求就 Close() 断开所有连接；
 //  2. 留出来的那一截等 handler 真正返回，看到 ctx 取消就收尾的 handler 在这里做完；
 //  3. 到截止时间还有 handler 没返回时，错误里写明还剩几个（N handler(s) still running…）；
@@ -486,7 +486,7 @@ func TestShutdown_退出卡住时第二个信号立刻终止进程(t *testing.T)
 //
 // 文档（docs/architecture.md「退出信号」第 1、2 条）：信号在读配置之前就接管；钩子收 ctx，收到信号后
 // 不再跑剩下的启动钩子，已建好的逆序关干净，服务不再启动，然后以 0 退出——按要求退出
-// 不是故障，不报成启动失败。被打断的那个钩子靠它自己把 ctx 传下去：docs/config.md 说
+// 不是故障，不报成启动失败。被打断的那个钩子靠它自己把 ctx 传下去：xgorm/README.md 说
 // PostgreSQL 的建连受 ctx 管；xredis.New 的注释说「收到退出信号就该当场放弃」，
 // ping 的注释说「parent 取消时立即放弃」。
 //
@@ -627,11 +627,11 @@ func TestShutdown_启动期间收到SIGTERM_不启动服务_已建好的逆序�
 
 // TestShutdown_断连之后_传了请求ctx的PG调用停得下来_Redis调用等到连接池关掉
 //
-// 文档（docs/config.md XGin 一节）：到点还没做完的请求，Close() 断开连接、取消请求的 ctx；
+// 文档（xgin/README.md XGin 一节）：到点还没做完的请求，Close() 断开连接、取消请求的 ctx；
 // 「handler 里的慢操作（查库、调下游）要传 c.Request.Context()，断连之后才停得下来」，
 // 留出来的那一截就是等这种 handler 收尾的。
 //
-// Redis 是那一节写明的例外（docs/behavior.md「XRedis」）：go-redis 只认 ctx 的
+// Redis 是那一节写明的例外（xredis/README.md「行为与实测」）：go-redis 只认 ctx 的
 // 截止时间，取消叫不醒阻塞在读上的命令，它要等到 ReadTimeout、ctx 的截止时间或 xredis 的停止钩子
 // 关掉连接池才返回。所以 Redis 那一例断言的是这个：handler 在 closeXRedis 之后才返回，
 // Stop 如实报出还有 handler 没返回。
@@ -730,7 +730,7 @@ func TestShutdown_断连之后_传了请求ctx的PG调用停得下来_Redis调�
 				// 证据由下面的「1 handler(s) still running」给；写出来了就必须晚于关池
 				if poolClosedAt.IsZero() || (!completedAt.IsZero() && completedAt.Before(poolClosedAt)) {
 					t.Errorf("文档说取消叫不醒阻塞的 Redis 命令、handler 等到 %s 关掉连接池才返回：实际 handler 返回于 %v，%s 于 %v。"+
-						"handler 先返回了的话是 go-redis 开始听取消了，docs/config.md XRedis 那句限制该删了",
+						"handler 先返回了的话是 go-redis 开始听取消了，xredis/README.md XRedis 那句限制该删了",
 						c.untilPoolClosed, completedAt, c.untilPoolClosed, poolClosedAt)
 				}
 				if !strings.Contains(stderr, "1 handler(s) still running") {

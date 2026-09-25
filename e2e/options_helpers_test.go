@@ -4,7 +4,7 @@ package e2e
 //
 //	scripts/e2e.sh -run Coverage
 //
-// 和 functional_* 一样，每条断言对照 README.md / docs/config.md 里写下的一句话，
+// 和 functional_* 一样，每条断言对照 README.md / docs/config.md / 各模块 README 里写下的一句话，
 // 失败信息写成「文档说 X，实际 Y」；量出来的数字用 t.Logf 打出来，行首带「数字：」。
 // 被测服务里给它们用的接口都挂在 /probe 下面，见 service/probe.go。
 //

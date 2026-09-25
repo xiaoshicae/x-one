@@ -10,7 +10,7 @@ package e2e
 //	Proxy.Blackhole()  主机宕机：现有连接不再回话，新连接的 SYN 没有回音
 //	Proxy.SetDelay(d)  对端变慢；time.Hour 就是「连得上、但一个字节都不回」
 //
-// 断言对照 README.md / docs/architecture.md / docs/config.md 写下的行为，失败信息写成「文档说 X，实际 Y」；
+// 断言对照 README.md / docs/architecture.md / docs/config.md / 各模块 README 写下的行为，失败信息写成「文档说 X，实际 Y」；
 // 文档没写死的数（比如「恢复要多久」）只量、不卡，打在 t.Logf 里。
 // 数字都以「数字：」开头，方便从 -v 的输出里 grep。
 //
@@ -53,7 +53,7 @@ const faultSlack = 300 * time.Millisecond
 // 给到 400ms：比量出来的大两个数量级，服务带 -race、机器满载也够，又仍短于最短的那个超时
 const faultUnaffected = 400 * time.Millisecond
 
-// docs/config.md XRedis 的默认值；service/application.yml 没改这几项
+// xredis/README.md XRedis 的默认值；service/application.yml 没改这几项
 const (
 	faultRedisDialTimeout     = 500 * time.Millisecond
 	faultRedisReadTimeout     = 500 * time.Millisecond
@@ -212,7 +212,7 @@ func faultQuick(t *testing.T, p *harness.Process, what, path string, want int) h
 //   - 三级读降级到 PG（service/users.go：Redis 出错记 WARN，降级到 PG），下单在扣款那一步失败并回滚
 //   - 不碰 Redis 的接口不受影响：/ping、?cache=off、本地缓存命中
 //   - Redis 回来之后不用重启就恢复
-//   - 全程的输出里没有 Redis 的密码（docs/config.md XRedis.Password：「本模块不会把它写进任何日志」）
+//   - 全程的输出里没有 Redis 的密码（xredis/README.md XRedis.Password：「本模块不会把它写进任何日志」）
 func TestFault_运行中Redis拒绝连接_用到它的操作在预算内报错_读降级到PG_恢复后自动恢复_不泄露密码(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
@@ -357,8 +357,8 @@ func TestFault_运行中Redis拒绝连接_用到它的操作在预算内报错_�
 	// docs/behavior.md「总表」：GORM 默认的 stdout logger、resty 写 stderr 的 logger
 	// 都被接回了 slog，理由是「绕开 slog 的日志进不了日志平台」。go-redis 的 internal.Logger
 	// 是同一类东西：xredis 在 init 里用 redis.SetLogger 接到 slog，消息是 xredis go-redis log、
-	// 级别 WARN（docs/config.md XRedis）。这一圈 Redis 拒绝连接，go-redis 每次建连失败都记一句
-	// failed to dial。trace_id 不断言：docs/config.md 写明了建连在 go-redis 自己的协程里、
+	// 级别 WARN（xredis/README.md XRedis）。这一圈 Redis 拒绝连接，go-redis 每次建连失败都记一句
+	// failed to dial。trace_id 不断言：xredis/README.md 写明了建连在 go-redis 自己的协程里、
 	// 用它自己的 context.Background()，这类日志带不上请求的 trace_id（实测 45 条一条都没有）
 	t.Run("go-redis自己的日志也走slog", func(t *testing.T) {
 		lines := faultGoRedisLogLine.FindAllString(p.Stderr(), -1)

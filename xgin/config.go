@@ -132,7 +132,7 @@ type Config struct {
 	// LogRequestBody 是否把请求体记进访问日志。默认不记。
 	//
 	// 记 body 要缓存请求体的前 256KB 并对每个字段做脱敏，代价和风险都不小。
-	// 打开前先确认敏感词配全了（middleware.AddSensitiveFields，规则见 docs/observability.md「访问日志」）。
+	// 打开前先确认敏感词配全了（middleware.AddSensitiveFields，规则见 xgin/README.md「访问日志」）。
 	LogRequestBody bool `yaml:"LogRequestBody"`
 
 	// LogResponseBody 是否把响应体记进访问日志。默认不记。

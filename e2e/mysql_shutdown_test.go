@@ -118,10 +118,10 @@ func TestMySQL_SIGTERM时在途的MySQL查询做完才关连接池(t *testing.T)
 
 // MySQL 不回话时，传了请求 ctx 的查询在 ctx 被取消（不是到截止时间）时停不停得下来。
 //
-// docs/config.md 的 XGorm 一节原先没写 MySQL 的取消（只写了 PG「Web 请求里用请求自带的 ctx 也行：
+// xgorm/README.md 的 XGorm 一节原先没写 MySQL 的取消（只写了 PG「Web 请求里用请求自带的 ctx 也行：
 // 客户端断开时它被取消，查询跟着返回」）。量下来：go-sql-driver 在 ctx 结束时关掉那条连接，
 // 阻塞在读上的查询当场返回（context canceled），不等 ReadTimeout。量出来的数写进了
-// docs/behavior.md「XGorm：MySQL」，这里照它断言。
+// xgorm/README.md「MySQL」，这里照它断言。
 //
 // ReadTimeout 配成 10s：默认 3s 的话，断连之后留的那一截里读超时可能自己先到，测不出取消管不管用
 func TestMySQL_卡住的MySQL查询_请求ctx被取消时当场返回_不等ReadTimeout(t *testing.T) {
@@ -200,7 +200,7 @@ func TestMySQL_卡住的MySQL查询_请求ctx被取消时当场返回_不等Read
 	})
 }
 
-// 启动时 MySQL 不回话，这时收到 SIGTERM。docs/config.md XGorm：MySQL 的建连（包括查版本）全部在受 ctx 管的
+// 启动时 MySQL 不回话，这时收到 SIGTERM。xgorm/README.md XGorm：MySQL 的建连（包括查版本）全部在受 ctx 管的
 // 建连验证里，启动期间的退出信号当场生效，不等握手那一读撞上 ReadTimeout。
 //
 // 这条原先是 KNOWN BUG：信号之后约 2.95s 才退出（= 握手那一读等满 ReadTimeout 3s，减去发信号前已经等掉的那一截）。

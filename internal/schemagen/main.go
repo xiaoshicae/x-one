@@ -161,8 +161,8 @@ func build(repo string) (*root, error) {
 		props[p.configKey] = n
 	}
 
-	// 顶层不设 additionalProperties: false：业务自己的配置块（见 docs/config.md
-	// 「业务自己的配置块」）也写在顶层，schema 不可能认识它们。
+	// 顶层不设 additionalProperties: false：业务自己的配置块（见 docs/guide.md
+	// 「读自己的配置」）也写在顶层，schema 不可能认识它们。
 	// 顶层拼错由运行时的「没人认领的块直接失败」拦住
 	//
 	// $schema 必须带结尾的 #：draft-07 元 schema 的标准 URI 就是这么写的，

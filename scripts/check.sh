@@ -110,8 +110,8 @@ echo "✓ example/ 不 import internal/"
 # 搬进框架的配置手册反而会让人以为它是框架的一部分。e2e/ 同理：被测服务的业务配置块
 # 是测试自己的，写在 e2e/service/application.yml 里
 #
-# 按节查，两个方向都查（见 internal/schemagen/docs.go）：每个字段要出现在它自己
-# 那一块的「## XLog」一节里，每一节的 YAML 示例要过得了 schema。
+# 按节查，两个方向都查（见 internal/schemagen/docs.go）：每个字段要出现在它那个模块
+# README 的「## 配置」一节里（xlog/README.md 之类），每一节的 YAML 示例要过得了 schema。
 # 从前是在整份文档里 grep 字段名：Name、Timeout、Enable 总能在别的节里找到，
 # 永远通过；[A-Za-z]+ 还漏掉了 UseH2C 这种带数字的名字；反方向根本没查。
 #
@@ -123,7 +123,7 @@ for f in $(echo "$gosrc" | grep -vE '^(example|e2e)/' | xargs grep -hoE 'yaml:"[
 done
 [ -z "$missing" ] || fail "这些配置字段没进 config_schema.json（结构体没挂到 Config 上？）：$missing"
 # schemagen 是独立的工具 module，从根目录经 go.work 调它
-out=$(go test -count=1 -run TestCheckDocs ./internal/schemagen 2>&1) || fail "docs/config.md 与 Config 结构体对不上：
+out=$(go test -count=1 -run TestCheckDocs ./internal/schemagen 2>&1) || fail "模块 README 的「## 配置」与 Config 结构体对不上：
 $out"
 echo "✓ 配置字段都写进文档了（按节，双向）"
 

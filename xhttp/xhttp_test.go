@@ -517,7 +517,7 @@ func TestValidate(t *testing.T) {
 }
 
 func TestTunedTransport_没改的默认值与文档一致(t *testing.T) {
-	// 注释和 docs/config.md 里写的是这几个数（Go 1.25、resty v2.17.2）。
+	// 注释和 xhttp/README.md 里写的是这几个数（Go 1.25、resty v2.17.2）。
 	// 升级之后变了，这里先红，文档跟着改
 	tr := tunedTransport(DefaultConfig(), nil).(*http.Transport)
 	if tr.Proxy == nil || tr.TLSHandshakeTimeout != 10*time.Second || tr.ResponseHeaderTimeout != 0 ||

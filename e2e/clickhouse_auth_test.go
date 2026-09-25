@@ -8,7 +8,7 @@ import (
 	"github.com/xiaoshicae/x-one/e2e/harness"
 )
 
-// 启动时 ClickHouse 拒绝了这组凭证，native 协议：docs/config.md「其它驱动」——
+// 启动时 ClickHouse 拒绝了这组凭证，native 协议：xgorm/clickhouse/README.md「配置」——
 // 「密码错时不重试，报 authentication to <addr> failed：认的是 native 协议握手时服务端回的
 // *clickhouse.Exception，错误码 516（AUTHENTICATION_FAILED，新版本服务端密码错、用户不存在都报它）」。
 // 对的密码、错的密码都不能出现在输出里。服务端回的错误（实测 24.8.14）：
@@ -73,7 +73,7 @@ func TestClickHouse_启动时密码错误或用户不存在_native协议认得�
 	})
 }
 
-// HTTP 协议（http://…:8123）下密码错：docs/config.md「其它驱动」——「HTTP 协议下同样认得出」。
+// HTTP 协议（http://…:8123）下密码错：xgorm/clickhouse/README.md「配置」——「HTTP 协议下同样认得出」。
 // clickhouse-go v2.48.0 把非 200 的响应解析成 *clickhouse.HTTPError，里面包着 *clickhouse.Exception
 // （conn_http_errors.go，错误码取自 X-ClickHouse-Exception-Code 头），errors.As 取得到。实测（ClickHouse 24.8.14）：
 //

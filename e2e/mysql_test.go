@@ -6,7 +6,7 @@ package e2e
 //	scripts/e2e.sh --load -run MySQL_Load   # 压测
 //
 // 服务的 XGorm 是多实例写法（service/application.yml）：default 是 PostgreSQL，mysql 是 MySQL。
-// 断言对照 docs/config.md「XGorm —— 数据库」与 README 写下的行为，失败信息写成「文档说 X，实际 Y」；
+// 断言对照 xgorm/README.md「配置」与 README 写下的行为，失败信息写成「文档说 X，实际 Y」；
 // 文档没写死的数只量、不卡，以「数字：」开头打在 t.Logf 里。
 //
 // 文件划分：
@@ -28,7 +28,7 @@ import (
 	"github.com/xiaoshicae/x-one/e2e/harness"
 )
 
-// docs/config.md XGorm 的默认值；service/application.yml 的 mysql 实例没改这几项
+// xgorm/README.md XGorm 的默认值；service/application.yml 的 mysql 实例没改这几项
 const (
 	mysqlDialTimeout = 500 * time.Millisecond // DialTimeout，注入 DSN 的 timeout
 	mysqlReadTimeout = 3 * time.Second        // MySQL.ReadTimeout，注入 DSN 的 readTimeout

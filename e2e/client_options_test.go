@@ -31,7 +31,7 @@ func covCacheSet(t *testing.T, p *harness.Process, name, key, ttl string) {
 	}
 }
 
-// docs/config.md XCache：
+// xcache/README.md XCache：
 //
 //	MaxCost     「本包写入时 cost 固定为 1，所以等价于条目数」，不含 ristretto 每条 56 字节的内部开销
 //	            （算进去的话 MaxCost: 2000 实际只存得下 35 条）
@@ -115,7 +115,7 @@ func covRedisDo(t *testing.T, p *harness.Process, name, op, key, val string) (in
 	return r.Status, time.Duration(ms * float64(time.Millisecond)), m
 }
 
-// docs/config.md XRedis：多实例写在 Clients 下面，每个实例一套自己的字段（DB、重试……）；
+// xredis/README.md XRedis：多实例写在 Clients 下面，每个实例一套自己的字段（DB、重试……）；
 // MaxRetries「0 交给 go-redis（3 次），-1 关闭」，MinRetryBackoff / MaxRetryBackoff 是两次重试之间的退避。
 // Redis 拒绝连接时一条命令要多久几乎全是退避：拨号当场失败，剩下的是 MaxRetries 次退避
 func TestCoverage_Redis多实例各连各的_重试次数和退避按实例生效(t *testing.T) {
@@ -189,7 +189,7 @@ func TestCoverage_Redis多实例各连各的_重试次数和退避按实例生�
 	})
 }
 
-// docs/behavior.md XHttp 那张表：「cookie jar：resty.New() 自带一个，同一 client 的所有请求共享会话 cookie ｜ 这里：没有」。
+// xhttp/README.md「行为与实测」那张表：「cookie jar：resty.New() 自带一个，同一 client 的所有请求共享会话 cookie ｜ 这里：没有」。
 // 下游第一次响应种一个 cookie，之后经 xhttp 的每次调用都不该把它带回去
 func TestCoverage_xhttp不带cookie_jar_下游种的cookie不会串到下一次调用(t *testing.T) {
 	harness.Require(t)

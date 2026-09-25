@@ -9,7 +9,7 @@ package e2e
 // ClickHouse 实例是可选的：harness.Options.ClickHouse 激活 service/application-ch.yml 那份 profile 才有。
 // ClickHouse 不可用（没有 Docker、容器起不来）时这一组各自跳过（harness.RequireCH），其余 e2e 照跑。
 //
-// 断言对照 docs/config.md「其它驱动」「ClickHouse 的超时与取消」、README 与 xgorm/clickhouse 的包文档；
+// 断言对照 xgorm/clickhouse/README.md「配置」「ClickHouse 的超时与取消」、README 与 xgorm/clickhouse 的包文档；
 // 失败信息写成「文档说 X，实际 Y」。文档没写死的数只量、不卡，以「数字：」开头打在 t.Logf 里。
 //
 // 文件划分：
@@ -31,7 +31,7 @@ import (
 	"github.com/xiaoshicae/x-one/e2e/harness"
 )
 
-// docs/config.md XGorm 的默认值与 ClickHouse 那两节；service/application-ch.yml 没改这几项
+// xgorm/README.md XGorm 的默认值与 ClickHouse 那两节；service/application-ch.yml 没改这几项
 const (
 	chDialTimeout = 500 * time.Millisecond // DialTimeout，注入 DSN 的 dial_timeout
 	// chAttempt「其余驱动是 2 × DialTimeout」：xgorm/clickhouse 的 resolve 按驱动读出来的 dial_timeout 算

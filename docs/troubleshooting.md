@@ -3,6 +3,10 @@
 按错误原文查。框架的错误都是 `xone <模块> <op> failed, err=[…]` 的形状（见 [guide.md「错误处理」](guide.md#错误处理)），
 下面只列方括号里那一段的关键字，搜日志时用它就行。
 
+这里是跨模块的报错；只属于一个模块的在它 README 的「排错」一节：
+[xgorm](../xgorm/README.md#排错)（`unknown Driver=…`）· [xtls](../xtls/README.md#排错)（客户端 TLS）·
+[xgin](../xgin/README.md#排错)（服务端证书）。
+
 - [配置](#配置)
 - [取实例：C()](#取实例c)
 - [Runnable 与退出](#runnable-与退出)
@@ -67,7 +71,7 @@ Import 进来的片段找不到时同样是这个错误：片段的路径相对�
 
 ### `unknown Driver="clickhouse", registered: [mysql postgres]`
 
-`Driver` 写错了，或者没 import 驱动的 module（`_ "github.com/xiaoshicae/x-one/xgorm/clickhouse"`）。
+见 [xgorm「排错」](../xgorm/README.md#排错)。
 
 ## 取实例：C()
 
@@ -132,20 +136,4 @@ K8s 里要让 `terminationGracePeriodSeconds` 比 `WithStopTimeout` 长，见 [g
 
 ## TLS
 
-| 错误原文 | 原因 | 怎么改 |
-|---|---|---|
-| `TLS fields are set but TLS.Enable is false` | 写了 `CAFile` 等却没开 `Enable` | 加 `Enable: true`，或者删掉那几项 |
-| `TLS.CertFile and TLS.KeyFile must be set together` | 客户端证书只配了一半 | 两个都填 |
-| `the DSN sets sslmode while the TLS block is enabled; configure TLS in one place only` | PG 的 DSN / `Postgres.Params` 里有 `ssl*` 参数，同时开了 TLS 块 | 二选一 |
-| `the DSN sets tls while the TLS block is enabled` | MySQL 的 DSN 里写了 `tls=`（哪怕 `tls=false`） | 二选一 |
-| `the DSN sets secure while the TLS block is enabled` | ClickHouse 的 DSN 里有 `secure` / `skip_verify` / `tls_server_name` | 二选一 |
-| `the DSN uses http:// while the TLS block is enabled, and http:// never runs TLS` | ClickHouse 的 DSN 是 `http://` | 改成 `https://` |
-| `Driver="…" does not support the TLS block, configure TLS in its DSN instead` | 这个驱动没提供 `OpenTLS` | 在它的 DSN 里配 TLS |
-| `read TLS.CAFile: …` / `TLS.CAFile … contains no PEM certificate` | 证书文件读不出来或不是 PEM | 检查路径和文件内容 |
-| `x509: certificate signed by unknown authority` | 服务端证书不是 `CAFile` 里的 CA 签的（没填 `CAFile` 时是系统根证书） | 把签发它的 CA 填进 `CAFile` |
-| `x509: certificate is valid for …, not …` | 证书上的名字和连接地址对不上 | 按 IP 连时填 `ServerName` |
-| `remote error: tls: certificate required` / `unknown certificate authority` | 服务端要客户端证书，没带或不是它认的 CA 签的 | 填 `CertFile` / `KeyFile`，用服务端认的 CA 签 |
-| `CertFile and KeyFile must both be set or both be empty`（XGin） | 服务端证书只配了一半 | 两个都填，或者都留空 |
-| `ClientCAFile requires CertFile and KeyFile, mutual TLS runs on top of TLS`（XGin） | 配了双向认证却没配服务端证书 | 补上 `CertFile` / `KeyFile` |
-
-证书被拒不重试：再试还是同一张证书、同一个结论。
+客户端 TLS 块（XGorm / XRedis / XHttp）的报错见 [xtls「排错」](../xtls/README.md#排错)，XGin 服务端证书的见 [xgin「排错」](../xgin/README.md#排错)。

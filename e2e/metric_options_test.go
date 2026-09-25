@@ -8,7 +8,7 @@ import (
 	"github.com/xiaoshicae/x-one/e2e/harness"
 )
 
-// docs/config.md XMetric：Namespace「指标名前缀」，ConstLabels「附加到所有指标上」。
+// xmetric/README.md XMetric：Namespace「指标名前缀」，ConstLabels「附加到所有指标上」。
 // 查的是真的 /metrics：框架自带的请求指标、业务用快捷方法建的指标、Go 运行时与进程指标
 func TestCoverage_Namespace和ConstLabels出现在真实的metrics上(t *testing.T) {
 	harness.Require(t)
@@ -62,7 +62,7 @@ func TestCoverage_Namespace和ConstLabels出现在真实的metrics上(t *testing
 	}
 }
 
-// docs/behavior.md「XMetric」那张表
+// xmetric/README.md「行为与实测」那张表
 func TestCoverage_Namespace或ConstLabels写错时启动失败(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
@@ -87,7 +87,7 @@ func TestCoverage_Namespace或ConstLabels写错时启动失败(t *testing.T) {
 	}
 }
 
-// docs/config.md App：「指标不读这一块，/metrics 上没有应用名和版本：要在指标上区分应用，用 XMetric.ConstLabels」。
+// xapp/README.md App：「指标不读这一块，/metrics 上没有应用名和版本：要在指标上区分应用，用 XMetric.ConstLabels」。
 // 文档从前写「指标的默认标题取自 App」，指标上并没有这回事（xmetric 不 import xapp），改的是文档。
 // 链路那一半见 TestCoverage_service_name取自App且被OTEL环境变量压过，接口文档那一半见 swagger_ui_test.go；
 // ConstLabels 附加到所有指标上见 TestCoverage_Namespace和ConstLabels出现在真实的metrics上
@@ -101,6 +101,6 @@ func TestCoverage_指标不带App的名字(t *testing.T) {
 		return m.Sum("e2e_http_requests_total", "route", "/ping") >= 1
 	})
 	if body := string(p.Get(t, "/metrics").Body); strings.Contains(body, "xone.e2e.service") {
-		t.Errorf("文档说指标不读 App，/metrics 里却出现了 App.Name（xone.e2e.service）：改了行为就要同步 docs/config.md 的 App 一节")
+		t.Errorf("文档说指标不读 App，/metrics 里却出现了 App.Name（xone.e2e.service）：改了行为就要同步 xapp/README.md 的 App 一节")
 	}
 }

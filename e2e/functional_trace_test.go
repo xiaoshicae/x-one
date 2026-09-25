@@ -15,8 +15,8 @@ import (
 //
 //	服务端  xgin      名字是「方法 路由模板」，属性 http.route / url.path / 状态码；5xx 标错误、4xx 不标
 //	SQL     xgorm     gorm.<操作>，db.query.text 是带占位符的语句，不含参数值
-//	Redis   xredis    名字是命令名；docs/config.md：「Span 里只有命令名，不含参数」
-//	出站    xhttp     名字只用方法；url.full 去掉查询串（docs/behavior.md XHttp 那张表）
+//	Redis   xredis    名字是命令名；xredis/README.md：「Span 里只有命令名，不含参数」
+//	出站    xhttp     名字只用方法；url.full 去掉查询串（xhttp/README.md「行为与实测」那张表）
 //
 // 客户端 Span 的父都是这次请求的服务端 Span，同一条链路
 func TestFunctional_Span的名字属性和父子关系(t *testing.T) {
@@ -64,7 +64,7 @@ func TestFunctional_Span的名字属性和父子关系(t *testing.T) {
 				t.Errorf("服务端 Span 的 %s 应是 %q，实际 %q", k, want, got)
 			}
 		}
-		// docs/config.md App：链路的 service.name / service.version 取自这里
+		// xapp/README.md App：链路的 service.name / service.version 取自这里
 		if srv.Resource["service.name"] != "xone.e2e.service" || srv.Resource["service.version"] != "e2e" {
 			t.Errorf("resource 的 service.name / service.version 应取自 App（xone.e2e.service / e2e），实际 %v / %v",
 				srv.Resource["service.name"], srv.Resource["service.version"])
@@ -79,7 +79,7 @@ func TestFunctional_Span的名字属性和父子关系(t *testing.T) {
 		if !strings.HasPrefix(stmt, `INSERT INTO "`+p.Table+`"`) || !strings.Contains(stmt, "$1") {
 			t.Errorf("db.query.text 应是带占位符的 INSERT，实际 %q", stmt)
 		}
-		// docs/observability.md「链路」：OTel 数据库语义约定 v1.43.0 的名字
+		// xgorm/README.md「链路」：OTel 数据库语义约定 v1.43.0 的名字
 		host, port, _ := net.SplitHostPort(harness.PGAddr())
 		for k, want := range map[string]string{
 			"db.system.name": "postgresql", "db.namespace": "xone_e2e", "db.operation.name": "INSERT",
@@ -126,7 +126,7 @@ func TestFunctional_Span的名字属性和父子关系(t *testing.T) {
 		for _, s := range spans {
 			if s.Name == "get" || s.Name == "set" {
 				if st, ok := s.Attr("db.statement"); ok && st != s.Name {
-					t.Errorf("docs/config.md XRedis.Trace：Span 里只有命令名，实际 %s 的 db.statement=%q", s.Name, st)
+					t.Errorf("xredis/README.md XRedis.Trace：Span 里只有命令名，实际 %s 的 db.statement=%q", s.Name, st)
 				}
 			}
 		}
@@ -141,11 +141,11 @@ func TestFunctional_Span的名字属性和父子关系(t *testing.T) {
 		spans := traceSpans(t, p, tid)
 		out := spansNamed(spans, "GET")
 		if len(out) != 1 {
-			t.Fatalf("docs/config.md：出站 Span 名只用方法 GET，链路上应有一个，实际 %s", spanNames(spans))
+			t.Fatalf("xhttp/README.md：出站 Span 名只用方法 GET，链路上应有一个，实际 %s", spanNames(spans))
 		}
 		childOf(t, out[0], srv)
 		if got := out[0].Str("url.full"); got != stub.URL+"/echo" {
-			t.Errorf("docs/config.md：url.full 去掉查询串和片段，应是 %s/echo，实际 %q", stub.URL, got)
+			t.Errorf("xhttp/README.md：url.full 去掉查询串和片段，应是 %s/echo，实际 %q", stub.URL, got)
 		}
 		if out[0].Str("http.request.method") != "GET" || out[0].Str("http.response.status_code") != "200" {
 			t.Errorf("出站 Span 应记方法 GET 和状态码 200，实际 %v", out[0].Attributes)
@@ -190,7 +190,7 @@ func TestFunctional_Span的名字属性和父子关系(t *testing.T) {
 	})
 
 	t.Run("上游说不采样：不产生 Span，traceparent 照样往下传", func(t *testing.T) {
-		// docs/config.md XTrace.SampleRatio：「有上游时一律听上游的 sampled 位，1 也不例外」
+		// xtrace/README.md XTrace.SampleRatio：「有上游时一律听上游的 sampled 位，1 也不例外」
 		up, parent := randomTraceID(), randomSpanID()
 		r := p.Get(t, "/proxy", "traceparent", "00-"+up+"-"+parent+"-00")
 		if r.Status != http.StatusOK {
@@ -208,7 +208,7 @@ func TestFunctional_Span的名字属性和父子关系(t *testing.T) {
 	})
 }
 
-// docs/config.md XTrace.SampleRatio：「0 是『不采样但照常生成透传 TraceID』」。
+// xtrace/README.md XTrace.SampleRatio：「0 是『不采样但照常生成透传 TraceID』」。
 // 于是 X-Trace-Id、日志里的 trace_id、给下游的 traceparent 都还在，只是一个 Span 都不导出
 func TestFunctional_采样率为0时不导出Span但照常生成并透传TraceID(t *testing.T) {
 	harness.Require(t)
@@ -240,7 +240,7 @@ func TestFunctional_采样率为0时不导出Span但照常生成并透传TraceID
 }
 
 // XTrace.ForwardHeaders 只收可信对端（XGin.TrustedProxies）发来的值；traceparent 不受这条影响。
-// docs/config.md XTrace：默认一个都不信，于是默认什么都不透传；不可信的对端带着这些头来时打一条告警，整个进程只打一次
+// xtrace/README.md XTrace：默认一个都不信，于是默认什么都不透传；不可信的对端带着这些头来时打一条告警，整个进程只打一次
 func TestFunctional_下游收到traceparent且透传头只收可信对端的(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
@@ -253,7 +253,7 @@ func TestFunctional_下游收到traceparent且透传头只收可信对端的(t *
 			r := p.Get(t, "/proxy", "X-Request-Id", fmt.Sprintf("rid-untrusted-%d", i), "X-Forwarded-For", "198.51.100.7",
 				"Baggage", "tenant=forged")
 			last := stub.Last(t)
-			// docs/config.md XTrace：「baggage 同样只收可信对端的」
+			// xtrace/README.md XTrace：「baggage 同样只收可信对端的」
 			if got := last.Header.Get("Baggage"); got != "" {
 				t.Errorf("TrustedProxies 没配时 baggage 不该透传，下游却收到了 %q", got)
 			}
@@ -300,7 +300,7 @@ func TestFunctional_下游收到traceparent且透传头只收可信对端的(t *
 		}
 	})
 
-	// docs/config.md XTrace：「透传和链路标识不跟着 XGin.Trace / XHttp.Trace 走」，
+	// xtrace/README.md XTrace：「透传和链路标识不跟着 XGin.Trace / XHttp.Trace 走」，
 	// 那两个开关只管开不开 Span
 	t.Run("XGin 和 XHttp 的 Trace 都关掉", func(t *testing.T) {
 		t.Parallel()

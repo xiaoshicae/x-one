@@ -51,7 +51,7 @@ func proxyEnv(fp *forwardProxy) map[string]string {
 	return map[string]string{"HTTP_PROXY": fp.URL, "http_proxy": fp.URL, "NO_PROXY": "no-proxy.invalid", "no_proxy": "no-proxy.invalid"}
 }
 
-// docs/config.md XTrace.ForwardHeaderRules：「只发给匹配域名的 Header」。
+// xtrace/README.md XTrace.ForwardHeaderRules：「只发给匹配域名的 Header」。
 //
 //	Domains 只认精确的 api.internal.com 和通配的 *.trusted.com；*.trusted.com 匹配任意层级的子域，
 //	不匹配裸域 trusted.com；其余带 * 的写法启动失败（*trusted.com 原先会匹配 eviltrusted.com）
@@ -134,7 +134,7 @@ func TestCoverage_ForwardHeaderRules只把头发给匹配的域名且只收可�
 	})
 }
 
-// docs/config.md XTrace.SampleRatio：「根 Span 的采样率，[0, 1]」，「有上游时一律听上游的 sampled 位（ParentBased）」。
+// xtrace/README.md XTrace.SampleRatio：「根 Span 的采样率，[0, 1]」，「有上游时一律听上游的 sampled 位（ParentBased）」。
 // 0.5 时根请求大约一半被导出；带着上游 traceparent 的，sampled=01 的全导出、并以 -01 往下游传，
 // sampled=00 的一个都不导出、以 -00 往下游传，和采样率无关
 func TestCoverage_SampleRatio按比例采根Span_有上游时听上游的(t *testing.T) {
@@ -199,7 +199,7 @@ func TestCoverage_SampleRatio按比例采根Span_有上游时听上游的(t *tes
 		roots, exported, float64(exported)*100/roots, len(fromSampled), parented, fromUnsampled, parented)
 }
 
-// docs/config.md XTrace.Console：「把 Span 打到标准输出，本地调试用，默认关」
+// xtrace/README.md XTrace.Console：「把 Span 打到标准输出，本地调试用，默认关」
 func TestCoverage_Console打开后Span打到标准输出(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
@@ -231,7 +231,7 @@ func TestCoverage_Console打开后Span打到标准输出(t *testing.T) {
 	}
 }
 
-// docs/config.md App：「链路的 service.name / service.version 按这个优先级取，后面的压过前面的：
+// xapp/README.md App：「链路的 service.name / service.version 按这个优先级取，后面的压过前面的：
 // OTel 自己的兜底名 unknown_service:<可执行文件名> → App.Name / App.Version → OTEL_RESOURCE_ATTRIBUTES → OTEL_SERVICE_NAME」；
 // XTrace：「OTEL_RESOURCE_ATTRIBUTES 写错一项（其余写对的照常生效）……都不再让服务起不来」
 func TestCoverage_service_name取自App且被OTEL环境变量压过(t *testing.T) {

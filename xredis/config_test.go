@@ -144,7 +144,7 @@ func TestConfig_退避写裸的负一启动失败(t *testing.T) {
 }
 
 func TestConfig_退避交给goredis时的默认值与文档一致(t *testing.T) {
-	// 注释和 docs/config.md 写的是 10ms / 1s（v9.22.0）。升级 go-redis 之后
+	// 注释和 xredis/README.md 写的是 10ms / 1s（v9.22.0）。升级 go-redis 之后
 	// 数字变了，这里先红，文档跟着改
 	rc := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
 	defer rc.Close()

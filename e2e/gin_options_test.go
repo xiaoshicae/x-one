@@ -19,7 +19,7 @@ import (
 	"github.com/xiaoshicae/x-one/e2e/harness"
 )
 
-// docs/config.md XGin.TrustedProxies：「信任哪些代理发来的 X-Forwarded-For / X-Real-IP，默认一个都不信」，
+// xgin/README.md XGin.TrustedProxies：「信任哪些代理发来的 X-Forwarded-For / X-Real-IP，默认一个都不信」，
 // 「写错的网段会直接启动失败」，「它同时决定收不收透传 Header」。
 // 默认不信、信 127.0.0.1 这两种 functional_trace_test.go 测过了；这里补「配了、但直连对端不在里面」，
 // X-Real-IP，和写错的网段
@@ -89,12 +89,12 @@ func covSlowHeader(t *testing.T, p *harness.Process, drip bool, limit time.Durat
 	got, err := io.ReadAll(conn)
 	took := time.Since(start)
 	if ne, ok := err.(net.Error); ok && ne.Timeout() {
-		t.Fatalf("docs/config.md XGin.ReadHeaderTimeout：发半个请求头的连接应被断开，等了 %v 还连着", limit)
+		t.Fatalf("xgin/README.md XGin.ReadHeaderTimeout：发半个请求头的连接应被断开，等了 %v 还连着", limit)
 	}
 	return took, string(got)
 }
 
-// docs/config.md XGin.ReadHeaderTimeout：「慢连接攻击的主要防线」，默认 10s。
+// xgin/README.md XGin.ReadHeaderTimeout：「慢连接攻击的主要防线」，默认 10s。
 // 请求头在这段时间里没收全，连接就被断开——一个字节一个字节地挤（slowloris）也一样：
 // 它管的是收齐整个头的总时长，不是两次收到之间的间隔
 func TestCoverage_ReadHeaderTimeout到点断开收不齐请求头的连接(t *testing.T) {
@@ -147,7 +147,7 @@ func covUpload(t *testing.T, p *harness.Process, size int) (onDisk bool) {
 	_ = w.Close()
 	r := p.Do(t, http.MethodPost, "/probe/upload", buf.Bytes(), "Content-Type", w.FormDataContentType())
 	if r.Status != http.StatusOK {
-		t.Fatalf("docs/config.md XGin.MaxMultipartMemory：不是请求体上限，超出的部分落盘、不会被拒绝；上传 %d 字节实际 %v", size, r)
+		t.Fatalf("xgin/README.md XGin.MaxMultipartMemory：不是请求体上限，超出的部分落盘、不会被拒绝；上传 %d 字节实际 %v", size, r)
 	}
 	var body struct {
 		Size   int64  `json:"size"`
@@ -162,7 +162,7 @@ func covUpload(t *testing.T, p *harness.Process, size int) (onDisk bool) {
 	return body.OnDisk
 }
 
-// docs/config.md XGin.MaxMultipartMemory：「字节，默认 8MB。不是『请求体上限』，是『超过多少才落盘』：
+// xgin/README.md XGin.MaxMultipartMemory：「字节，默认 8MB。不是『请求体上限』，是『超过多少才落盘』：
 // 超出的部分写进临时文件，不会被拒绝」。
 // 服务端从 FileHeader.Open 拿到 *os.File 就是落了盘（mime/multipart 的写法），见 service/probe.go
 func TestCoverage_MaxMultipartMemory是落盘阈值不是请求体上限(t *testing.T) {
@@ -192,7 +192,7 @@ func TestCoverage_MaxMultipartMemory是落盘阈值不是请求体上限(t *test
 	})
 }
 
-// docs/config.md XGin.CertFile / KeyFile：配上就是 HTTPS，「TLS 模式下 HTTP/2 本来就是自动的」；
+// xgin/README.md XGin.CertFile / KeyFile：配上就是 HTTPS，「TLS 模式下 HTTP/2 本来就是自动的」；
 // 「与 KeyFile 必须同时配或同时留空，只配一半会启动失败」
 func TestCoverage_配了证书就是HTTPS且自动协商HTTP2(t *testing.T) {
 	harness.Require(t)
@@ -242,7 +242,7 @@ func tls13(v uint16) string {
 	return fmt.Sprintf("TLS 0x%04x", v)
 }
 
-// docs/config.md XGin.UseH2C：「非 TLS 下启用 HTTP/2，只认先验知识」；
+// xgin/README.md XGin.UseH2C：「非 TLS 下启用 HTTP/2，只认先验知识」；
 // 「h2c 连接和 HTTP/1.1 一样受优雅退出管：Shutdown 等在途请求做完」。
 // 没开时说 h2c 的客户端连不上（服务端只说 HTTP/1.1）
 func TestCoverage_UseH2C打开后先验知识的h2c可用且在途请求被优雅退出等完(t *testing.T) {
@@ -301,7 +301,7 @@ func TestCoverage_UseH2C打开后先验知识的h2c可用且在途请求被优�
 			t.Fatal("在途的 h2c 请求 15s 没回来")
 		}
 		if r.err != nil || r.status != http.StatusOK || r.proto != "HTTP/2.0" {
-			t.Errorf("docs/config.md：h2c 连接受优雅退出管，在途请求应做完（200，HTTP/2.0），实际 status=%d proto=%s err=%v", r.status, r.proto, r.err)
+			t.Errorf("xgin/README.md：h2c 连接受优雅退出管，在途请求应做完（200，HTTP/2.0），实际 status=%d proto=%s err=%v", r.status, r.proto, r.err)
 		}
 		exit, ok := p.Wait(20 * time.Second)
 		if !ok || exit.Code != 0 {
@@ -314,7 +314,7 @@ func TestCoverage_UseH2C打开后先验知识的h2c可用且在途请求被优�
 	})
 }
 
-// docs/config.md XGin.LogSkipPaths：「不记访问日志的路径：以 / 结尾的按前缀匹配，其余精确匹配。
+// xgin/README.md XGin.LogSkipPaths：「不记访问日志的路径：以 / 结尾的按前缀匹配，其余精确匹配。
 // Metric 开着时指标端点会自动加进来，不用自己写」。MetricPath 自定义时自动跳过的是自定义的那个
 func TestCoverage_LogSkipPaths与自定义MetricPath(t *testing.T) {
 	harness.Require(t)
@@ -357,7 +357,7 @@ func TestCoverage_LogSkipPaths与自定义MetricPath(t *testing.T) {
 	})
 }
 
-// docs/config.md XGin.ZHTranslations：「validator 的报错翻成中文，用法见 xgin/trans」。
+// xgin/README.md XGin.ZHTranslations：「validator 的报错翻成中文，用法见 xgin/trans」。
 // 没打开时 trans.ToZH 原样返回英文报错
 func TestCoverage_ZHTranslations打开后校验报错是中文(t *testing.T) {
 	harness.Require(t)
