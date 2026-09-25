@@ -6,7 +6,9 @@ name: release
 #   1. 跑一遍 e2e（真实的 PG / MySQL / Redis / ClickHouse，同 e2e.yml）；
 #   2. release.sh --apply：检查、单测，把各模块 go.mod 里的 replace 换成真实版本号，
 #      提交、给每个模块打 tag（v0.1.0、xgin/v0.1.0……），再补一个还原 replace 的提交；
-#   3. 两个提交和全部 tag 一次推送（--atomic：要么全上去，要么一个都不上去）；
+#   3. 只推这个版本的 tag（--atomic：要么全上去，要么一个都不上去），不推 main：
+#      tag 指向的发布提交不必在 main 上，还原 replace 的那个提交和发布前的 main 一模一样。
+#      于是 main 的分支保护（必须经 PR）不挡发布，也不用给 Actions 放行；
 #   4. release.sh --verify：在一个全新的外部工程里 go get，验证装得上、跑得起来。
 #
 # 只能手动触发、只能从 main 发。tag 推出去就被 Go 的 module proxy 永久缓存，删不掉，
@@ -25,7 +27,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write # 推提交和 tag
+  contents: write # 推 tag
 
 jobs:
   release:
@@ -110,9 +112,13 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           scripts/release.sh "$VERSION" --apply --e2e-passed
 
-      # 两个提交和全部 tag 一次推上去：tag 指向去掉 replace 的发布提交，main 停在还原之后的那个
-      - name: 推送
-        run: git push --atomic origin HEAD:main --tags
+      # 只推这个版本的那一组 tag。它们指向去掉 replace 的发布提交，提交随 tag 一起上去；
+      # 本地那个还原 replace 的提交不推（和发布前的 main 一样），main 因此不受分支保护影响
+      - name: 推送 tag
+        run: |
+          refs=$(git tag --points-at "$VERSION" | sed 's|^|refs/tags/|')
+          echo "$refs"
+          git push --atomic origin $refs
 
       - name: release.sh --verify（外部工程装得上、跑得起来）
         run: scripts/release.sh "$VERSION" --verify

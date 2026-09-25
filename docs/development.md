@@ -125,9 +125,10 @@ scripts/mutate.py --dry-run        # 只查每条变异的模式还对不对得�
 多模块仓库每个 module 有自己的 tag，发布前要把开发用的 `replace` 换成真实版本号。
 
 **平时用发布按钮**：GitHub 上 Actions → `release` → Run workflow，填版本号。它在 GitHub 的机器上
-跑 e2e（同 `e2e.yml`）、`release.sh --apply`、一次推送两个提交和全部 tag（`--atomic`）、再 `--verify`，
-任何一步红了都不推送。只能从 `main` 发；`main` 开了「必须经 PR」的分支保护时，推送会被拒、什么都不会上去，
-要给 `github-actions[bot]` 放行。见 `.github/workflows/release.yml`。
+跑 e2e（同 `e2e.yml`）、`release.sh --apply`、一次推送这个版本的全部 tag（`--atomic`）、再 `--verify`，
+任何一步红了都不推送。只能从 `main` 发。它**只推 tag、不推 `main`**：tag 指向的发布提交随 tag 一起上去，
+不必在 `main` 上；还原 `replace` 的那个提交和发布前的 `main` 一模一样。所以 `main` 的分支保护不挡发布。
+仓库的 Settings → Actions → General → Workflow permissions 要是 Read and write。见 `.github/workflows/release.yml`。
 
 在本地发也一样，推送由人来做：
 
