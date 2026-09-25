@@ -71,7 +71,7 @@ xone/
 ## go.work 与 GOWORK=off
 
 仓库里提交了 `go.work`，把全部模块（核心、各集成、`example`、`e2e`、`internal/schemagen`）放进一个工作区，
-模块之间另外靠各自 `go.mod` 里的 `replace` 互指（都还没打 tag）。所以 IDE 打开根目录就认得全部模块，
+模块之间另外靠各自 `go.mod` 里的 `replace` 互指（main 上一直留着；发版时 `release.sh` 只在打 tag 的那个提交里换成真实版本号，见下面 [release.sh](#releasesh)）。所以 IDE 打开根目录就认得全部模块，
 在根目录 `go run ./example --config=example/application.yml` 也能跑。
 
 但 `scripts/check.sh` 和 `scripts/test.sh` 一律用 `GOWORK=off` 逐模块跑——工作区会遮住某个模块自己 `go.mod` 的问题

@@ -64,37 +64,16 @@ cd example/component && go run . --config=application.yml  # 自己写一个集�
 
 ## 安装
 
-核心要 Go 1.22+，集成要 Go 1.25+。每个集成是**独立的 module**，要分别 `go get`：
+核心要 Go 1.22+，集成要 Go 1.25+。每个集成是**独立的 module**，用到哪个 `go get` 哪个；**所有模块共用同一个版本号**：
 
 ```bash
-go get github.com/xiaoshicae/x-one        # 核心：Run、xhook、xconfig、xlog、xflow、xapp、xerror、xtls、xonetest
-go get github.com/xiaoshicae/x-one/xgin   # 按需：xtrace xmetric xgorm xgorm/clickhouse xredis xcache xhttp xgin xginswagger
+go get github.com/xiaoshicae/x-one@v0.1.0        # 核心：Run、xhook、xconfig、xlog、xflow、xapp、xerror、xtls、xonetest
+go get github.com/xiaoshicae/x-one/xgin@v0.1.0   # 按需：xtrace xmetric xgorm xgorm/clickhouse xredis xcache xhttp xgin xginswagger
 ```
 
-> 各模块还没打 tag。在那之前把仓库克隆到本地，在你的 `go.mod` 里用 `replace` 指向它——
-> 用到的集成和它们依赖的仓库内模块都要写（replace 不会从依赖的 `go.mod` 里传过来），多写的不影响：
->
-> ```
-> require (
-> 	github.com/xiaoshicae/x-one v0.0.0
-> 	github.com/xiaoshicae/x-one/xgin v0.0.0
-> )
->
-> replace (
-> 	github.com/xiaoshicae/x-one => ../x-one
-> 	github.com/xiaoshicae/x-one/xtrace => ../x-one/xtrace
-> 	github.com/xiaoshicae/x-one/xmetric => ../x-one/xmetric
-> 	github.com/xiaoshicae/x-one/xgin => ../x-one/xgin
-> 	github.com/xiaoshicae/x-one/xgorm => ../x-one/xgorm
-> 	github.com/xiaoshicae/x-one/xgorm/clickhouse => ../x-one/xgorm/clickhouse
-> 	github.com/xiaoshicae/x-one/xredis => ../x-one/xredis
-> 	github.com/xiaoshicae/x-one/xcache => ../x-one/xcache
-> 	github.com/xiaoshicae/x-one/xhttp => ../x-one/xhttp
-> 	github.com/xiaoshicae/x-one/xginswagger => ../x-one/xginswagger
-> )
-> ```
->
-> 然后 `go mod tidy`。`xgorm` 内置 MySQL 和 PostgreSQL；ClickHouse 驱动是单独的 `xgorm/clickhouse`，用到才加。
+- 同一个项目里的 x-one 模块写同一个版本，它们是一起测过、一起发布的。
+- `xgorm` 内置 MySQL 和 PostgreSQL；ClickHouse 驱动是单独的 `xgorm/clickhouse`，用到才加。
+- v1.0.0 之前的小版本之间可能有不兼容变更，每一版改了什么、要怎么迁移写在 [CHANGELOG](docs/CHANGELOG.md)。
 
 ## import 规则
 

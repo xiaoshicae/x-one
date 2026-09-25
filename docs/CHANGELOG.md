@@ -7,3 +7,11 @@
 [语义化版本](https://semver.org/lang/zh-CN/)。所有模块共用同一个版本号（见 `scripts/release.sh`）。
 
 ## [未发布]
+
+## [v0.1.0] - 2026-09-25
+
+首个版本。所有模块同时发布、共用这个版本号：
+
+- 核心 `github.com/xiaoshicae/x-one`：`xone.Run` / `MustRun`（按档位启动、逆序关闭、一份停止预算）、`xone.Func` / `xone.UntilSignal`、
+  `xconfig`、`xhook`、`xerror`、`xlog`、`xapp`、`xflow`、`xtls`、`xonetest`。
+- 集成：`xgin`、`xginswagger`、`xgorm`（MySQL / PostgreSQL）、`xgorm/clickhouse`、`xredis`、`xcache`、`xhttp`、`xtrace`、`xmetric`。
