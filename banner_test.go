@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"regexp"
 	"runtime/debug"
 	"strings"
 	"testing"
@@ -13,11 +14,14 @@ import (
 	"github.com/xiaoshicae/x-one/internal/hook"
 )
 
+// plain 去掉颜色码，只看文字
+func plain(s string) string { return regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(s, "") }
+
 func TestPrintBanner_终端里打出字符画和版本(t *testing.T) {
 	var b bytes.Buffer
 	printBanner(&b, true)
-	out := b.String()
-	for _, want := range []string{bannerText[0], "x-one", version()} {
+	out := plain(b.String())
+	for _, want := range append(bannerText, ":: x-one ::", version()) {
 		if !strings.Contains(out, want) {
 			t.Errorf("banner 里该有 %q，got=\n%s", want, out)
 		}
@@ -69,7 +73,7 @@ func TestRun_stderr不是终端时不打banner(t *testing.T) {
 	}
 	w.Close()
 	out, _ := io.ReadAll(r)
-	if strings.Contains(string(out), bannerText[0]) {
+	if strings.Contains(plain(string(out)), bannerText[0]) {
 		t.Errorf("stderr 是管道时不该打 banner，got=%q", out)
 	}
 }
