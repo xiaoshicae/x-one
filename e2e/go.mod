@@ -26,16 +26,16 @@ require (
 	github.com/prometheus/common v0.70.1
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/swaggo/swag v1.16.6
-	github.com/xiaoshicae/x-one v0.2.0
-	github.com/xiaoshicae/x-one/xcache v0.2.0
-	github.com/xiaoshicae/x-one/xgin v0.2.0
-	github.com/xiaoshicae/x-one/xginswagger v0.2.0
-	github.com/xiaoshicae/x-one/xgorm v0.2.0
-	github.com/xiaoshicae/x-one/xgorm/clickhouse v0.2.0
-	github.com/xiaoshicae/x-one/xhttp v0.2.0
-	github.com/xiaoshicae/x-one/xmetric v0.2.0
-	github.com/xiaoshicae/x-one/xredis v0.2.0
-	github.com/xiaoshicae/x-one/xtrace v0.2.0
+	github.com/xiaoshicae/x-one v0.2.1
+	github.com/xiaoshicae/x-one/xcache v0.2.1
+	github.com/xiaoshicae/x-one/xgin v0.2.1
+	github.com/xiaoshicae/x-one/xginswagger v0.2.1
+	github.com/xiaoshicae/x-one/xgorm v0.2.1
+	github.com/xiaoshicae/x-one/xgorm/clickhouse v0.2.1
+	github.com/xiaoshicae/x-one/xhttp v0.2.1
+	github.com/xiaoshicae/x-one/xmetric v0.2.1
+	github.com/xiaoshicae/x-one/xredis v0.2.1
+	github.com/xiaoshicae/x-one/xtrace v0.2.1
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/sdk v1.46.0
 	gorm.io/driver/clickhouse v0.7.0
