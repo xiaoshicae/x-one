@@ -269,8 +269,10 @@ func TestInitXKV(t *testing.T) {
 - **第二个信号立即终止。** 第一个 SIGINT / SIGTERM 触发优雅退出，同时把系统默认处置还回去；卡住时再发一次，进程当场退出。
 - **启动期间收到信号**：不再启动服务，已建好的逆序关掉，以 0 退出——滚动更新撞上这个窗口不会留一条「启动失败」。
 - **配置文件和 profile**：镜像里放 `conf/application.yml`，环境差异放 `application-<env>.yml`，用 `XONE_PROFILE` 选；
-  凭证写成 `${VAR}` 从环境变量来。
-- **在负载均衡后面**：把它的网段写进 `XGin.TrustedProxies`，否则 `client_ip` 是负载均衡的地址、透传 Header 一个都不收。
+  凭证写成 `${VAR}` 从环境变量来。目录怎么放、每种启动方式读到什么，见
+  [config.md「多环境配置：一个完整的例子」](config.md#多环境配置一个完整的例子)。
+- **在负载均衡后面**：`XGin.TrustedProxies` 默认只信私有网段，负载均衡、K8s 的 Ingress 和 Pod 转发来的默认就认，不用配；
+  见 [xgin「在负载均衡 / Cloudflare 后面」](../xgin/README.md#在负载均衡--cloudflare-后面)。
 - **健康检查**：框架不内置，自己挂一个路由；服务在全部启动钩子成功之后才开始监听。
 
 ## 写一个自己的集成

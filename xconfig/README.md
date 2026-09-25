@@ -116,7 +116,7 @@ func C() Config { return conf }
 | 想要 | 写法 | 详见 |
 |---|---|---|
 | 从环境变量取值 | `${VAR}` 必填，未设置启动失败；`${VAR:default}` 可选 | [占位符](../docs/config.md#占位符) |
-| 按环境分文件 | `application-prod.yml` 放差异，`--profile=prod` 或 `XONE_PROFILE=prod` 选 | [Profiles](../docs/config.md#profiles--按环境分文件) |
+| 按环境分文件 | `application-prod.yml` 放差异，`--profile=prod` 或 `XONE_PROFILE=prod` 选 | [Profiles](../docs/config.md#profiles--按环境分文件)、[完整例子](../docs/config.md#多环境配置一个完整的例子) |
 | 把配置拆成几个文件 | `Import: [shared.yml, optional:local.yml]` | [Import](../docs/config.md#import--引入别的配置文件) |
 | 指定配置文件 | `--config=<path>` 或 `XONE_CONFIG`；不指定就找 `conf/application.yml` 等约定路径 | [文件位置](../docs/config.md#文件位置与优先级) |
 | 知道几个文件怎么叠 | map 递归合并，列表整体替换，标量覆盖 | [合并规则](../docs/config.md#合并规则) |
