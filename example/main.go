@@ -15,11 +15,9 @@ import (
 
 	// 匿名 import 就是全部「装配」：各包在 init 里登记自己，
 	// 框架按 Stage 决定谁先起、谁后关。import 的书写顺序不影响任何事。
+	// 日志、链路、指标跟着 xgin 一起来，不用另外 import
 	_ "github.com/xiaoshicae/x-one/xcache"
 	_ "github.com/xiaoshicae/x-one/xhttp"
-	_ "github.com/xiaoshicae/x-one/xlog"
-	_ "github.com/xiaoshicae/x-one/xmetric"
-	_ "github.com/xiaoshicae/x-one/xtrace"
 )
 
 func main() {

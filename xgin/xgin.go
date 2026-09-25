@@ -22,6 +22,10 @@ import (
 	"github.com/xiaoshicae/x-one/xgin/trans"
 	"github.com/xiaoshicae/x-one/xhook"
 	"github.com/xiaoshicae/x-one/xmetric"
+
+	// 用了 xgin 就有链路：xtrace 装好全局的 TracerProvider 和 Propagator，
+	// 中间件经 otel 的全局 API 用上它们。不要链路配 XTrace.Enable: false
+	_ "github.com/xiaoshicae/x-one/xtrace"
 )
 
 // XGin 一个待启动的 HTTP 服务。

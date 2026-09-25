@@ -55,9 +55,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/xiaoshicae/x-one"
-	"github.com/xiaoshicae/x-one/xgin"
-
-	_ "github.com/xiaoshicae/x-one/xlog" // 想要哪个组件就匿名 import 哪个，书写顺序无所谓
+	"github.com/xiaoshicae/x-one/xgin" // 日志、链路、指标跟着 xgin 一起来，不用另外 import
 )
 
 func main() {
@@ -96,14 +94,14 @@ cd example/component && go run . --config=application.yml  # 自己写一个集�
 
 | 模块 | 给你什么 | 怎么用 | 配置 |
 |---|---|---|---|
-| `xlog`（核心） | 基于 `log/slog` 的日志，装了 xtrace 时自动带 `trace_id` | `slog.InfoContext(ctx, ...)` | [XLog](docs/config.md#xlog--日志) |
+| `xlog`（核心） | 基于 `log/slog` 的日志，有链路时自动带 `trace_id` | `slog.InfoContext(ctx, ...)` | [XLog](docs/config.md#xlog--日志) |
 | `xapp`（核心） | 应用名、版本 | `xapp.Name()` / `xapp.Version()` | [App](docs/config.md#app--应用身份) |
 | `xflow`（核心） | 流程编排，失败自动回滚 | `xflow.New[T](name, steps...).Execute(ctx, data)` | [XFlow](docs/config.md#xflow--流程编排) |
 | `xconfig` / `xhook`（核心） | 读自己的配置、在启动前 / 停止前做事 | `xconfig.Unmarshal("MyApp", &c)`、`xhook.BeforeStart(fn)` | [指南](docs/guide.md#读自己的配置) |
 | `xerror`（核心） | 带模块名和操作名的错误 | `xerror.Is(err, "xconfig")`、`xerror.Module(err)` | [指南](docs/guide.md#错误处理) |
 | `xtls`（核心） | 客户端 TLS 块，XGorm / XRedis / XHttp 共用 | 配置里的 `TLS:` | [TLS 块](docs/config.md#tls-块) |
 | `xonetest`（核心） | 测试里换一份配置、跑一遍钩子 | `xonetest.UseConfigYAML(t, yml)`、`xonetest.StartHooks(t)` | [指南](docs/guide.md#测试) |
-| `xtrace` | OpenTelemetry 链路，设为全局 TracerProvider | `otel.Tracer("app").Start(ctx, "op")` | [XTrace](docs/config.md#xtrace--链路) |
+| `xtrace` | OpenTelemetry 链路，设为全局 TracerProvider；xgin / xgorm / xredis / xhttp 自带 | `otel.Tracer("app").Start(ctx, "op")` | [XTrace](docs/config.md#xtrace--链路) |
 | `xmetric` | Prometheus 指标 | `xmetric.CounterInc(...)`、`xmetric.Registry()` | [XMetric](docs/config.md#xmetric--指标) |
 | `xgorm` | `*gorm.DB`，内置 MySQL / PostgreSQL | `xgorm.CWithCtx(ctx)`、`xgorm.C("name")` | [XGorm](docs/config.md#xgorm--数据库) |
 | `xgorm/clickhouse` | 给 xgorm 加 ClickHouse 驱动 | 匿名 import，配置里 `Driver: clickhouse` | [其它驱动](docs/config.md#其它驱动) |

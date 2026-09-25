@@ -17,6 +17,10 @@ import (
 	"github.com/xiaoshicae/x-one/xerror"
 	"github.com/xiaoshicae/x-one/xhook"
 	"github.com/xiaoshicae/x-one/xmetric"
+
+	// 用了 xgorm 就有链路：xtrace 装好全局的 TracerProvider，SQL 的 Span 经 otel 的全局 API 记下来。
+	// 不要链路配 XTrace.Enable: false，只关某个实例的配它自己的 Trace: false
+	_ "github.com/xiaoshicae/x-one/xtrace"
 )
 
 const (

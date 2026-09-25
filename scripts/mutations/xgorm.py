@@ -208,3 +208,9 @@ mutate("MySQL 连接配置带上 TLS 块", "xgorm/tls.go", "./xgorm", "TestNew_M
        swap('\tdc.TLS = cfg.Clone()\n', ''))
 mutate("Log 关掉时 GORM 不自己往标准输出写", "xgorm/xgorm.go", "./xgorm", "TestNew",
        swap('gormCfg.Logger = logger.Discard','gormCfg.Logger = logger.Default'))
+
+section("链路")
+# 用了 xgorm 就有链路，使用者不用记得另外 import xtrace。摘掉这一行，
+# 全局的 TracerProvider 就一直是 noop：Span 什么都不记、日志没有 trace_id，而且没有任何报错
+mutate("用了 xgorm 不另外 import xtrace 也有链路", "xgorm/xgorm.go", "./xgorm", "Test用了xgorm不另外import_xtrace",
+       swap('\t_ "github.com/xiaoshicae/x-one/xtrace"\n', ''))

@@ -182,3 +182,9 @@ mutate("WriteString 写的响应也截得下来", "xgin/middleware/log.go", "./x
 # 访问日志里的 client_ip。设置出错时必须退到安全的那一侧
 mutate("代理网段设不上时退回谁都不信", "xgin/xgin.go", "./xgin", "TestApplyConfig|TestBuild_配了代理",
        swap('\t\t_ = e.SetTrustedProxies([]string{})', ''))
+
+section("链路")
+# 用了 xgin 就有链路，使用者不用记得另外 import xtrace。摘掉这一行，
+# 全局的 TracerProvider 就一直是 noop：Span 什么都不记、日志没有 trace_id，而且没有任何报错
+mutate("用了 xgin 不另外 import xtrace 也有链路", "xgin/xgin.go", "./xgin", "Test用了xgin不另外import_xtrace",
+       swap('\t_ "github.com/xiaoshicae/x-one/xtrace"\n', ''))

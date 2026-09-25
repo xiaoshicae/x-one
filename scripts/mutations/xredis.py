@@ -70,3 +70,9 @@ mutate("Redis 链路钩子在建连验证成功之后才挂", "xredis/xredis.go"
             '\tif cfg.Trace {\n\t\t_ = redisotel.InstrumentTracing(client, redisotel.WithDBStatement(false))\n\t}\n\tif err := xclient.Probe(ctx, probePolicy(cfg), probe(client)); err != nil {'))
 mutate("xredis connected 日志带着实例名", "xredis/xredis.go", "./xredis", "TestInstall_日志写出实例名",
        swap('"xredis connected", "name", c.name,', '"xredis connected", "name", "",'))
+
+section("链路")
+# 用了 xredis 就有链路，使用者不用记得另外 import xtrace。摘掉这一行，
+# 全局的 TracerProvider 就一直是 noop：Span 什么都不记、日志没有 trace_id，而且没有任何报错
+mutate("用了 xredis 不另外 import xtrace 也有链路", "xredis/xredis.go", "./xredis", "Test用了xredis不另外import_xtrace",
+       swap('\t_ "github.com/xiaoshicae/x-one/xtrace"\n', ''))

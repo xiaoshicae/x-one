@@ -47,17 +47,21 @@ Go 的 MVS 会把**整个模块图**里的版本要求强加给使用者——�
 | `xtrace` | 25 | 23 |
 | `xmetric` | 38 | 36 |
 | `xcache`（指标经 xmetric） | 42 | 39 |
-| `xhttp` | 58 | 54 |
-| `xredis` | 58 | 55 |
-| `xgorm` | 64 | 61 |
-| `xgorm/clickhouse` | 127 | 123 |
-| `xgin` | 85 | 82 |
+| `xhttp`（链路经 xtrace） | 58 | 54 |
+| `xredis`（链路经 xtrace） | 60 | 56 |
+| `xgorm`（链路经 xtrace） | 68 | 64 |
+| `xgorm/clickhouse` | 131 | 126 |
+| `xgin`（链路经 xtrace） | 89 | 85 |
 | `xginswagger` | 84 | 82 |
 
 量法：在仓库外建一个空的 consumer module，`main.go` 里只写一行 `import _ "<包>"`，`go.mod` 用 `replace`
 指向本仓库的各个模块，`GOWORK=off go mod tidy` 之后数 `GOWORK=off go list -m all` 除第一行（应用自己）之外的行数；
 「第三方」再去掉 `github.com/xiaoshicae/x-one` 开头的。数字随依赖升级会变，改了 `go.mod` 之后重量一次。
 
+- **会产生 Span 的集成（xgin、xgorm、xredis、xhttp）依赖 xtrace**：用了它们就有链路，不用另外记得 import xtrace——
+  漏了的话不报错，只是 Span 全是 noop、日志没有 `trace_id`。代价实测很小：它们本来就依赖 OpenTelemetry 的 API
+  （xgin、xgorm 连 SDK 也有），xtrace 多带进来的只是它自己、b3 传播器和 stdout 导出器：xgin 85 → 89、xgorm 64 → 68、
+  xredis 58 → 60。xcache 不产生 Span，不依赖它。
 - **你不用的集成，它的依赖不会进你的模块图**，它要求的 Go 版本也不会：核心留在 Go 1.22，集成因为上游需要 Go 1.25。
   每个集成也能独立升大版本。
 - 零依赖的（`xlog`、`xflow`、`xapp`）留在核心：分模块是为了把依赖挡在使用者之外，没有依赖可挡就不必多一个模块。

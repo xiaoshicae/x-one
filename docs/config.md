@@ -212,7 +212,7 @@ XLog:
 - 文件名后缀随 `RotateTime` 的粒度：≥ 24h 是 `app.log.20260918`，≥ 1h 是 `app.log.2026091815`，更短是 `app.log.202609181504`。
 - `Name` 那个位置上已经有一个普通文件（不是符号链接）时启动失败，不会把旧日志吞掉。
 - 清理只删 `app.log.<时间后缀>` 这种自己命名的文件，启动时一次、之后每次轮转一次；`app.log.bak`、`app.log.1.gz` 不碰。
-- 装了 xtrace 时每条日志自动带 `trace_id` / `span_id`；请求级字段用 `xlog.AddKV(ctx, k, v)`，见 [observability.md](observability.md#日志)。
+- 有链路时每条日志自动带 `trace_id` / `span_id`；请求级字段用 `xlog.AddKV(ctx, k, v)`，见 [observability.md](observability.md#日志)。
 
 ## XTrace —— 链路
 
@@ -462,7 +462,7 @@ XGin:
   LogSkipPaths: []         # 不记访问日志的路径：以 / 结尾的按前缀，其余精确匹配
   LogRequestBody: false    # 请求体进访问日志（逐字段脱敏），默认关
   LogResponseBody: false   # 响应体进访问日志，默认关
-  Trace: true              # 每个请求一个服务端 Span、回带 X-Trace-Id（需 import xtrace）
+  Trace: true              # 每个请求一个服务端 Span、回带 X-Trace-Id
   Metric: true             # 请求指标，并自动挂上 MetricPath
   MetricPath: /metrics     # 必须以 / 开头；Metric 开着时自动加进 LogSkipPaths
   ZHTranslations: false    # validator 的报错翻成中文，用法见 xgin/trans

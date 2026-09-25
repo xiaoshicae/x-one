@@ -6,6 +6,7 @@ require (
 	github.com/ClickHouse/ch-go v0.74.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.48.0
 	github.com/hashicorp/go-version v1.9.0
+	github.com/xiaoshicae/x-one v0.0.0
 	github.com/xiaoshicae/x-one/xgorm v0.0.0
 	gorm.io/driver/clickhouse v0.7.0
 	gorm.io/gorm v1.31.2
@@ -38,11 +39,14 @@ require (
 	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
-	github.com/xiaoshicae/x-one v0.0.0 // indirect
 	github.com/xiaoshicae/x-one/xmetric v0.0.0 // indirect
+	github.com/xiaoshicae/x-one/xtrace v0.0.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
+	go.opentelemetry.io/contrib/propagators/b3 v1.46.0 // indirect
 	go.opentelemetry.io/otel v1.46.0 // indirect
+	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.46.0 // indirect
 	go.opentelemetry.io/otel/metric v1.46.0 // indirect
+	go.opentelemetry.io/otel/sdk v1.46.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/sync v0.22.0 // indirect
@@ -57,4 +61,5 @@ replace (
 	github.com/xiaoshicae/x-one => ../../
 	github.com/xiaoshicae/x-one/xgorm => ../
 	github.com/xiaoshicae/x-one/xmetric => ../../xmetric
+	github.com/xiaoshicae/x-one/xtrace => ../../xtrace
 )

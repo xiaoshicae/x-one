@@ -18,10 +18,9 @@ import (
 	"github.com/xiaoshicae/x-one/xcache"
 
 	// 匿名 import 就是全部「装配」。想用数据库就加上 xgorm，
-	// 想用 Redis 就加上 xredis——Runnable 那边一个字都不用改
-	_ "github.com/xiaoshicae/x-one/xcache"
-	_ "github.com/xiaoshicae/x-one/xlog"
-	_ "github.com/xiaoshicae/x-one/xmetric"
+	// 想用 Redis 就加上 xredis——Runnable 那边一个字都不用改。
+	// 日志和指标跟着 xcache 一起来。链路要单独 import xtrace：这里没有 xgin、xgorm、xredis、xhttp
+	// 这些自带链路的集成，少了它日志就带不上 trace_id
 	_ "github.com/xiaoshicae/x-one/xtrace"
 )
 

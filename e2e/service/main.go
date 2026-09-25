@@ -47,8 +47,6 @@ import (
 	_ "github.com/xiaoshicae/x-one/xgorm"
 	_ "github.com/xiaoshicae/x-one/xgorm/clickhouse" // 注册 Driver: clickhouse
 	_ "github.com/xiaoshicae/x-one/xhttp"
-	_ "github.com/xiaoshicae/x-one/xlog"
-	_ "github.com/xiaoshicae/x-one/xmetric"
 	_ "github.com/xiaoshicae/x-one/xredis"
 )
 

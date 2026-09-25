@@ -17,7 +17,7 @@
 
 xlog 把 `slog.Default()` 换成按 `XLog` 配好的 handler，业务和框架都写它。
 
-- **`trace_id` / `span_id`**：装了 xtrace 时，用带 ctx 的方法（`slog.InfoContext(ctx, …)`）写的每一条都自动带上；
+- **`trace_id` / `span_id`**：有链路时（见[链路](#链路)），用带 ctx 的方法（`slog.InfoContext(ctx, …)`）写的每一条都自动带上；
   xlog 本身不依赖 OpenTelemetry，这一步由 xtrace 经 `xlog.SetTraceExtractor` 接上。
 - **请求级字段**：`xlog.AddKV(ctx, "user_id", id)` 在任意调用层级补一个字段，之后同一请求里的每条日志
   （包括访问日志）都带着它。作用域由 xgin 的 `LogScope` 中间件在每个请求开头开好；自己的非 Web 入口用
@@ -39,7 +39,7 @@ xlog 把 `slog.Default()` 换成按 `XLog` 配好的 handler，业务和框架�
 | `request_body` | `LogRequestBody: true` 时，最多前 256KB，逐字段脱敏；multipart 和 `application/octet-stream` 只记一句 `omitted` |
 | `response_body` | `LogResponseBody: true` 且是文本类响应时，最多前 4KB，逐字段脱敏 |
 | `errors` | handler 里 `c.Error(...)` 登记的错误，没有就不写 |
-| `trace_id` / `span_id` | 装了 xtrace 时 |
+| `trace_id` / `span_id` | 有链路时 |
 
 **脱敏**按敏感词匹配，不是按字段名精确匹配：比较前双方都转小写、去掉 `_ - .` 和空格，字段名里**含**任一敏感词就遮。
 
@@ -114,8 +114,10 @@ panic 由 Recover 中间件记一条 `panic while handling request`（ERROR，�
 
 ## 链路
 
-xtrace 装好全局的 TracerProvider 和 Propagator。没 import xtrace 时全局的是 OpenTelemetry 的 noop 实现：
-各集成照样调 Span 的接口，但什么都不记。
+xtrace 装好全局的 TracerProvider 和 Propagator。会产生 Span 的集成（xgin、xgorm、xredis、xhttp）都依赖它，
+用了其中任何一个就有链路，不用另外 import；不要链路配 `XTrace.Enable: false`，只关某个组件的配它自己的 `Trace: false`。
+一个都没用（比如只用 xcache 的消费者进程）又想要链路时，匿名 import `github.com/xiaoshicae/x-one/xtrace`。
+没有 xtrace 时全局的是 OpenTelemetry 的 noop 实现：各处照样调 Span 的接口，但什么都不记。
 
 ### Span 的名字和属性
 
@@ -144,8 +146,8 @@ xtrace 装好全局的 TracerProvider 和 Propagator。没 import xtrace 时全�
 
 ### X-Trace-Id 响应头
 
-xgin 的 `Trace` 开着、**并且 import 了 xtrace** 时，每个响应带 `X-Trace-Id: <32 位 trace id>`，从一次调用直接跳到链路。
-没装 xtrace 时 Span 是 noop，没有 trace id 可回带；`XGin.Trace: false` 时也不回带。
+xgin 的 `Trace` 开着时，每个响应带 `X-Trace-Id: <32 位 trace id>`，从一次调用直接跳到链路。
+`XTrace.Enable: false` 时 Span 是 noop，没有 trace id 可回带；`XGin.Trace: false` 时也不回带。
 
 ### 499：中止的请求
 
