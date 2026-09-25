@@ -43,7 +43,7 @@ func covBase(t *testing.T, extra map[string]string) string {
 
 // docs/config.md「Profiles —— 按环境分文件」：
 //
-//	优先级：--profile > XONE_PROFILE > 文件里的 Profiles.Active
+//	优先级：--profile > XONE_PROFILE > 文件里的 XApp.Profiles
 //	--profile=prod,eu 多个用逗号分隔，靠后的压过靠前的
 //	点名的 profile 文件不存在时直接启动失败
 //
@@ -53,7 +53,7 @@ func TestCoverage_profile的三种指定方式和优先级_合并规则(t *testi
 	harness.Require(t)
 	t.Parallel()
 
-	cfg := covBase(t, map[string]string{"Profiles": "Profiles:\n  Active: [fromfile]\n"})
+	cfg := covBase(t, map[string]string{"XApp": "XApp:\n  Name: xone.e2e.service\n  Version: e2e\n  Profiles: [fromfile]\n"})
 	dir := filepath.Dir(cfg)
 	covWrite(t, dir, "application-fromfile.yml", "Cov:\n  Label: fromfile\n")
 	covWrite(t, dir, "application-envp.yml", "Cov:\n  Label: envp\n  Labels: {e: envp}\n")
@@ -67,8 +67,8 @@ func TestCoverage_profile的三种指定方式和优先级_合并规则(t *testi
 		items  []string
 		labels map[string]string
 	}{
-		{name: "只有 Profiles.Active", label: "fromfile", items: []string{"x", "y"}, labels: map[string]string{"b": "base"}},
-		{name: "XONE_PROFILE 压过 Profiles.Active", env: map[string]string{"XONE_PROFILE": "envp"},
+		{name: "只有 XApp.Profiles", label: "fromfile", items: []string{"x", "y"}, labels: map[string]string{"b": "base"}},
+		{name: "XONE_PROFILE 压过 XApp.Profiles", env: map[string]string{"XONE_PROFILE": "envp"},
 			label: "envp", items: []string{"x", "y"}, labels: map[string]string{"b": "base", "e": "envp"}},
 		{name: "--profile 压过 XONE_PROFILE", args: []string{"--profile=argp"}, env: map[string]string{"XONE_PROFILE": "envp"},
 			label: "argp", items: []string{"z"}, labels: map[string]string{"b": "base", "a": "argp"}},
@@ -111,7 +111,7 @@ func TestCoverage_Import的优先级_相对路径_optional和片段的profile变
 	harness.Require(t)
 	t.Parallel()
 
-	cfg := covBase(t, map[string]string{"Import": "Import:\n  - parts/shared.yml\n  - optional:parts/missing.yml\n"})
+	cfg := covBase(t, map[string]string{"XApp": "XApp:\n  Name: xone.e2e.service\n  Version: e2e\n  Import:\n    - parts/shared.yml\n    - optional:parts/missing.yml\n"})
 	dir := filepath.Dir(cfg)
 	covWrite(t, dir, "parts/shared.yml", "Cov:\n  Label: imported\n  Items: [imp]\n  Labels: {i: imp}\n")
 	covWrite(t, dir, "parts/shared-prod.yml", "Cov:\n  Labels: {iv: variant}\n")
@@ -135,7 +135,7 @@ func TestCoverage_Import的优先级_相对路径_optional和片段的profile变
 	})
 	t.Run("没有 optional: 前缀的片段不存在时启动失败", func(t *testing.T) {
 		t.Parallel()
-		bad := covBase(t, map[string]string{"Import": "Import: parts/nowhere.yml\n"})
+		bad := covBase(t, map[string]string{"XApp": "XApp:\n  Name: xone.e2e.service\n  Version: e2e\n  Import: parts/nowhere.yml\n"})
 		faultMustContain(t, "Import 的文件不存在时的启动错误", covStartupError(t, harness.Options{Config: bad}), "nowhere.yml")
 	})
 }
@@ -234,8 +234,8 @@ func TestCoverage_WithConfigPath优先于config参数_提前读过之后再点�
 	t.Parallel()
 
 	dir := t.TempDir()
-	a := covWrite(t, dir, "a.yml", "App:\n  Name: from-a\n")
-	b := covWrite(t, dir, "b.yml", "App:\n  Name: from-b\n")
+	a := covWrite(t, dir, "a.yml", "XApp:\n  Name: from-a\n")
+	b := covWrite(t, dir, "b.yml", "XApp:\n  Name: from-b\n")
 
 	t.Run("没提前读：WithConfigPath 压过 --config", func(t *testing.T) {
 		t.Parallel()

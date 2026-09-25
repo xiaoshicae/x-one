@@ -118,18 +118,18 @@ mutate("占位符展开为空时保持默认值", "internal/config/config.go", "
        swap('\tcase n.Value == "":\n\t\tn.Tag = "!!null"\n', '\tcase n.Value == "":\n'))
 mutate("锚点可以跨顶层块引用", "internal/config/source.go", ".", "TestLoad",
        swap('\tbudget := maxResolvedNodes\n\tout, err := resolveAliases(&doc, &budget)', '\tout, err := &doc, error(nil)'))
-mutate("Profiles.Active 收逗号分隔的字符串", "internal/config/config.go", ".", "TestLoad",
+mutate("XApp.Profiles 收逗号分隔的字符串", "internal/config/config.go", ".", "TestLoad",
        swap('out = append(out, splitProfiles(a)...)', 'out = append(out, a)'))
-mutate("Profiles 里的占位符会展开", "internal/config/config.go", ".", "TestLoad",
+mutate("XApp.Profiles 里的占位符会展开", "internal/config/config.go", ".", "TestLoad",
        swap('''\tvar missing []string
 \texpand(node, &missing, nil)
 \tif len(missing) > 0 {
 \t\treturn nil, xerror.Newf("xconfig", "config",
-\t\t\t"environment variables not set in %s of %s: %s", ProfilesKey, path, strings.Join(missing, ", "))
+\t\t\t"environment variables not set in %s.%s of %s: %s", AppKey, ProfilesKey, path, strings.Join(missing, ", "))
 \t}
 ''', ''))
-mutate("被引进来的文件里写了 Profiles 就报错", "internal/config/config.go", ".", "TestLoad",
-       swap('if takeTopLevel(f.node, ProfilesKey) != nil {',
+mutate("被引进来的文件里写了 XApp.Profiles 就报错", "internal/config/config.go", ".", "TestLoad",
+       swap('if takeFromApp(f.node, ProfilesKey) != nil {',
      'if p, _ := profilesOf(f.node, f.path); len(p) > 0 {'))
 # config_schema.json 从前在编辑器里一个字段拼错都标不出来，单实例 / 多实例两种写法
 # 却全被标红——下面四条各守一处它和运行时对不上的地方
@@ -519,3 +519,13 @@ mutate("空的凭证不遮：看得出没配", "internal/config/debug.go", ".", 
        swap(' && v.Value != ""', ''))
 mutate("最终配置里不带注释", "internal/config/debug.go", ".", "TestRedacted",
        swap('\tc.HeadComment, c.LineComment, c.FootComment = "", "", ""\n', ''))
+# XApp 跟着框架一起来：只 import 根包的程序写了 XApp.Name 也能启动
+mutate("根包带着 xapp", "xone.go", ".", "TestRun_只用核心也能写XApp",
+       swap('\t_ "github.com/xiaoshicae/x-one/xapp"\n', ''))
+# 一级的 App / Import / Profiles 是 v0.1.0 的写法：静默忽略的话，配了的 profile 和 import 悄悄不生效
+mutate("旧写法启动失败并说明怎么改", "internal/config/source.go", ".", "TestLoad_一级的",
+       swap('\tif err := checkLegacy(out, path); err != nil {\n\t\treturn nil, err\n\t}\n', ''))
+mutate("只剩 Profiles / Import 的 XApp 连块一起摘掉", "internal/config/source.go", ".", "TestLoad_XApp只写了",
+       swap('if val != nil && len(app.Content) == 0 {', 'if false {'))
+mutate("XApp 里的 Import 被加载器取走", "internal/config/source.go", ".", "TestLoad_XApp里的Name",
+       swap('\tnode := takeFromApp(doc, ImportKey)\n', '\tnode := takeFromApp(doc.Content[0], ImportKey)\n'))

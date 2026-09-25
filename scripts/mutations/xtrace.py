@@ -30,7 +30,7 @@ mutate("没配应用名时不写空的 service.name", "xtrace/xtrace.go", "./xtr
 mutate("没配应用名时落到 OTel 的兜底名", "xtrace/xtrace.go", "./xtrace", "TestNew_资源",
        swap('\t\tresource.WithService(),\n', ''))
 # resource.New 里后面的选项压过前面的：配置排在环境变量后面，部署方就改不动服务名
-mutate("OTel 环境变量压过 App 配置", "xtrace/xtrace.go", "./xtrace", "TestNew_资源",
+mutate("OTel 环境变量压过 XApp 配置", "xtrace/xtrace.go", "./xtrace", "TestNew_资源",
        swap('\t\tresource.WithAttributes(appAttributes()...),\n\t\tresource.WithFromEnv(),\n',
      '\t\tresource.WithFromEnv(),\n\t\tresource.WithAttributes(appAttributes()...),\n'))
 # 链路关着时原先交回空操作的 Closer，登记的处理器（连同 exporter 的连接和协程）没人关

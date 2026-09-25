@@ -384,7 +384,7 @@ func TestInitXCache_没写这一块就一个实例都不建(t *testing.T) {
 	// 本地缓存没有「默认给你开一个」的道理：没配就是不用。
 	// 少了这道判断，每个进程都会白白吃下一份内存
 	t.Cleanup(func() { _ = closeXCache(context.Background()) })
-	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "XApp:\n  Name: demo\n")
 
 	if err := initXCache(context.Background()); err != nil {
 		t.Fatalf("没配不该报错：%v", err)
@@ -550,7 +550,7 @@ func TestInitXCache_没配时C说的是没配而不是调早了(t *testing.T) {
 	// 没配也要让注册表知道启动钩子跑过了。否则 C() 会把「没配」说成「调早了」，
 	// 使用者会去查调用时机，而真正该查的是配置文件
 	t.Cleanup(func() { _ = closeXCache(context.Background()) })
-	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "XApp:\n  Name: demo\n")
 	if err := initXCache(context.Background()); err != nil {
 		t.Fatal(err)
 	}

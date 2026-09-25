@@ -38,7 +38,7 @@ func TestRegister_早于xoneRun时元信息照样来自配置(t *testing.T) {
 	// xgin 允许在 xone.Run 之前就装配 engine（main 顶上调一下 Engine()）。
 	// 配置那时读得到，标题默认取的 App.Name 却要等 xapp 的启动钩子——
 	// 在 Register 那一刻就填的话，文档照样打得开，只是标题不对
-	testkit.UseConfigEnv(t, "App:\n  Name: swagger.lazy.app\nXGinSwagger:\n  Host: api.example.com\n")
+	testkit.UseConfigEnv(t, "XApp:\n  Name: swagger.lazy.app\nXGinSwagger:\n  Host: api.example.com\n")
 	info := testSpec()
 
 	e := gin.New()
@@ -158,7 +158,7 @@ func TestFill_配了就覆盖(t *testing.T) {
 
 func TestFill_标题与版本默认跟App走(t *testing.T) {
 	// 同一个事实配两遍迟早会不一致
-	xonetest.UseConfigYAML(t, "App:\n  Name: xone.demo.app\n  Version: v2.3.4\nXGinSwagger:\n  BasePath: /api\n")
+	xonetest.UseConfigYAML(t, "XApp:\n  Name: xone.demo.app\n  Version: v2.3.4\nXGinSwagger:\n  BasePath: /api\n")
 	runStartHooks(t)
 	c, err := fileConfig()
 	if err != nil {

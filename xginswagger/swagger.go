@@ -42,7 +42,7 @@ type Config struct {
 	// BasePath 所有接口的公共前缀，如 /api/v1。
 	BasePath string `yaml:"BasePath"`
 
-	// Title 文档标题。默认取 App.Name。
+	// Title 文档标题。默认取 XApp.Name。
 	Title string `yaml:"Title"`
 
 	// Description 文档描述。

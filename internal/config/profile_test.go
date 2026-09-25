@@ -143,7 +143,7 @@ func TestLoad_profile文件不存在直接失败(t *testing.T) {
 func TestLoad_import进来的压过引它的(t *testing.T) {
 	// 与 Spring 一致：import 相当于插在声明它的那份文档正下方，下面的压过上面的
 	base := files(t, "application.yml", map[string]string{
-		"application.yml": "Import: shared.yml\nDemo:\n  Addr: base:1\n  Timeout: 1s\n",
+		"application.yml": "XApp:\n  Import: shared.yml\nDemo:\n  Addr: base:1\n  Timeout: 1s\n",
 		"shared.yml":      "Demo:\n  Addr: shared:1\n",
 	})
 
@@ -163,7 +163,7 @@ func TestLoad_profile压过base的import(t *testing.T) {
 	// 顺序：base < base 的 import < profile 文件 < profile 的 import
 	withProfileEnv(t, "prod")
 	base := files(t, "application.yml", map[string]string{
-		"application.yml":      "Import: shared.yml\nDemo:\n  Addr: base:1\n",
+		"application.yml":      "XApp:\n  Import: shared.yml\nDemo:\n  Addr: base:1\n",
 		"shared.yml":           "Demo:\n  Addr: shared:1\n",
 		"application-prod.yml": "Demo:\n  Addr: prod:1\n",
 	})
@@ -179,7 +179,7 @@ func TestLoad_profile压过base的import(t *testing.T) {
 
 func TestLoad_import多个按顺序生效(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
-		"application.yml": "Import:\n  - a.yml\n  - b.yml\nDemo:\n  Addr: base:1\n",
+		"application.yml": "XApp:\n  Import:\n    - a.yml\n    - b.yml\nDemo:\n  Addr: base:1\n",
 		"a.yml":           "Demo:\n  Addr: a:1\n  Timeout: 3s\n",
 		"b.yml":           "Demo:\n  Addr: b:1\n",
 	})
@@ -199,7 +199,7 @@ func TestLoad_import多个按顺序生效(t *testing.T) {
 func TestLoad_import的相对路径按引它的文件解析(t *testing.T) {
 	// 按进程工作目录解析的话，配置目录整个搬个位置里面的引用就失效了
 	base := files(t, "conf/application.yml", map[string]string{
-		"conf/application.yml": "Import: parts/db.yml\nDemo:\n  Addr: base:1\n",
+		"conf/application.yml": "XApp:\n  Import: parts/db.yml\nDemo:\n  Addr: base:1\n",
 		"conf/parts/db.yml":    "Demo:\n  Addr: db:1\n",
 	})
 
@@ -214,7 +214,7 @@ func TestLoad_import的相对路径按引它的文件解析(t *testing.T) {
 
 func TestLoad_import文件不存在是错误(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
-		"application.yml": "Import: missing.yml\nDemo:\n  Addr: base:1\n",
+		"application.yml": "XApp:\n  Import: missing.yml\nDemo:\n  Addr: base:1\n",
 	})
 
 	c := listComps(t)
@@ -225,7 +225,7 @@ func TestLoad_import文件不存在是错误(t *testing.T) {
 
 func TestLoad_optional的import可以不存在(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
-		"application.yml": "Import: optional:local.yml\nDemo:\n  Addr: base:1\n",
+		"application.yml": "XApp:\n  Import: optional:local.yml\nDemo:\n  Addr: base:1\n",
 	})
 
 	c := listComps(t)
@@ -239,8 +239,8 @@ func TestLoad_optional的import可以不存在(t *testing.T) {
 
 func TestLoad_import成环不会转不出来(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
-		"application.yml": "Import: a.yml\nDemo:\n  Addr: base:1\n",
-		"a.yml":           "Import: application.yml\nDemo:\n  Addr: a:1\n",
+		"application.yml": "XApp:\n  Import: a.yml\nDemo:\n  Addr: base:1\n",
+		"a.yml":           "XApp:\n  Import: application.yml\nDemo:\n  Addr: a:1\n",
 	})
 
 	c := listComps(t)
@@ -255,8 +255,8 @@ func TestLoad_import成环不会转不出来(t *testing.T) {
 
 func TestLoad_Profiles只能写在base里(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
-		"application.yml": "Import: shared.yml\nDemo:\n  Addr: base:1\n",
-		"shared.yml":      "Profiles:\n  Active: [prod]\nDemo:\n  Addr: shared:1\n",
+		"application.yml": "XApp:\n  Import: shared.yml\nDemo:\n  Addr: base:1\n",
+		"shared.yml":      "XApp:\n  Profiles: [prod]\nDemo:\n  Addr: shared:1\n",
 	})
 
 	c := listComps(t)
@@ -271,7 +271,7 @@ func TestLoad_Profiles只能写在base里(t *testing.T) {
 
 func TestLoad_base里的Profiles生效(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
-		"application.yml":      "Profiles:\n  Active: [prod]\nDemo:\n  Addr: base:1\n",
+		"application.yml":      "XApp:\n  Profiles: [prod]\nDemo:\n  Addr: base:1\n",
 		"application-prod.yml": "Demo:\n  Addr: prod:1\n",
 	})
 
@@ -287,7 +287,7 @@ func TestLoad_base里的Profiles生效(t *testing.T) {
 func TestLoad_环境变量压过文件里的Profiles(t *testing.T) {
 	withProfileEnv(t, "dev")
 	base := files(t, "application.yml", map[string]string{
-		"application.yml":      "Profiles:\n  Active: [prod]\nDemo:\n  Addr: base:1\n",
+		"application.yml":      "XApp:\n  Profiles: [prod]\nDemo:\n  Addr: base:1\n",
 		"application-dev.yml":  "Demo:\n  Addr: dev:1\n",
 		"application-prod.yml": "Demo:\n  Addr: prod:1\n",
 	})
@@ -303,7 +303,7 @@ func TestLoad_环境变量压过文件里的Profiles(t *testing.T) {
 
 func TestLoad_Import和Profiles不算没人认领的块(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
-		"application.yml": "Profiles:\n  Active: []\nImport: optional:x.yml\nDemo:\n  Addr: base:1\n",
+		"application.yml": "XApp:\n  Profiles: []\n  Import: optional:x.yml\nDemo:\n  Addr: base:1\n",
 	})
 
 	c := listComps(t)
@@ -336,7 +336,7 @@ func TestLoad_import路径里的占位符会展开(t *testing.T) {
 		t.Fatal(err)
 	}
 	basePath := filepath.Join(dir, "application.yml")
-	if err := os.WriteFile(basePath, []byte("Import: \"${CONF_DIR}/shared.yml\"\nDemo:\n  Addr: base:1\n"), 0o600); err != nil {
+	if err := os.WriteFile(basePath, []byte("XApp:\n  Import: \"${CONF_DIR}/shared.yml\"\nDemo:\n  Addr: base:1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("CONF_DIR", dir)
@@ -355,7 +355,7 @@ func TestLoad_import进来的文件也有profile变体(t *testing.T) {
 	// 只有主文件有变体的话，拆分就变得很别扭
 	withProfileEnv(t, "prod")
 	base := files(t, "application.yml", map[string]string{
-		"application.yml":      "Import: parts/db.yml\nDemo:\n  Addr: base:1\n",
+		"application.yml":      "XApp:\n  Import: parts/db.yml\nDemo:\n  Addr: base:1\n",
 		"parts/db.yml":         "Demo:\n  Addr: db:1\n  Timeout: 1s\n",
 		"parts/db-prod.yml":    "Demo:\n  Addr: db-prod:1\n",
 		"application-prod.yml": "Demo:\n  Headers: [x]\n",
@@ -378,7 +378,7 @@ func TestLoad_片段的profile变体可以不存在(t *testing.T) {
 	// profile 名写错这件事已经由主文件的变体挡住了
 	withProfileEnv(t, "prod")
 	base := files(t, "application.yml", map[string]string{
-		"application.yml":      "Import: parts/db.yml\nDemo:\n  Addr: base:1\n",
+		"application.yml":      "XApp:\n  Import: parts/db.yml\nDemo:\n  Addr: base:1\n",
 		"parts/db.yml":         "Demo:\n  Addr: db:1\n",
 		"application-prod.yml": "Demo:\n  Timeout: 9s\n",
 	})
@@ -396,7 +396,7 @@ func TestLoad_主文件的profile变体压过片段的(t *testing.T) {
 	// 顺序：base、base 的 import（含其变体）、application-prod、它的 import
 	withProfileEnv(t, "prod")
 	base := files(t, "application.yml", map[string]string{
-		"application.yml":      "Import: parts/db.yml\nDemo:\n  Addr: base:1\n",
+		"application.yml":      "XApp:\n  Import: parts/db.yml\nDemo:\n  Addr: base:1\n",
 		"parts/db.yml":         "Demo:\n  Addr: db:1\n",
 		"parts/db-prod.yml":    "Demo:\n  Addr: db-prod:1\n",
 		"application-prod.yml": "Demo:\n  Addr: app-prod:1\n",
@@ -422,7 +422,7 @@ func TestLoad_Profiles的Active两种写法都收(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			base := files(t, "application.yml", map[string]string{
-				"application.yml":   "Profiles:\n  Active: " + active + "\nDemo:\n  Addr: base:1\n",
+				"application.yml":   "XApp:\n  Profiles: " + active + "\nDemo:\n  Addr: base:1\n",
 				"application-a.yml": "Demo:\n  Addr: a:1\n  Timeout: 2s\n",
 				"application-b.yml": "Demo:\n  Addr: b:1\n",
 			})
@@ -442,7 +442,7 @@ func TestLoad_Profiles里的占位符会展开(t *testing.T) {
 	// 在读它的时候就展开，而不是等到全部合并完
 	t.Setenv("XONE_T_ENV", "prod")
 	base := files(t, "application.yml", map[string]string{
-		"application.yml":      "Profiles:\n  Active: ${XONE_T_ENV:dev}\nDemo:\n  Addr: base:1\n",
+		"application.yml":      "XApp:\n  Profiles: ${XONE_T_ENV:dev}\nDemo:\n  Addr: base:1\n",
 		"application-prod.yml": "Demo:\n  Addr: prod:1\n",
 	})
 	c := listComps(t)
@@ -457,7 +457,7 @@ func TestLoad_Profiles里的占位符会展开(t *testing.T) {
 func TestLoad_Profiles里未设置的占位符是错误(t *testing.T) {
 	os.Unsetenv("XONE_T_ENV_MISSING")
 	base := files(t, "application.yml", map[string]string{
-		"application.yml": "Profiles:\n  Active: ${XONE_T_ENV_MISSING}\n",
+		"application.yml": "XApp:\n  Profiles: ${XONE_T_ENV_MISSING}\n",
 	})
 	err := LoadInto(base, "Demo", listComps(t))
 	if err == nil || !strings.Contains(err.Error(), "XONE_T_ENV_MISSING") {
@@ -468,8 +468,8 @@ func TestLoad_Profiles里未设置的占位符是错误(t *testing.T) {
 func TestLoad_被引进来的文件里写空的Profiles也是错误(t *testing.T) {
 	// 从前只在它真的声明了 profile 时才报，Active: [] 能混过去
 	base := files(t, "application.yml", map[string]string{
-		"application.yml": "Import: shared.yml\n",
-		"shared.yml":      "Profiles:\n  Active: []\n",
+		"application.yml": "XApp:\n  Import: shared.yml\n",
+		"shared.yml":      "XApp:\n  Profiles: []\n",
 	})
 	if err := LoadInto(base, "Demo", listComps(t)); err == nil {
 		t.Fatal("被引进来的文件里出现 Profiles 就该报错")
@@ -479,7 +479,7 @@ func TestLoad_被引进来的文件里写空的Profiles也是错误(t *testing.T
 func TestLoad_import嵌套过深要报错(t *testing.T) {
 	m := map[string]string{}
 	for i := 0; i <= maxImportDepth+1; i++ {
-		m[fmt.Sprintf("f%d.yml", i)] = fmt.Sprintf("Import: f%d.yml\n", i+1)
+		m[fmt.Sprintf("f%d.yml", i)] = fmt.Sprintf("XApp:\n  Import: f%d.yml\n", i+1)
 	}
 	m[fmt.Sprintf("f%d.yml", maxImportDepth+2)] = "Demo:\n  Addr: deep:1\n"
 	err := LoadInto(files(t, "f0.yml", m), "Demo", listComps(t))
@@ -489,5 +489,75 @@ func TestLoad_import嵌套过深要报错(t *testing.T) {
 	// 成环不会走到这里（同一个文件只读一次），所以错误里不该让人去查环
 	if strings.Contains(err.Error(), "cycle") {
 		t.Errorf("嵌套过深和成环无关，错误里不该提环：%v", err)
+	}
+}
+
+func TestLoad_一级的App_Import_Profiles是旧写法_启动失败并说明怎么改(t *testing.T) {
+	// v0.1.0 的写法。静默忽略的话，配了的 profile 和 import 悄悄不生效
+	for name, c := range map[string]struct {
+		files map[string]string
+		want  []string
+	}{
+		"App":      {map[string]string{"application.yml": "App:\n  Name: demo\n"}, []string{"top-level App", "rename it to XApp"}},
+		"Import":   {map[string]string{"application.yml": "Import: a.yml\n"}, []string{"top-level Import", "XApp.Import"}},
+		"Profiles": {map[string]string{"application.yml": "Profiles:\n  Active: prod\n"}, []string{"top-level Profiles", "XApp.Profiles: dev"}},
+		"引进来的文件里":  {map[string]string{"application.yml": "XApp:\n  Import: a.yml\n", "a.yml": "Import: b.yml\n"}, []string{"top-level Import in", "a.yml"}},
+	} {
+		base := files(t, "application.yml", c.files)
+		err := Load(base)
+		if err == nil {
+			t.Errorf("%s：旧写法该启动失败", name)
+			continue
+		}
+		for _, w := range c.want {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("%s：错误里该有 %q，got=%v", name, w, err)
+			}
+		}
+	}
+}
+
+func TestLoad_XApp只写了Profiles和Import时不算没人读的块(t *testing.T) {
+	// 没 import xapp 的程序：XApp 里的两项被加载器取走之后是个空块，不该被当成拼错的 key
+	t.Cleanup(Reset)
+	base := files(t, "application.yml", map[string]string{
+		"application.yml": "XApp:\n  Profiles: []\n  Import: optional:x.yml\nDemo:\n  Addr: base:1\n",
+	})
+	if err := Load(base); err != nil {
+		t.Fatal(err)
+	}
+	if err := Unmarshal("Demo", listComps(t)); err != nil {
+		t.Fatal(err)
+	}
+	if got := Unclaimed(); len(got) != 0 {
+		t.Errorf("只剩 Profiles / Import 的 XApp 不该算没人读，got=%v", got)
+	}
+}
+
+func TestLoad_XApp里的Name留给xapp_Profiles和Import被加载器取走(t *testing.T) {
+	// xapp 严格解码 XApp：Profiles、Import 要是还在，它会报不认识的字段
+	t.Cleanup(Reset)
+	withProfileEnv(t, "")
+	base := files(t, "application.yml", map[string]string{
+		"application.yml":      "XApp:\n  Name: demo\n  Profiles: prod\n  Import: part.yml\n",
+		"part.yml":             "Demo:\n  Addr: part:1\n",
+		"application-prod.yml": "XApp:\n  Version: v1\n",
+	})
+	if err := Load(base); err != nil {
+		t.Fatal(err)
+	}
+	var app struct {
+		Name    string `yaml:"Name"`
+		Version string `yaml:"Version"`
+	}
+	if err := Unmarshal(AppKey, &app); err != nil {
+		t.Fatalf("XApp 里只该剩 Name / Version：%v", err)
+	}
+	if app.Name != "demo" || app.Version != "v1" {
+		t.Errorf("got=%+v，want Name=demo（base）Version=v1（prod 文件）", app)
+	}
+	c := listComps(t)
+	if err := Unmarshal("Demo", c); err != nil || c.Addr != "part:1" {
+		t.Errorf("XApp.Import 该生效，Addr=%q err=%v", c.Addr, err)
 	}
 }

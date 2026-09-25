@@ -655,7 +655,7 @@ func TestInit_读到应用名做ServiceName(t *testing.T) {
 	// 服务名放在共用的 App 块里，链路和指标读同一份，不会各配一遍再对不上。
 	// 这里走完整路径：配置文件 → config.Load → 组件 Init → OTel resource
 	resetRegistration(t)
-	loadConfig(t, "App:\n  Name: xone.demo.app\n  Version: v1.2.0\nXTrace:\n  SampleRatio: 1\n")
+	loadConfig(t, "XApp:\n  Name: xone.demo.app\n  Version: v1.2.0\nXTrace:\n  SampleRatio: 1\n")
 
 	if xapp.Name() != "xone.demo.app" {
 		t.Fatalf("配置没进到 xapp，got=%q", xapp.Name())
@@ -841,7 +841,7 @@ func TestInitXTrace_没配也装好一套默认链路(t *testing.T) {
 	// 链路没配就不装的话，AddSpanProcessor 登记的处理器会一直挂在 pending 上
 	// 再也没人读，Span 照常产生却永远到不了上报端
 	keepGlobals(t)
-	loadConfig(t, "App:\n  Name: demo\n")
+	loadConfig(t, "XApp:\n  Name: demo\n")
 
 	if err := initXTrace(context.Background()); err != nil {
 		t.Fatalf("没配不该报错：%v", err)
@@ -898,7 +898,7 @@ func TestInitXTrace_透传规则写错在读配置时就失败(t *testing.T) {
 
 func TestInitXTrace_配置装到了全局_provider_上(t *testing.T) {
 	keepGlobals(t)
-	loadConfig(t, "App:\n  Name: xone.demo.app\n  Version: v9.9.9\nXTrace:\n  Enable: true\n")
+	loadConfig(t, "XApp:\n  Name: xone.demo.app\n  Version: v9.9.9\nXTrace:\n  Enable: true\n")
 
 	if err := initXTrace(context.Background()); err != nil {
 		t.Fatal(err)
@@ -983,7 +983,7 @@ func resourceAttrs(t *testing.T) map[string]string {
 func useApp(t *testing.T, name, version string) {
 	t.Helper()
 	set := func(n, v string) {
-		loadConfig(t, fmt.Sprintf("App:\n  Name: %q\n  Version: %q\n", n, v))
+		loadConfig(t, fmt.Sprintf("XApp:\n  Name: %q\n  Version: %q\n", n, v))
 	}
 	set(name, version)
 	t.Cleanup(func() { set("", "") })

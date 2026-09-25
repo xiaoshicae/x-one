@@ -41,7 +41,7 @@ func printBanner(w io.Writer, terminal bool) {
 		c := bannerColors[min(i, len(bannerColors)-1)]
 		fmt.Fprintf(&b, "\x1b[38;2;%d;%d;%dm%s\x1b[0m\n", c[0], c[1], c[2], l)
 	}
-	fmt.Fprintf(&b, "  \x1b[38;2;110;180;210m::\x1b[0m x-one \x1b[38;2;110;180;210m::\x1b[0m  \x1b[2m%s · %s\x1b[0m\n\n", version(), runtime.Version())
+	fmt.Fprintf(&b, "  \x1b[38;2;110;180;210m::\x1b[0m x-one \x1b[38;2;110;180;210m::\x1b[0m  \x1b[2m%s\x1b[0m\n\n", version())
 	fmt.Fprint(w, b.String())
 }
 

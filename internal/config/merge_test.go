@@ -37,7 +37,7 @@ func TestLoad_空的profile文件不改变任何配置(t *testing.T) {
 
 func TestLoad_import一个空文件不改变任何配置(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
-		"application.yml": "Import: empty.yml\nDemo:\n  Addr: base:1\n",
+		"application.yml": "XApp:\n  Import: empty.yml\nDemo:\n  Addr: base:1\n",
 		"empty.yml":       "# 以后再填\n",
 	})
 	c := listComps(t)
@@ -96,7 +96,7 @@ func TestLoad_后续文件里的重复key也要报错(t *testing.T) {
 
 func TestLoad_import进来的文件里的重复key也要报错(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
-		"application.yml": "Import: shared.yml\nDemo:\n  Addr: base:1\n",
+		"application.yml": "XApp:\n  Import: shared.yml\nDemo:\n  Addr: base:1\n",
 		"shared.yml":      "Demo:\n  Addr: a:1\n  Timeout: 1s\n  Addr: a:2\n",
 	})
 	err := LoadInto(base, "Demo", listComps(t))

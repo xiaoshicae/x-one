@@ -92,14 +92,15 @@ go get github.com/xiaoshicae/x-one/xgin@v0.1.0   # 按需：xtrace xmetric xgorm
 点名要的文件不存在是启动失败；约定路径一个都没有就全用默认值。
 
 **按环境分文件、拆成几个文件**：公共的写在 `application.yml`，环境差异写在 `application-<环境>.yml`，
-大的配置用 `Import` 拆开：
+大的配置用 `Import` 拆开。这两项写在 `XApp` 块里，和应用名放在一起：
 
 ```yaml
 # conf/application.yml
-Profiles:
-  Active: ${APP_ENV:dev}        # 默认 dev；--profile=prod 或 XONE_PROFILE=prod 覆盖它
-Import:
-  - common/log.yml              # 相对这个文件的目录；optional:local.yml 表示可以没有
+XApp:
+  Name: order-api               # 日志、链路里的服务名
+  Profiles: ${APP_ENV:dev}      # 默认 dev；--profile=prod 或 XONE_PROFILE=prod 覆盖它
+  Import:
+    - common/log.yml            # 相对这个文件的目录；optional:local.yml 表示可以没有
 XGin:
   Port: 8080
 ```

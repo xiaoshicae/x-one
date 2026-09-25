@@ -9,7 +9,7 @@ import (
 
 // 几种反复出现的类型写法
 var (
-	// stringOrList 一个字符串或一个字符串列表，Import 和 Profiles.Active 都收这两种
+	// stringOrList 一个字符串或一个字符串列表，XApp.Import 和 XApp.Profiles 都收这两种
 	stringOrList = []string{"string", "array"}
 	// objectOrNull 顶层块：`XRedis:` 什么都不写是合法的，等于没配这一块
 	objectOrNull = []string{"object", "null"}

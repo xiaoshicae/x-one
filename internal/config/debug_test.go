@@ -103,7 +103,7 @@ func TestEnsure_XONE_DEBUG时打出文件顺序profile和最终配置(t *testing
 	t.Setenv("ORDER_TOKEN", "tok-s3cret")
 	dir := t.TempDir()
 	out := debugLoad(t, dir, map[string]string{
-		"application.yml":      "Import: [common/log.yml]\nOrder:\n  Channels: [a, b]\n",
+		"application.yml":      "XApp:\n  Import: [common/log.yml]\nOrder:\n  Channels: [a, b]\n",
 		"common/log.yml":       "XLog:\n  Level: info\n",
 		"application-prod.yml": "Order:\n  Channels: [a]\n  Token: \"${ORDER_TOKEN}\"\n",
 	}, "application.yml")

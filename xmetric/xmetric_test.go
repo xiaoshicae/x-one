@@ -617,7 +617,7 @@ func TestInitXMetric_没配也装好一套默认指标(t *testing.T) {
 	// 指标没配就不装的话，框架内置的那些打点全落到兜底实例上，
 	// /metrics 导出来是空的——而使用者没配指标本来就该是「用默认的」
 	keepGlobals(t)
-	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "XApp:\n  Name: demo\n")
 
 	if err := initXMetric(context.Background()); err != nil {
 		t.Fatalf("没配不该报错：%v", err)

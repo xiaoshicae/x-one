@@ -44,10 +44,10 @@ func TestSchema_运行时接受的写法都放行(t *testing.T) {
 		"XRedis单实例":  "XRedis:\n  Addr: a\n",
 		"XCache多实例":  "XCache:\n  Clients:\n    hot: {MaxCost: 5}\n",
 		"空块":         "XRedis:\nXLog:\nXGorm: {}\n",
-		"Import一个":   "Import: a.yml\n",
-		"Import多个":   "Import: [a.yml, optional:b.yml]\n",
-		"Active字符串":  "Profiles:\n  Active: dev,prod\n",
-		"Active列表":   "Profiles:\n  Active: [dev]\n",
+		"Import一个":   "XApp:\n  Import: a.yml\n",
+		"Import多个":   "XApp:\n  Import: [a.yml, optional:b.yml]\n",
+		"Active字符串":  "XApp:\n  Profiles: dev,prod\n",
+		"Active列表":   "XApp:\n  Profiles: [dev]\n",
 		"整数字段写占位符":   "XGin:\n  Port: ${PORT:8080}\n",
 		"布尔字段写占位符":   "XGin:\n  UseH2C: ${H2C:false}\n",
 		"小数字段写占位符":   "XTrace:\n  SampleRatio: ${RATIO:1}\n",
@@ -77,10 +77,10 @@ func TestSchema_运行时拒绝的写法都标红(t *testing.T) {
 		"多实例里拼错":      "XGorm:\n  Clients:\n    a: {DSNN: y}\n",
 		"单实例拼错":       "XRedis:\n  Adr: a\n",
 		"空的Clients":   "XGorm:\n  Clients: {}\n",
-		"Profiles拼错":  "Profiles:\n  Activ: [a]\n",
+		"Profiles拼错":  "XApp:\n  Profile: [a]\n",
 		"整数字段写了字符串":   "XGin:\n  Port: abc\n",
 		"布尔字段写了数字":    "XGin:\n  UseH2C: 1\n",
-		"Import写成map": "Import: {a: b}\n",
+		"Import写成map": "XApp:\n  Import: {a: b}\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {

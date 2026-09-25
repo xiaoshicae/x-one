@@ -623,7 +623,7 @@ func TestInitXLog_没配也装好一个能用的默认日志(t *testing.T) {
 	// 日志是唯一一个「没配也必须有」的东西：配置本身出问题时，
 	// 使用者要能看见那条错误
 	keepGlobals(t)
-	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "XApp:\n  Name: demo\n")
 
 	if err := initXLog(context.Background()); err != nil {
 		t.Fatalf("没配不该报错：%v", err)

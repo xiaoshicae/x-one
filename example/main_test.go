@@ -64,7 +64,7 @@ func TestEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "application.yml")
 	os.WriteFile(cfg, []byte(`
-App:
+XApp:
   Name: xone.demo.app
   Version: v0.1.0
 XLog:
@@ -257,7 +257,7 @@ func TestServe(t *testing.T) {
 	// "cannot unmarshal !!str into int" 启动失败 —— 那正是它曾经的样子
 	t.Setenv("XONE_EXAMPLE_PORT", strconv.Itoa(port))
 	os.WriteFile(cfg, []byte(fmt.Sprintf(`
-App:
+XApp:
   Name: xone.demo.app
 XLog:
   Console: false

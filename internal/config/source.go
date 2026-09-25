@@ -11,14 +11,26 @@ import (
 	"github.com/xiaoshicae/x-one/xerror"
 )
 
-// 两个保留的顶层 key。它们由加载器自己消费，不会分发给任何组件，
-// 所以「没人认领的 key 直接失败」那条规矩对它们不适用。
+// AppKey 应用级的配置块：应用叫什么（Name、Version，xapp 读），跑在哪个环境、配置从哪些文件来
+// （Profiles、Import，加载器自己读）。对应 Spring 把 spring.application.name、
+// spring.profiles.active、spring.config.import 收在 spring 下面。
+const AppKey = "XApp"
+
+// XApp 里由加载器自己消费的两项。读完就从文档里摘掉，交给 xapp 的只剩 Name、Version
 const (
 	// ProfilesKey 声明激活哪些 profile，对应 Spring 的 spring.profiles.active
 	ProfilesKey = "Profiles"
 	// ImportKey 引入别的配置文件，对应 Spring 的 spring.config.import
 	ImportKey = "Import"
 )
+
+// legacyKeys v0.1.0 的写法：一级的 App、Import、Profiles。
+// 读到了就启动失败并说明怎么改——静默忽略的话，配了的 profile 和 import 悄悄不生效
+var legacyKeys = map[string]string{
+	"App":       "rename it to " + AppKey,
+	ImportKey:   "move it under " + AppKey + " (" + AppKey + "." + ImportKey + ")",
+	ProfilesKey: "move it under " + AppKey + " and drop Active (" + AppKey + "." + ProfilesKey + ": dev)",
+}
 
 // optionalPrefix 带这个前缀的 import 文件不存在时跳过，不报错
 const optionalPrefix = "optional:"
@@ -56,7 +68,7 @@ func loadAll(base string) ([]loaded, []string, string, error) {
 		return nil, nil, "", err
 	}
 
-	// profile 从三个地方来，优先级：启动参数 > 环境变量 > base 文件里的 Profiles.Active。
+	// profile 从三个地方来，优先级：启动参数 > 环境变量 > base 文件里的 XApp.Profiles。
 	// 文件里那一份要在往下走之前取出来：base 的 import 和变体都按它选文件
 	declared, err := profilesOf(doc, base)
 	if err != nil {
@@ -161,13 +173,13 @@ func read(path string, required bool, seen map[string]bool) (*yaml.Node, error) 
 	return parse(path, raw)
 }
 
-// importsOf 取出并移除文档里的 Import 块。
+// importsOf 取出并移除文档里的 XApp.Import。
 //
 // 路径上的 ${VAR} 在这里就展开：要先知道读哪个文件，才谈得上合并。
 // 其余字段的展开留到全部合并完之后——base 里一个必填的 ${VAR}
 // 如果被 profile 文件覆盖掉了，就不该再要求它必须设置。
 func importsOf(doc *yaml.Node, path string) ([]string, error) {
-	node := takeTopLevel(doc, ImportKey)
+	node := takeFromApp(doc, ImportKey)
 	if node == nil {
 		return nil, nil
 	}
@@ -176,13 +188,13 @@ func importsOf(doc *yaml.Node, path string) ([]string, error) {
 	expand(node, &missing, nil)
 	if len(missing) > 0 {
 		return nil, xerror.Newf("xconfig", "config",
-			"environment variables not set in %s of %s: %s", ImportKey, path, strings.Join(missing, ", "))
+			"environment variables not set in %s.%s of %s: %s", AppKey, ImportKey, path, strings.Join(missing, ", "))
 	}
 
 	out, ok := scalarList(node)
 	if !ok {
 		return nil, xerror.Newf("xconfig", "config",
-			"%s in %s must be a path or a list of paths", ImportKey, path)
+			"%s.%s in %s must be a path or a list of paths", AppKey, ImportKey, path)
 	}
 	return out, nil
 }
@@ -232,7 +244,25 @@ func parse(path string, raw []byte) (*yaml.Node, error) {
 	if err != nil {
 		return nil, xerror.Newf("xconfig", "config", "config %s: %w", path, err)
 	}
+	if err := checkLegacy(out, path); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// checkLegacy 一级的 App / Import / Profiles 是旧写法，说明怎么改
+func checkLegacy(doc *yaml.Node, path string) error {
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil
+	}
+	m := doc.Content[0]
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if fix, ok := legacyKeys[m.Content[i].Value]; ok {
+			return xerror.Newf("xconfig", "config", "top-level %s in %s is no longer supported: %s",
+				m.Content[i].Value, path, fix)
+		}
+	}
+	return nil
 }
 
 // checkDuplicates 查出同一个 mapping 里重复的 key
@@ -279,15 +309,34 @@ func resolveAliases(n *yaml.Node, budget *int) (*yaml.Node, error) {
 	return &out, nil
 }
 
-// takeTopLevel 取出顶层的某个 key 并把它从文档里摘掉，没有则返回 nil
-func takeTopLevel(doc *yaml.Node, key string) *yaml.Node {
+// takeFromApp 取出 XApp 下面的某个 key 并把它从文档里摘掉，没有则返回 nil。
+//
+// 摘完 XApp 空了就连它一起摘掉：只写了 Profiles / Import 的 XApp 交给 xapp 时
+// 是一个空块，没 import xapp 的程序会把它当成「没人读的配置块」启动失败
+func takeFromApp(doc *yaml.Node, key string) *yaml.Node {
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
 		return nil
 	}
-	m := doc.Content[0]
-	if m.Kind != yaml.MappingNode {
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
 		return nil
 	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		app := root.Content[i+1]
+		if root.Content[i].Value != AppKey || app.Kind != yaml.MappingNode {
+			continue
+		}
+		val := removeKey(app, key)
+		if val != nil && len(app.Content) == 0 {
+			root.Content = append(root.Content[:i], root.Content[i+2:]...)
+		}
+		return val
+	}
+	return nil
+}
+
+// removeKey 取出 mapping m 里的某个 key 并把它摘掉，没有则返回 nil
+func removeKey(m *yaml.Node, key string) *yaml.Node {
 	for i := 0; i+1 < len(m.Content); i += 2 {
 		if m.Content[i].Value != key {
 			continue

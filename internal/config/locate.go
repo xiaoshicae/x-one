@@ -18,7 +18,7 @@ const (
 	ProfileEnvKey = "XONE_PROFILE"
 )
 
-// Profiles 决定激活哪些 profile：启动参数 > 环境变量 > 配置文件里的 Profiles.Active。
+// Profiles 决定激活哪些 profile：启动参数 > 环境变量 > 配置文件里的 XApp.Profiles。
 //
 // 与 Spring 一致：靠后的 profile 压过靠前的，
 // 所以 --profile=base,prod 里 prod 的值最终生效。
@@ -35,7 +35,7 @@ func profiles(fromFile []string) ([]string, string) {
 	if v := os.Getenv(ProfileEnvKey); v != "" {
 		return splitProfiles(v), ProfileEnvKey
 	}
-	return fromFile, ProfilesKey + ".Active in the config file"
+	return fromFile, AppKey + "." + ProfilesKey + " in the config file"
 }
 
 // splitProfiles 按逗号拆开，去掉空白和空项

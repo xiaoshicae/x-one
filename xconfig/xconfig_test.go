@@ -222,7 +222,7 @@ func TestUnmarshal_文件里没写的字段保持默认值(t *testing.T) {
 }
 
 func TestUnmarshal_整块没配时原样不动(t *testing.T) {
-	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "XApp:\n  Name: demo\n")
 
 	c := modCfg{Addr: "127.0.0.1"}
 	if err := Unmarshal("XMod", &c); err != nil {
