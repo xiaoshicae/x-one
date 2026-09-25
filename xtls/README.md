@@ -64,14 +64,14 @@ TLS:
 |---|---|---|---|---|---|
 | XGorm · PostgreSQL | `pg_stat_ssl`：`ssl=t`、`TLSv1.3`，双向认证时 `client_dn=/CN=…` | `x509: certificate signed by unknown authority`，3ms，不重试 | `x509: certificate is valid for localhost, db.e2e.internal, not wrong.e2e.internal` | `FATAL: connection requires a valid client certificate (SQLSTATE 28000)`，按认证失败报 | `no pg_hba.conf entry … no encryption` |
 | XGorm · MySQL | `Ssl_version=TLSv1.3`，连接池里每条新连接都是 | 同上，2ms | 同上 | `REQUIRE X509` 的账号回 1045，按认证失败报 | `require_secure_transport=ON` 回 3159，照常重试，1.9s |
-| XRedis | 服务端只开 `tls-port` | 同上，1–4ms | 同上 | `remote error: tls: certificate required`，约 0.45s | `EOF`，照常重试，2.0–3.5s |
+| XRedis | 服务端只开 `tls-port` | 同上，1–4ms | 同上 | 多数是 `remote error: tls: certificate required`，约 0.45s；也实测到每次尝试都撞上 `write: connection reset by peer`，2.4s | `EOF`，照常重试，2.0–3.5s |
 | XHttp | 桩服务端看到 `HTTP/2.0`、`TLS 1.3` 和客户端证书的 CN | 同上 | 同上 | 报什么说不准，见下 | —— |
 
 两件量出来才知道的事：
 
 - **TLS 1.3 下服务端拒客户端证书，客户端要到下一次读才知道。** 客户端发完 Finished 就当握手成功、开始写，
   服务端的告警晚一步到：go-redis 第一次尝试常常先撞上 `broken pipe` / `EOF`，退避一次之后才读到告警，
-  所以是 0.45s 而不是几毫秒；net/http 有时报 `remote error: tls: certificate required`，
+  所以是 0.45s 而不是几毫秒；两次尝试都撞上的话报的是 `connection reset by peer`，看不出是证书的事；net/http 有时报 `remote error: tls: certificate required`，
   有时报 `write: broken pipe`，HTTP/2 的连接只报 `http2: client conn could not be established`。
 - **拿着别的 CA 签的客户端证书，Go 的客户端可能根本不出示它。** 服务端在握手里列出它认的 CA 时，
   crypto/tls 只出示这些 CA 签的证书——PG、net/http 的服务端看到的都是「没带」。

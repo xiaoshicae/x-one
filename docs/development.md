@@ -86,7 +86,7 @@ xone/
 | `scripts/test.sh [go test 参数]` | 逐模块 `GOWORK=off go test -race ./...`，一个模块红了也跑完其余的，最后一起报 | 每次（`-count=1`） |
 | `scripts/mutate.py [-j N] [--only X] [-k X] [--dry-run]` | 变异测试，并行跑，不动工作区 | 全量每晚（e2e.yml）；`--dry-run` 在 check.sh 里 |
 | `scripts/e2e.sh [--load] [-run X]` | 真实 Web 服务测试，要 PG / MySQL / Redis（ClickHouse 可选） | 改了 `go.mod` / `go.sum` 的 PR、每晚、手动触发（e2e.yml，不含压测） |
-| `scripts/release.sh vX.Y.Z [--apply \| --verify] [--e2e-passed]` | 打 tag / 验证发布 | 否 |
+| `scripts/release.sh vX.Y.Z (--bump \| --tag [--e2e-passed] \| --verify)` | 发布：钉版本号 / 打 tag / 验证 | 否（打 tag 由 release 按钮做） |
 
 ### check.sh
 
@@ -122,26 +122,29 @@ scripts/mutate.py --dry-run        # 只查每条变异的模式还对不对得�
 
 ### release.sh
 
-多模块仓库每个 module 有自己的 tag，发布前要把开发用的 `replace` 换成真实版本号。
-
-**平时用发布按钮**：GitHub 上 Actions → `release` → Run workflow，填版本号。它在 GitHub 的机器上
-跑 e2e（同 `e2e.yml`）、`release.sh --apply`、一次推送这个版本的全部 tag（`--atomic`）、再 `--verify`，
-任何一步红了都不推送。只能从 `main` 发。它**只推 tag、不推 `main`**：tag 指向的发布提交随 tag 一起上去，
-不必在 `main` 上；还原 `replace` 的那个提交和发布前的 `main` 一模一样。所以 `main` 的分支保护不挡发布。
-仓库的 Settings → Actions → General → Workflow permissions 要是 Read and write。见 `.github/workflows/release.yml`。
-
-在本地发也一样，推送由人来做：
+多模块仓库每个 module 有自己的 tag，全都打在 `main` 上的同一个提交上。发布分两步，中间是一个普通的 PR：
 
 ```bash
-scripts/release.sh v0.1.0            # 跑检查、测试和 e2e，再打印要做什么，不改任何东西
-scripts/release.sh v0.1.0 --apply    # 改 go.mod、提交、打 tag，再提交一次把 replace 还原（不推送）
-git push origin main --tags          # 推送由人来做：module proxy 永久缓存 tag，推错了删不掉
+scripts/release.sh v0.1.0 --bump     # 1. 各模块 go.mod 里仓库内的 require 钉成 v0.1.0，CHANGELOG 的「未发布」改成这一版
+                                     #    只改文件：提交、开 PR、合进 main（分支保护照常生效）
+scripts/release.sh v0.1.0 --tag      # 2. 在 main 的最新提交上给每个模块打 tag（不推送）
 scripts/release.sh v0.1.0 --verify   # 推送之后：在一个全新的外部工程里 go get，验证装得上、跑得起来
 ```
 
-发布前要一轮绿的 e2e：默认会跑 `scripts/e2e.sh`。这个提交刚在别处跑绿过（比如手动触发了一次 CI 的 e2e 工作流）的话，
-加 `--e2e-passed` 跳过，由你担保。各子模块 `go.mod` 里仓库内的 require 一律钉成要发的版本（不管原来写的是 `v0.0.0`
-还是伪版本），仓库内的 replace 全部去掉。只收 v0 / v1。`example`、`e2e`、`internal/schemagen` 不发布。
+**第 2 步平时用发布按钮**：GitHub 上 Actions → `release` → Run workflow，填版本号。它跑 `--tag`、e2e（同 `e2e.yml`），
+只推这一组 tag（`--atomic`），再 `--verify`；任何一步红了都不推送，不推任何分支。仓库的
+Settings → Actions → General → Workflow permissions 要是 Read and write；有针对 tag 的 ruleset 的话要给它放行。
+见 `.github/workflows/release.yml`。
+
+**为什么 `main` 上的 go.mod 能直接发**：使用者的构建会忽略依赖里的 `replace`，只按 `require` 的版本去拉。
+所以开发用的 `replace` 一直留着，发布只把 `require` 钉成要发的版本——没有单独的发布提交，也没有事后还原的提交。
+两次发布之间 `main` 的 go.mod 写着上一个版本号，靠 `replace` 编的是工作区里的代码，不影响开发。
+
+- `--bump` 连不发布的 `example`、`e2e`、`internal/schemagen` 一起钉：它们 require 的子模块又 require 核心的新版本，
+  自己还写着旧版本的话 `go vet` 就报 go.mod 要更新。tag 只打要发布的那几个。
+- `--tag` 先确认这个提交能发：工作区干净、仓库内的 require 全是这个版本、CHANGELOG 有 `## [vX.Y.Z]` 这一节、
+  tag 还没用过。然后跑 check、单测和 e2e（`--e2e-passed` 跳过 e2e，由你担保这个提交刚跑绿过）。
+- 只收 v0 / v1。推送之后 tag 就被 module proxy 永久缓存，删不掉，只能再发一版盖过去。
 
 ### 基准测试
 
