@@ -18,3 +18,6 @@
 # .claude/ 里只签入 CLAUDE.md；工作树副本和本机设置不进仓库
 /.claude/worktrees/
 /.claude/settings.local.json
+
+# CI 里 e2e 的输出（tee e2e.log）。不挡的话它让工作区变脏，release.sh 就拒绝打 tag
+/e2e.log
