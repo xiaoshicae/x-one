@@ -8,6 +8,8 @@
 
 ## [未发布]
 
+## [v0.2.0] - 2026-09-25
+
 ### 不兼容变更
 
 - 一级的 `App`、`Import`、`Profiles` 收进一个 `XApp` 块，`Profiles.Active` 去掉一层直接写值。旧写法启动失败，
@@ -26,6 +28,9 @@
   环境文件、被引入的文件里的 `Import` 同样挪到 `XApp.Import`。`xconfig.Unmarshal("App", …)` 改成 `"XApp"`。
 - `xcache.Get` 改成泛型，按类型取值，不用再自己断言；存的类型对不上当作没命中（`XONE_DEBUG` 开着时会说明）。
   迁移：`v, ok := xcache.Get(k); u := v.(*User)` 改成 `u, ok := xcache.Get[*User](k)`；什么类型都收就写 `xcache.Get[any](k)`。
+- xgin 的 `TrustedProxies` 默认从「一个都不信」改成 `[private]`（回环、10/8、172.16/12、192.168/16、100.64/10、`::1`、`fc00::/7`）：
+  负载均衡、K8s ingress、sidecar 转过来的 `X-Forwarded-For`、透传 Header 和 baggage 不用配就收下。`private` 可以和别的网段写在一起。
+  迁移：要保持 v0.1.0 的行为写 `TrustedProxies: []`。
 
 ### 新增
 
