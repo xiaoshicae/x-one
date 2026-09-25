@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600" font-family="-apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif">
+  <title>x-one 模块分层</title>
+  <style>
+    .bg { fill: #ffffff; }
+    .t { fill: #1f2328; }
+    .m { fill: #59636e; }
+    .panel { fill: #f6f8fa; stroke: #d1d9e0; }
+    .edge { stroke: #818b98; fill: none; }
+    .head { fill: #818b98; }
+    .srv { fill: #ddf4ff; stroke: #0969da; }
+    .cli { fill: #dafbe1; stroke: #1a7f37; }
+    .tel { fill: #fbefff; stroke: #8250df; }
+    .core { fill: #fff8c5; stroke: #9a6700; }
+    .box { fill: #ffffff; stroke: #d1d9e0; }
+    .code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .t { fill: #e6edf3; }
+      .m { fill: #9198a1; }
+      .panel { fill: #151b23; stroke: #3d444d; }
+      .edge { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+      .srv { fill: #0c2d4a; stroke: #4493f8; }
+      .cli { fill: #0f2e1b; stroke: #3fb950; }
+      .tel { fill: #2a1a3f; stroke: #ab7df8; }
+      .core { fill: #2e2408; stroke: #d29922; }
+      .box { fill: #0d1117; stroke: #3d444d; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="head"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="960" height="600"/>
+
+  <text class="t" x="32" y="42" font-size="20" font-weight="600">x-one 模块分层</text>
+  <text class="m" x="32" y="66" font-size="13">箭头是依赖方向。每个集成是独立的 Go module，import 了才进你的模块图；你拿到的是原生 client。</text>
+
+  <!-- 你的代码 -->
+  <rect class="panel" x="32" y="86" width="896" height="84" rx="8"/>
+  <text class="t" x="52" y="114" font-size="15" font-weight="600">你的代码</text>
+  <text class="t code" x="52" y="140" font-size="12.5">main.go：xone.MustRun(xgin.New().WithRoutes(routes))</text>
+  <text class="t code" x="52" y="160" font-size="12.5">业务包：xconfig.Unmarshal · xhook.BeforeStart · xgorm.CWithCtx(ctx) · slog.InfoContext(ctx, …)</text>
+
+  <line class="edge" x1="480" y1="170" x2="480" y2="198" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text class="m" x="490" y="189" font-size="12">import 用到的集成</text>
+
+  <!-- 集成 -->
+  <text class="t" x="32" y="222" font-size="15" font-weight="600">集成（各自独立的 Go module）</text>
+
+  <rect class="srv" x="32" y="234" width="264" height="178" rx="8" stroke-width="1.5"/>
+  <text class="t" x="48" y="258" font-size="13" font-weight="600">服务 · StageServer</text>
+  <rect class="box" x="48" y="272" width="112" height="52" rx="6"/>
+  <text class="t" x="104" y="294" font-size="14" font-weight="600" text-anchor="middle">xgin</text>
+  <text class="m code" x="104" y="313" font-size="11.5" text-anchor="middle">*gin.Engine</text>
+  <rect class="box" x="168" y="272" width="112" height="52" rx="6"/>
+  <text class="t" x="224" y="294" font-size="14" font-weight="600" text-anchor="middle">xginswagger</text>
+  <text class="m" x="224" y="313" font-size="11.5" text-anchor="middle">Swagger UI</text>
+  <text class="m" x="48" y="352" font-size="12">访问日志 · 链路 · 指标 · panic 恢复</text>
+  <text class="m" x="48" y="372" font-size="12">中间件内置，开关在 XGin 块</text>
+
+  <rect class="cli" x="312" y="234" width="360" height="178" rx="8" stroke-width="1.5"/>
+  <text class="t" x="328" y="258" font-size="13" font-weight="600">客户端 · StageClient</text>
+  <rect class="box" x="328" y="272" width="104" height="52" rx="6"/>
+  <text class="t" x="380" y="294" font-size="14" font-weight="600" text-anchor="middle">xgorm</text>
+  <text class="m code" x="380" y="313" font-size="11.5" text-anchor="middle">*gorm.DB</text>
+  <rect class="box" x="440" y="272" width="104" height="52" rx="6"/>
+  <text class="t" x="492" y="294" font-size="14" font-weight="600" text-anchor="middle">xredis</text>
+  <text class="m code" x="492" y="313" font-size="11.5" text-anchor="middle">*redis.Client</text>
+  <rect class="box" x="552" y="272" width="104" height="52" rx="6"/>
+  <text class="t" x="604" y="294" font-size="14" font-weight="600" text-anchor="middle">xcache</text>
+  <text class="m code" x="604" y="313" font-size="11.5" text-anchor="middle">ristretto</text>
+  <rect class="box" x="328" y="332" width="160" height="52" rx="6"/>
+  <text class="t" x="408" y="354" font-size="14" font-weight="600" text-anchor="middle">xgorm/clickhouse</text>
+  <text class="m" x="408" y="373" font-size="11.5" text-anchor="middle">Driver: clickhouse</text>
+  <rect class="box" x="496" y="332" width="160" height="52" rx="6"/>
+  <text class="t" x="576" y="354" font-size="14" font-weight="600" text-anchor="middle">xhttp</text>
+  <text class="m code" x="576" y="373" font-size="11.5" text-anchor="middle">*resty.Client</text>
+
+  <rect class="tel" x="688" y="234" width="240" height="178" rx="8" stroke-width="1.5"/>
+  <text class="t" x="704" y="258" font-size="13" font-weight="600">遥测 · StageTelemetry</text>
+  <rect class="box" x="704" y="272" width="100" height="52" rx="6"/>
+  <text class="t" x="754" y="294" font-size="14" font-weight="600" text-anchor="middle">xtrace</text>
+  <text class="m" x="754" y="313" font-size="11.5" text-anchor="middle">OpenTelemetry</text>
+  <rect class="box" x="812" y="272" width="100" height="52" rx="6"/>
+  <text class="t" x="862" y="294" font-size="14" font-weight="600" text-anchor="middle">xmetric</text>
+  <text class="m" x="862" y="313" font-size="11.5" text-anchor="middle">Prometheus</text>
+  <text class="m" x="704" y="352" font-size="12">跟着集成自动带上，不用单独 import</text>
+  <text class="m" x="704" y="372" font-size="12">xtrace：xgin xgorm xredis xhttp</text>
+  <text class="m" x="704" y="392" font-size="12">xmetric：以上再加 xcache</text>
+
+  <line class="edge" x1="480" y1="412" x2="480" y2="446" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text class="m" x="490" y="434" font-size="12">集成只认识 xhook / xconfig，不认识 xone.Run</text>
+
+  <!-- 核心 -->
+  <rect class="core" x="32" y="450" width="896" height="126" rx="8" stroke-width="1.5"/>
+  <text class="t" x="48" y="476" font-size="15" font-weight="600">核心 module</text>
+  <text class="m code" x="146" y="476" font-size="12.5">github.com/xiaoshicae/x-one</text>
+  <text class="m" x="378" y="476" font-size="12.5">只依赖 yaml，import 任何集成都会带上它</text>
+
+  <rect class="box" x="48" y="490" width="112" height="70" rx="6"/>
+  <text class="t code" x="104" y="516" font-size="13.5" font-weight="600" text-anchor="middle">xone.Run</text>
+  <text class="m" x="104" y="535" font-size="11.5" text-anchor="middle">按档位启动</text>
+  <text class="m" x="104" y="551" font-size="11.5" text-anchor="middle">逆序关闭</text>
+
+  <rect class="box" x="170" y="490" width="96" height="70" rx="6"/>
+  <text class="t" x="218" y="516" font-size="14" font-weight="600" text-anchor="middle">xconfig</text>
+  <text class="m" x="218" y="535" font-size="11.5" text-anchor="middle">读配置</text>
+  <text class="m" x="218" y="551" font-size="11.5" text-anchor="middle">第一次读才加载</text>
+
+  <rect class="box" x="276" y="490" width="96" height="70" rx="6"/>
+  <text class="t" x="324" y="516" font-size="14" font-weight="600" text-anchor="middle">xhook</text>
+  <text class="m" x="324" y="535" font-size="11.5" text-anchor="middle">BeforeStart</text>
+  <text class="m" x="324" y="551" font-size="11.5" text-anchor="middle">BeforeStop</text>
+
+  <rect class="box" x="382" y="490" width="96" height="70" rx="6"/>
+  <text class="t" x="430" y="516" font-size="14" font-weight="600" text-anchor="middle">xlog</text>
+  <text class="m code" x="430" y="535" font-size="11.5" text-anchor="middle">log/slog</text>
+  <text class="m" x="430" y="551" font-size="11.5" text-anchor="middle">StageLog</text>
+
+  <rect class="box" x="488" y="490" width="96" height="70" rx="6"/>
+  <text class="t" x="536" y="516" font-size="14" font-weight="600" text-anchor="middle">xerror</text>
+  <text class="m" x="536" y="535" font-size="11.5" text-anchor="middle">带模块名</text>
+  <text class="m" x="536" y="551" font-size="11.5" text-anchor="middle">和操作名</text>
+
+  <rect class="box" x="594" y="490" width="96" height="70" rx="6"/>
+  <text class="t" x="642" y="516" font-size="14" font-weight="600" text-anchor="middle">xflow</text>
+  <text class="m" x="642" y="535" font-size="11.5" text-anchor="middle">流程编排</text>
+  <text class="m" x="642" y="551" font-size="11.5" text-anchor="middle">失败回滚</text>
+
+  <rect class="box" x="700" y="490" width="104" height="70" rx="6"/>
+  <text class="t" x="752" y="516" font-size="14" font-weight="600" text-anchor="middle">xapp · xtls</text>
+  <text class="m" x="752" y="535" font-size="11.5" text-anchor="middle">应用身份</text>
+  <text class="m" x="752" y="551" font-size="11.5" text-anchor="middle">客户端 TLS 块</text>
+
+  <rect class="box" x="814" y="490" width="98" height="70" rx="6"/>
+  <text class="t" x="863" y="516" font-size="14" font-weight="600" text-anchor="middle">xonetest</text>
+  <text class="m" x="863" y="535" font-size="11.5" text-anchor="middle">测试里换配置</text>
+  <text class="m" x="863" y="551" font-size="11.5" text-anchor="middle">跑一遍钩子</text>
+</svg>

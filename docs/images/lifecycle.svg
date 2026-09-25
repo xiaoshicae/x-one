@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" width="960" height="400" font-family="-apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif">
+  <title>x-one 启动与退出</title>
+  <style>
+    .bg { fill: #ffffff; }
+    .t { fill: #1f2328; }
+    .m { fill: #59636e; }
+    .edge { stroke: #818b98; fill: none; }
+    .head { fill: #818b98; }
+    .box { fill: #f6f8fa; stroke: #d1d9e0; }
+    .log { fill: #fff8c5; stroke: #9a6700; }
+    .tel { fill: #fbefff; stroke: #8250df; }
+    .cli { fill: #dafbe1; stroke: #1a7f37; }
+    .biz { fill: #ffffff; stroke: #818b98; stroke-dasharray: 4 3; }
+    .srv { fill: #ddf4ff; stroke: #0969da; }
+    .stop { fill: #ffebe9; stroke: #cf222e; }
+    .budget { stroke: #cf222e; fill: none; }
+    .bt { fill: #cf222e; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .t { fill: #e6edf3; }
+      .m { fill: #9198a1; }
+      .edge { stroke: #9198a1; }
+      .head { fill: #9198a1; }
+      .box { fill: #151b23; stroke: #3d444d; }
+      .log { fill: #2e2408; stroke: #d29922; }
+      .tel { fill: #2a1a3f; stroke: #ab7df8; }
+      .cli { fill: #0f2e1b; stroke: #3fb950; }
+      .biz { fill: #0d1117; stroke: #9198a1; }
+      .srv { fill: #0c2d4a; stroke: #4493f8; }
+      .stop { fill: #3c0f13; stroke: #f85149; }
+      .budget { stroke: #f85149; }
+      .bt { fill: #f85149; }
+    }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" class="head"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="960" height="400"/>
+  <text class="t" x="32" y="42" font-size="20" font-weight="600">启动与退出</text>
+  <text class="m" x="32" y="66" font-size="13">init() 只登记，xone.Run 按档位执行；同一档内的顺序不能依赖。任何一个启动钩子失败，已经起来的逆序关掉。</text>
+
+  <text class="t" x="32" y="104" font-size="15" font-weight="600">启动</text>
+
+  <!-- 8 boxes: w=100, gap=13.7 -->
+  <rect class="box" x="32"  y="116" width="100" height="76" rx="6"/>
+  <text class="t" x="82" y="142" font-size="13.5" font-weight="600" text-anchor="middle">接管信号</text>
+  <text class="m" x="82" y="162" font-size="11" text-anchor="middle">SIGINT</text>
+  <text class="m" x="82" y="178" font-size="11" text-anchor="middle">SIGTERM</text>
+
+  <rect class="box" x="146" y="116" width="100" height="76" rx="6"/>
+  <text class="t" x="196" y="142" font-size="13.5" font-weight="600" text-anchor="middle">加载配置</text>
+  <text class="m" x="196" y="162" font-size="11" text-anchor="middle">第一次读时</text>
+  <text class="m" x="196" y="178" font-size="11" text-anchor="middle">file:line 报错</text>
+
+  <rect class="log" x="260" y="116" width="100" height="76" rx="6" stroke-width="1.5"/>
+  <text class="t" x="310" y="142" font-size="13.5" font-weight="600" text-anchor="middle">Log</text>
+  <text class="m" x="310" y="162" font-size="11" text-anchor="middle">xlog · xapp</text>
+  <text class="m" x="310" y="178" font-size="11" text-anchor="middle">xflow</text>
+
+  <rect class="tel" x="374" y="116" width="100" height="76" rx="6" stroke-width="1.5"/>
+  <text class="t" x="424" y="142" font-size="13.5" font-weight="600" text-anchor="middle">Telemetry</text>
+  <text class="m" x="424" y="162" font-size="11" text-anchor="middle">xtrace</text>
+  <text class="m" x="424" y="178" font-size="11" text-anchor="middle">xmetric</text>
+
+  <rect class="cli" x="488" y="116" width="100" height="76" rx="6" stroke-width="1.5"/>
+  <text class="t" x="538" y="142" font-size="13.5" font-weight="600" text-anchor="middle">Client</text>
+  <text class="m" x="538" y="162" font-size="11" text-anchor="middle">xgorm · xredis</text>
+  <text class="m" x="538" y="178" font-size="11" text-anchor="middle">xcache · xhttp</text>
+
+  <rect class="biz" x="602" y="116" width="100" height="76" rx="6" stroke-width="1.5"/>
+  <text class="t" x="652" y="142" font-size="13.5" font-weight="600" text-anchor="middle">Business</text>
+  <text class="m" x="652" y="162" font-size="11" text-anchor="middle">你的钩子</text>
+  <text class="m" x="652" y="178" font-size="11" text-anchor="middle">不写档位就在这</text>
+
+  <rect class="srv" x="716" y="116" width="100" height="76" rx="6" stroke-width="1.5"/>
+  <text class="t" x="766" y="142" font-size="13.5" font-weight="600" text-anchor="middle">Server</text>
+  <text class="m" x="766" y="162" font-size="11" text-anchor="middle">xgin</text>
+  <text class="m" x="766" y="178" font-size="11" text-anchor="middle">xginswagger</text>
+
+  <rect class="box" x="830" y="116" width="98" height="76" rx="6"/>
+  <text class="t" x="879" y="142" font-size="13" font-weight="600" text-anchor="middle">Start</text>
+  <text class="m" x="879" y="162" font-size="11" text-anchor="middle">Runnable</text>
+  <text class="m" x="879" y="178" font-size="11" text-anchor="middle">开始接请求</text>
+
+  <line class="edge" x1="132" y1="154" x2="145" y2="154" marker-end="url(#a)"/>
+  <line class="edge" x1="246" y1="154" x2="259" y2="154" marker-end="url(#a)"/>
+  <line class="edge" x1="360" y1="154" x2="373" y2="154" marker-end="url(#a)"/>
+  <line class="edge" x1="474" y1="154" x2="487" y2="154" marker-end="url(#a)"/>
+  <line class="edge" x1="588" y1="154" x2="601" y2="154" marker-end="url(#a)"/>
+  <line class="edge" x1="702" y1="154" x2="715" y2="154" marker-end="url(#a)"/>
+  <line class="edge" x1="816" y1="154" x2="829" y2="154" marker-end="url(#a)"/>
+
+  <text class="m" x="260" y="214" font-size="12">启动钩子：xhook.BeforeStart，按 Log → Telemetry → Client → Business → Server 执行；框架在钩子之间复查 ctx</text>
+
+  <!-- 退出 -->
+  <text class="t" x="32" y="258" font-size="15" font-weight="600">退出</text>
+
+  <rect class="stop" x="32"  y="270" width="136" height="64" rx="6" stroke-width="1.5"/>
+  <text class="t" x="100" y="296" font-size="13.5" font-weight="600" text-anchor="middle">收到信号</text>
+  <text class="m" x="100" y="316" font-size="11" text-anchor="middle">第二个信号直接终止</text>
+
+  <rect class="box" x="184" y="270" width="136" height="64" rx="6"/>
+  <text class="t" x="252" y="296" font-size="13.5" font-weight="600" text-anchor="middle">取消 Start 的 ctx</text>
+  <text class="m" x="252" y="316" font-size="11" text-anchor="middle">Runnable 自己收尾</text>
+
+  <rect class="box" x="336" y="270" width="136" height="64" rx="6"/>
+  <text class="t" x="404" y="296" font-size="13.5" font-weight="600" text-anchor="middle">Runnable.Stop</text>
+  <text class="m" x="404" y="316" font-size="11" text-anchor="middle">可选；xgin 等在途请求</text>
+
+  <rect class="box" x="488" y="270" width="136" height="64" rx="6"/>
+  <text class="t" x="556" y="296" font-size="13.5" font-weight="600" text-anchor="middle">等 Start 返回</text>
+  <text class="m" x="556" y="316" font-size="11" text-anchor="middle">之后才关连接池</text>
+
+  <rect class="box" x="640" y="270" width="136" height="64" rx="6"/>
+  <text class="t" x="708" y="296" font-size="13.5" font-weight="600" text-anchor="middle">停止钩子逆序</text>
+  <text class="m" x="708" y="316" font-size="11" text-anchor="middle">Server → … → Log</text>
+
+  <rect class="box" x="792" y="270" width="136" height="64" rx="6"/>
+  <text class="t" x="860" y="296" font-size="13.5" font-weight="600" text-anchor="middle">Run 返回</text>
+  <text class="m" x="860" y="316" font-size="11" text-anchor="middle">xlog 最后关</text>
+
+  <line class="edge" x1="168" y1="302" x2="183" y2="302" marker-end="url(#a)"/>
+  <line class="edge" x1="320" y1="302" x2="335" y2="302" marker-end="url(#a)"/>
+  <line class="edge" x1="472" y1="302" x2="487" y2="302" marker-end="url(#a)"/>
+  <line class="edge" x1="624" y1="302" x2="639" y2="302" marker-end="url(#a)"/>
+  <line class="edge" x1="776" y1="302" x2="791" y2="302" marker-end="url(#a)"/>
+
+  <!-- 预算 -->
+  <path class="budget" d="M184,350 L184,358 L928,358 L928,350" stroke-width="1.5"/>
+  <path class="budget" d="M184,358 L184,366" stroke-width="1.5"/>
+  <text class="bt" x="184" y="384" font-size="12.5" font-weight="600">WithStopTimeout：整个退出流程一份预算（默认 15s）</text>
+  <text class="m" x="530" y="384" font-size="12">服务那一段最多占 2/3，其余留给停止钩子</text>
+</svg>
