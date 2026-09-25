@@ -1,101 +1,15 @@
-# xgin —— Web 服务
+# xgin
 
-拿到的是原生 `*gin.Engine`，访问日志、链路、指标（自动挂 `/metrics`）、panic 恢复已经装好。`xgin.New()` 就是一个
-交给 `xone.Run` 的 Runnable：监听、优雅退出都是框架的事。
+Web 服务：拿到的是原生 `*gin.Engine`，`xgin.New()` 就是交给 `xone.Run` 的 Runnable，监听、优雅退出都是框架的事。
+
+- 访问日志（凭证逐字段脱敏）、链路、指标（自动挂 `/metrics`）、panic 恢复已经装好
+- 默认只信私有网段的代理（gin 自己默认全信）：负载均衡、Ingress、Pod 转发来的 `X-Forwarded-For` 照收，公网直连的伪造不了
+- 慢连接有防线：`ReadHeaderTimeout` 10s、`IdleTimeout` 60s，写 0 启动失败
+- HTTPS、双向认证、h2c 都在配置里开
+- 停止时等在途请求做完，到点断连并报出还没返回的 handler 数
+- 中止的请求记 499，不记成 200
 
 ## 快速上手
-
-一个带路由分组、参数校验、查库的用户服务：
-
-```go
-// main.go
-package main
-
-import (
-	"errors"
-	"log/slog"
-	"net/http"
-	"strconv"
-
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
-
-	"github.com/xiaoshicae/x-one"
-	"github.com/xiaoshicae/x-one/xgin"
-	"github.com/xiaoshicae/x-one/xgorm"
-)
-
-type User struct {
-	ID    uint   `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
-}
-
-type createUserReq struct {
-	Name  string `json:"name" binding:"required,max=64"`
-	Email string `json:"email" binding:"required,email"`
-}
-
-func main() {
-	xone.MustRun(xgin.New().
-		WithMiddleware(limitBody(1 << 20)). // 自定义中间件排在内置的之后
-		WithRoutes(routes))
-}
-
-func routes(e *gin.Engine) {
-	e.GET("/healthz", func(c *gin.Context) { c.Status(http.StatusNoContent) })
-
-	v1 := e.Group("/api/v1")
-	v1.GET("/users/:id", getUser)
-	v1.POST("/users", createUser)
-}
-
-func getUser(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be a positive integer"})
-		return
-	}
-
-	var u User
-	err = xgorm.CWithCtx(c.Request.Context()).First(&u, id).Error // 请求的 ctx：客户端断开、服务停止时查询跟着停
-	switch {
-	case errors.Is(err, gorm.ErrRecordNotFound):
-		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
-	case err != nil:
-		_ = c.Error(err) // 登记的错误进访问日志的 errors 字段和 Span
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
-	default:
-		c.JSON(http.StatusOK, u)
-	}
-}
-
-func createUser(c *gin.Context) {
-	var req createUserReq
-	if err := c.ShouldBindJSON(&req); err != nil { // 按 binding tag 校验
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	ctx := c.Request.Context()
-	u := User{Name: req.Name, Email: req.Email}
-	if err := xgorm.CWithCtx(ctx).Create(&u).Error; err != nil {
-		_ = c.Error(err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
-		return
-	}
-	slog.InfoContext(ctx, "user created", "user_id", u.ID) // 自动带上这次请求的 trace_id
-	c.JSON(http.StatusCreated, u)
-}
-
-// limitBody 给请求体封顶：框架不替业务定上限，MaxMultipartMemory 也不是上限
-func limitBody(n int64) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, n)
-		c.Next()
-	}
-}
-```
 
 ```yaml
 # conf/application.yml
@@ -104,38 +18,35 @@ XApp:
 XGin:
   Port: 8080
   LogSkipPaths: [/healthz]     # 健康检查不记访问日志
-  # TrustedProxies 默认 [private]：负载均衡、K8s Ingress / Pod 这类私有网段的对端默认就信，不用写
-XGorm:
-  DSN: "${DB_DSN}"             # 默认 postgres；表 users 已经建好
 ```
 
-```bash
-DB_DSN='postgres://app:secret@127.0.0.1:5432/app' go run .
-curl -X POST localhost:8080/api/v1/users -d '{"name":"ann","email":"ann@example.com"}'   # 201
-curl localhost:8080/api/v1/users/1                                                       # 200，响应头带 X-Trace-Id
-curl localhost:8080/metrics                                                              # http_requests_total 等，route 标签是 /api/v1/users/:id
+```go
+import (
+	"log/slog"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/xiaoshicae/x-one"
+	"github.com/xiaoshicae/x-one/xgin"
+)
+
+func main() {
+	xone.MustRun(xgin.New().WithRoutes(func(e *gin.Engine) {
+		e.GET("/healthz", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+		v1 := e.Group("/api/v1")
+		v1.GET("/users/:id", func(c *gin.Context) {
+			ctx := c.Request.Context() // 客户端断开、服务停止时跟着取消，往下游传它
+			slog.InfoContext(ctx, "get user", "user_id", c.Param("id")) // 自动带上这次请求的 trace_id
+			c.JSON(http.StatusOK, gin.H{"id": c.Param("id")})
+		})
+	}))
+}
 ```
 
-- 路由回调拿到的是原生 engine，`e.Group`、`e.Use`、`e.SetTrustedProxies` 都照常用；`WithRoutes` 可以调多次，按顺序生效。
-- panic 之后默认回 500，要换响应用 `WithRecoverFunc(f)`。validator 的报错要中文就开 `ZHTranslations`，用法见
-  [`xgin/trans`](trans/trans.go)（`trans.ToZH(err)`）。
-- 同一进程里的第二个服务（比如内部管理端口）：`c := xgin.CurrentConfig(); c.Port = 9090`，再
-  `xgin.New().WithConfig(c).WithRoutes(adminRoutes)`，见[「配置」](#配置)。
-
-## 重点
-
-- **默认只信私有网段的对端**（gin 自己默认全信）：负载均衡、K8s 的 Ingress 和 Pod、sidecar 都在私有网段里，
-  它们转发来的 `X-Forwarded-For`、透传 Header 和 baggage 默认就收，Pod IP 再随机也不用写；公网直连的一律不信。
-  见[「在负载均衡 / Cloudflare 后面」](#在负载均衡--cloudflare-后面)。
-- **请求体没有上限**：框架不替业务定，要限就像上面那样 `http.MaxBytesReader`。`MaxMultipartMemory`（默认 8MB）是落盘阈值，
-  不是上限，堆开销约为它的三倍。见[「行为与实测」](#行为与实测)。
-- **handler 里的慢操作传 `c.Request.Context()`**：停止时框架等在途请求最多到停止预算的 2/3（默认 10s），到点断开连接、
-  取消请求的 ctx；不看 ctx 的 handler 停不下来，`Stop` 会报 `N handler(s) still running`。见[「配置」](#配置)下的第一条。
-- **访问日志默认不记 body**；开 `LogRequestBody` / `LogResponseBody` 之前用 `middleware.AddSensitiveFields(...)` 补上业务自己的
-  敏感字段。见[「访问日志」](#访问日志)。
-- **超时**：`ReadHeaderTimeout`（默认 10s）、`IdleTimeout`（默认 60s）必须 > 0；`ReadTimeout` / `WriteTimeout` 默认不限，
-  因为它们会打断大文件上传、SSE 和长轮询。
-- 中止的请求（`http.ErrAbortHandler`）在访问日志、指标、链路里记 **499**，不是 200。见[「499：中止的请求」](#499中止的请求)。
+`curl localhost:8080/api/v1/users/1` 的响应头带 `X-Trace-Id`；`curl localhost:8080/metrics` 能看到
+`http_requests_total`，`route` 标签是 `/api/v1/users/:id`。
 
 ## 配置
 
@@ -165,28 +76,52 @@ XGin:
   ZHTranslations: false    # validator 的报错翻成中文，用法见 xgin/trans
 ```
 
-- **停止没有单独的超时**：`Stop` 等在途请求做完，最多到服务那一段停止预算（`xone.WithStopTimeout` 的 2/3，默认 10s），
-  到点断开连接、再等 handler 返回；还有没返回的，错误里写明几个。要调就调 `WithStopTimeout`。
+**同一进程里的第二个服务**（比如内部管理端口）不读配置文件，用 `WithConfig` 给一份完整配置，从 `CurrentConfig()` 改起：
+
+```go
+c := xgin.CurrentConfig()
+c.Host, c.Port = "127.0.0.1", 9090
+admin := xgin.New().WithConfig(c).WithRoutes(adminRoutes)
+```
+
 - `private` 展开成 `127.0.0.0/8`、`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、`100.64.0.0/10`、`::1/128`、`fc00::/7`。
-  列表整体替换默认值：要再加网段就连 `private` 一起写（`[private, 203.0.113.0/24]`），写错的网段启动失败。
-- 内网里也有不可信的客户端（办公网、VPN 用户能直连服务）时别用 `private`，写确切的那几段，或者 `[]`。
+  列表整体替换默认值：要再加网段就连 `private` 一起写（`[private, 203.0.113.0/24]`），写错的网段启动失败；
+  内网里也有不可信的客户端（办公网、VPN 用户能直连服务）时别用 `private`，写确切的那几段，或者 `[]`。
 - `ClientCAFile` 管整个端口：`/metrics` 同样要客户端证书。handler 里用 `c.Request.TLS.PeerCertificates` 看是谁。
-- 框架不替业务定请求体上限，要限就在中间件里 `http.MaxBytesReader`。开 `LogRequestBody` 之前用
-  `middleware.AddSensitiveFields(...)` 补上业务自己的敏感字段，脱敏规则见 [「可观测 · 访问日志」](#访问日志)。
-- XGin 块在装配（`Engine()` 或 `Start`）那一刻才读；`WithRoutes` 回调里改的设置（如 `SetTrustedProxies`）盖过配置，
-  但透传 Header 的可信判断只看配置里的 `TrustedProxies`。同一进程里的第二个服务用
-  `xgin.New().WithConfig(c)`，`c` 从 `xgin.CurrentConfig()` 改起。实测见 [「行为与实测」](#行为与实测)。
 
-## 行为与实测
+## API
 
-实测环境和跨模块的总表见 [`docs/behavior.md`](../docs/behavior.md)。
+| 函数 | 说明 |
+|---|---|
+| `New() *XGin` | 创建一个服务（Runnable），什么都不读，配置在装配那一刻才取 |
+| `(*XGin).WithRoutes(f ...func(*gin.Engine))` | 注册路由，回调拿到原生 engine；可以调多次，按顺序生效 |
+| `(*XGin).WithMiddleware(m ...gin.HandlerFunc)` | 追加自定义中间件，排在所有内置中间件之后 |
+| `(*XGin).WithRecoverFunc(f gin.RecoveryFunc)` | 自定义 panic 之后的响应，默认回 500 |
+| `(*XGin).WithConfig(c Config)` | 用这份完整配置起服务，不读配置文件里的 XGin 块 |
+| `(*XGin).Engine() *gin.Engine` | 触发装配并返回原生 engine；之后再 `With...` 不生效 |
+| `(*XGin).Start(ctx)` / `(*XGin).Stop(ctx)` | 监听 / 优雅停止，通常交给 `xone.Run`，不用自己调 |
+| `CurrentConfig() Config` | 配置文件里 XGin 那一块的拷贝，`Start` 之前任何时候调都行 |
+| `DefaultConfig() Config` | 全部默认值；`WithConfig` 从头写时从它开始 |
+| `middleware.AddSensitiveFields(...string)` | 追加访问日志的脱敏敏感词（body 和请求头一起生效） |
+| `middleware.AddSensitiveHeaders(...string)` | 追加精确匹配的敏感请求头名 |
+| `trans.ToZH(err) error` / `trans.Msg(err) string` | `ZHTranslations` 开着时把 validator 的报错翻成中文 |
 
-gin v1.12.0、Go 1.25 net/http。
+## 注意事项
 
-**`TrustedProxies`**：gin 默认 `0.0.0.0/0`，任何人发 `X-Forwarded-For: 1.2.3.4` 就能决定 `client_ip`。
-这里默认只信私有网段：直接暴露在公网的服务，对端是公网地址，`X-Forwarded-For` 照样改不了 `client_ip`。
+- **请求体没有上限**：框架不替业务定，要限就在中间件里 `c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, n)`。
+  `MaxMultipartMemory` 是落盘阈值，不是上限，堆开销约为它的三倍。见[「行为与实测」](#行为与实测)。
+- **handler 里的慢操作传 `c.Request.Context()`**：`Stop` 没有单独的超时，等在途请求最多到停止预算的 2/3
+  （`xone.WithStopTimeout` 的 2/3，默认 10s），到点断开连接、取消请求的 ctx；不看 ctx 的 handler 停不下来，
+  `Stop` 会报 `N handler(s) still running`。要调就调 `WithStopTimeout`。
+- **访问日志默认不记 body**；开 `LogRequestBody` / `LogResponseBody` 之前用 `middleware.AddSensitiveFields(...)` 补上业务自己的
+  敏感字段。见[「访问日志」](#访问日志)。
+- **`WithRoutes` 回调里的设置盖过配置**（如 `e.SetTrustedProxies`），但透传 Header 的可信判断只看配置里的 `TrustedProxies`，
+  两边要一起改就改配置。XGin 块在装配（`Engine()` 或 `Start`）那一刻才读。
+- **超时**：`ReadHeaderTimeout`、`IdleTimeout` 必须 > 0；`ReadTimeout` / `WriteTimeout` 默认不限，
+  因为它们会打断大文件上传、SSE 和长轮询。
+- handler 里 `c.Error(err)` 登记的错误进访问日志的 `errors` 字段和 Span；validator 报错要中文就开 `ZHTranslations`，再 `trans.ToZH(err)`。
 
-### 在负载均衡 / Cloudflare 后面
+## 在负载均衡 / Cloudflare 后面
 
 判断可不可信只看**直连的那一跳**（TCP 对端），不看 `X-Forwarded-For`。K8s 里常见的链路是：
 
@@ -198,47 +133,13 @@ gin v1.12.0、Go 1.25 net/http。
 - **服务里什么都不用配**：A 的对端是 Ingress、B 的对端是 A，都在私有网段里，默认可信；`CF-*` 这类头写进
   `XTrace.ForwardHeaders` 就一路透传下去。
 - **Cloudflare 的网段只配在集群入口**（负载均衡的安全组 / Ingress 白名单），不进服务的配置。入口不锁死的话，
-  绕过 Cloudflare 直连的人能自己伪造 `CF-Connecting-IP`，而它经过 Ingress 之后就成了「可信对端发来的」。
-- 这样 `client_ip` 是 Cloudflare 边缘节点的地址：它不在私有网段里，gin 从 `X-Forwarded-For` 往回找时停在那一跳。
+  绕过 Cloudflare 直连的人能伪造 `CF-Connecting-IP`，而它经过 Ingress 之后就成了「可信对端发来的」。
+- 这样 `client_ip` 是 Cloudflare 边缘节点的地址（不在私有网段里，gin 从 `X-Forwarded-For` 往回找时停在那一跳）。
   真实用户看透传下去的 `CF-Connecting-IP`，或者让 Ingress 用它作真实 IP（ingress-nginx 有现成的配置）。
-- 源站直接以公网 IP 接 Cloudflare 的回源、中间没有负载均衡时，才要把 Cloudflare 的网段（以
+- 源站直接以公网 IP 接 Cloudflare 的回源、中间没有负载均衡时，才把 Cloudflare 的网段（以
   <https://www.cloudflare.com/ips/> 为准）连同 `private` 一起写进 `TrustedProxies`。
 - 不要在 `WithRoutes` 里设 `e.TrustedPlatform = gin.PlatformCloudflare`：gin 会无条件相信请求里的
   `CF-Connecting-IP`，不看是谁发来的。
-
-**`MaxMultipartMemory`** 不是请求体上限，是「超过多少才落盘」，超出的部分写进临时文件、不会被拒绝。
-实际代价约是这个数的三倍：一次 60MB 的上传，配 32MB（gin 默认）时解析这一步让堆多占 96MB，8MB 是 24MB，1MB 是 3MB。
-
-**`ReadHeaderTimeout` / `IdleTimeout` 写 0** 在 net/http 里退到 `ReadTimeout`（默认 0），结果是不限时：
-实测发半个请求头的连接一直不被断开。所以两者都必须 > 0。
-
-**`UseH2C`** 用标准库的 `Protocols.SetUnencryptedHTTP2`，不用 x/net 的 `h2c.NewHandler`：后者把连接劫持走，
-`Shutdown` 约 60µs 就返回 nil，在途请求照跑。只认先验知识的 h2c（gRPC、`curl --http2-prior-knowledge`），
-`Upgrade: h2c` 握手拿到的是普通 HTTP/1.1 响应。
-
-**`MetricPath`** gin 不拒绝不以 `/` 开头的写法，而是悄悄改写：`metrics` 注册成 `/metrics`，访问日志却跳不过它；
-留空挂在根路径 `/` 上，业务再注册首页时 gin 在业务自己的路由代码里 panic。所以读配置时就失败。
-
-**`Mode`** 在 `gin.New` 之前设：debug 模式下 `gin.New` 会打一段警告，之后每条路由再各打一行。`gin.SetMode` 是进程级的。
-
-**TLS 与双向认证**（e2e，`MinVersion: "1.3"`）：带着 `ClientCAFile` 的 CA 签的证书是 `200`、`HTTP/2.0`、`TLS 1.3`；
-不带证书，客户端报 `remote error: tls: certificate required`；拿别的 CA 签的证书，Go 的客户端根本不出示它，结果同上；
-最高只到 TLS 1.2 的客户端报 `protocol version not supported`；明文 HTTP 打到这个端口，net/http 回
-`400 Client sent an HTTP request to an HTTPS server.`。这几种一次都没进 handler。
-`MinVersion` 默认 1.2，Go 1.25 服务端自己的默认也是 1.2，照样显式写上：默认值会随 Go 版本变。
-
-**优雅退出**：
-
-- `http.Server.Shutdown` 超时只返回错误，在途连接照跑。所以 `Shutdown` 只用到截止时间前的一截（留出剩余时间的 20%，
-  最多 1s），到那时还有请求就 `Close()` 断开所有连接。
-- 断开连接不等于 handler 返回了：`Close()` 只关连接、取消请求的 ctx。留出来的那一截用来等 handler 真正返回，
-  到截止时间还有没返回的，错误里写明几个（`N handler(s) still running when the shutdown deadline passed`）。
-- 单独调 `Stop`、传不带截止时间的 ctx 时一直等到在途请求全部做完（实测 1.5s 的请求，`Shutdown` 等了 1.57s）。
-- 被劫持走的连接（WebSocket）不归 `Shutdown` / `Close()` 管，它的 handler 同样算在「还没返回」里。
-
-**`http.ErrAbortHandler` 中止的请求**（`httputil.ReverseProxy` 转发到一半上游断开时也是这样）往往已经写出了 200 的响应头，
-照读 `c.Writer.Status()` 的话一个被截断的响应记成成功，所以访问日志、指标、链路里记 499，见
-[「499：中止的请求」](#499中止的请求)。
 
 ## 可观测
 
@@ -314,6 +215,51 @@ xgin 的 `Trace` 开着时，每个响应带 `X-Trace-Id: <32 位 trace id>`，�
 handler 以 `http.ErrAbortHandler` 中止的请求（`httputil.ReverseProxy` 转发到一半上游断开时也是这样），访问日志、
 指标、链路里的状态码一律记成 **499**，Span 标为错误，访问日志的 `errors` 里带着 `net/http: abort Handler`。
 这个码不会发给客户端——连接直接断了；不这样记的话，一个被截断的响应在三处都记成已经发出去的 200。
+
+## 行为与实测
+
+实测环境和跨模块的总表见 [`docs/behavior.md`](../docs/behavior.md)。
+
+gin v1.12.0、Go 1.25 net/http。
+
+**`TrustedProxies`**：gin 默认 `0.0.0.0/0`，任何人发 `X-Forwarded-For: 1.2.3.4` 就能决定 `client_ip`。
+这里默认只信私有网段：直接暴露在公网的服务，对端是公网地址，`X-Forwarded-For` 照样改不了 `client_ip`。
+在代理后面怎么配见[「在负载均衡 / Cloudflare 后面」](#在负载均衡--cloudflare-后面)。
+
+**`MaxMultipartMemory`** 不是请求体上限，是「超过多少才落盘」，超出的部分写进临时文件、不会被拒绝。
+实际代价约是这个数的三倍：一次 60MB 的上传，配 32MB（gin 默认）时解析这一步让堆多占 96MB，8MB 是 24MB，1MB 是 3MB。
+
+**`ReadHeaderTimeout` / `IdleTimeout` 写 0** 在 net/http 里退到 `ReadTimeout`（默认 0），结果是不限时：
+实测发半个请求头的连接一直不被断开。所以两者都必须 > 0。
+
+**`UseH2C`** 用标准库的 `Protocols.SetUnencryptedHTTP2`，不用 x/net 的 `h2c.NewHandler`：后者把连接劫持走，
+`Shutdown` 约 60µs 就返回 nil，在途请求照跑。只认先验知识的 h2c（gRPC、`curl --http2-prior-knowledge`），
+`Upgrade: h2c` 握手拿到的是普通 HTTP/1.1 响应。
+
+**`MetricPath`** gin 不拒绝不以 `/` 开头的写法，而是悄悄改写：`metrics` 注册成 `/metrics`，访问日志却跳不过它；
+留空挂在根路径 `/` 上，业务再注册首页时 gin 在业务自己的路由代码里 panic。所以读配置时就失败。
+
+**`Mode`** 在 `gin.New` 之前设：debug 模式下 `gin.New` 会打一段警告，之后每条路由再各打一行。`gin.SetMode` 是进程级的。
+
+**TLS 与双向认证**（e2e，`MinVersion: "1.3"`）：带着 `ClientCAFile` 的 CA 签的证书是 `200`、`HTTP/2.0`、`TLS 1.3`；
+不带证书，客户端报 `remote error: tls: certificate required`；拿别的 CA 签的证书，Go 的客户端根本不出示它，结果同上；
+最高只到 TLS 1.2 的客户端报 `protocol version not supported`；明文 HTTP 打到这个端口，net/http 回
+`400 Client sent an HTTP request to an HTTPS server.`。这几种一次都没进 handler。
+`MinVersion` 默认 1.2，Go 1.25 服务端自己的默认也是 1.2，照样显式写上：默认值会随 Go 版本变。
+
+**优雅退出**：
+
+- `http.Server.Shutdown` 超时只返回错误，在途连接照跑。所以 `Shutdown` 只用到截止时间前的一截（留出剩余时间的 20%，
+  最多 1s），到那时还有请求就 `Close()` 断开所有连接。
+- 断开连接不等于 handler 返回了：`Close()` 只关连接、取消请求的 ctx。留出来的那一截用来等 handler 真正返回，
+  到截止时间还有没返回的，错误里写明几个（`N handler(s) still running when the shutdown deadline passed`）。
+- 单独调 `Stop`、传不带截止时间的 ctx 时一直等到在途请求全部做完（实测 1.5s 的请求，`Shutdown` 等了 1.57s）。
+- 被劫持走的连接（WebSocket）不归 `Shutdown` / `Close()` 管，它的 handler 同样算在「还没返回」里。
+
+**`http.ErrAbortHandler` 中止的请求**（`httputil.ReverseProxy` 转发到一半上游断开时也是这样）往往已经写出了 200 的响应头，
+照读 `c.Writer.Status()` 的话一个被截断的响应记成成功，所以访问日志、指标、链路里记 499，见
+[「499：中止的请求」](#499中止的请求)。
+
 
 ## 排错
 

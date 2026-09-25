@@ -1,111 +1,44 @@
-# xgorm —— 数据库
+# xgorm
 
-拿到的是原生 `*gorm.DB`，内置 MySQL / PostgreSQL（ClickHouse 驱动在 [`xgorm/clickhouse`](clickhouse/README.md)），
-按名字取实例，链路、连接池指标、SQL 日志（可选）已经装好。
+数据库客户端：拿到的是原生 `*gorm.DB`，框架按配置建好、退出时关掉。
+
+- 内置 MySQL / PostgreSQL，ClickHouse 驱动在 [`xgorm/clickhouse`](clickhouse/README.md)
+- 单实例、多实例都行，`xgorm.C("name")` 按名字取
+- 每条 SQL 一个 Span，属性按 OTel 数据库语义约定 v1.43.0
+- 连接池指标 `db_pool_*`，按实例开关
+- SQL 日志默认关；打开后只记带占位符的 SQL，不记参数值
+- 启动时探一次，连不上直接启动失败
 
 ## 快速上手
-
-一个默认的 PostgreSQL 实例，加一个叫 `report` 的 MySQL 实例：
 
 ```yaml
 # conf/application.yml
 XGorm:
-  Clients:
-    default:
-      DSN: "${DB_DSN}"                 # postgres://app:secret@db:5432/app，Driver 默认 postgres
-    report:
-      Driver: mysql
-      DSN: "${REPORT_DSN}"             # report:secret@tcp(report-db:3306)/report，parseTime 自动补成 true
-      MaxOpenConns: 5
+  DSN: "${DB_DSN}"   # postgres://app:secret@db:5432/app，Driver 默认 postgres
 ```
 
 ```go
-package order
-
 import (
-	"context"
-	"errors"
-	"time"
-
 	"gorm.io/gorm"
 
 	"github.com/xiaoshicae/x-one/xgorm"
 )
 
-type Account struct {
-	ID      uint
-	Balance int64
-}
-
-type DailySales struct {
-	Day   time.Time
-	Total int64
-}
-
-var ErrInsufficientBalance = errors.New("insufficient balance")
-
-// 查询：一定用 CWithCtx 把 ctx 带上，截止时间、链路才传得下去。Web 请求里传 c.Request.Context()
-func FindAccount(ctx context.Context, id uint) (*Account, error) {
-	var a Account
-	if err := xgorm.CWithCtx(ctx).First(&a, id).Error; err != nil {
-		return nil, err // 没查到是 gorm.ErrRecordNotFound
-	}
-	return &a, nil
-}
+// ctx 一定要带，截止时间、链路才传得下去。Web 请求里传 c.Request.Context()
+var a Account
+err := xgorm.CWithCtx(ctx).First(&a, id).Error // 没查到是 gorm.ErrRecordNotFound
 
 // 事务：回调返回错误就回滚，返回 nil 就提交
-func Transfer(ctx context.Context, from, to uint, amount int64) error {
-	return xgorm.CWithCtx(ctx).Transaction(func(tx *gorm.DB) error {
-		res := tx.Model(&Account{}).Where("id = ? AND balance >= ?", from, amount).
-			Update("balance", gorm.Expr("balance - ?", amount))
-		if res.Error != nil {
-			return res.Error
-		}
-		if res.RowsAffected == 0 {
-			return ErrInsufficientBalance
-		}
-		return tx.Model(&Account{}).Where("id = ?", to).
-			Update("balance", gorm.Expr("balance + ?", amount)).Error
-	})
-}
-
-// 命名实例：xgorm.C("report") 是 Clients.report 那个原生 *gorm.DB。
-// 后台任务没有请求的 ctx，自己给截止时间
-func LastWeekSales(ctx context.Context) ([]DailySales, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	var rows []DailySales
-	err := xgorm.C("report").WithContext(ctx).
-		Raw("SELECT DATE(created_at) AS day, SUM(amount) AS total FROM orders WHERE created_at >= ? GROUP BY day ORDER BY day",
-			time.Now().AddDate(0, 0, -7)).
-		Scan(&rows).Error
-	return rows, err
-}
+err = xgorm.CWithCtx(ctx).Transaction(func(tx *gorm.DB) error {
+	return tx.Create(&order).Error
+})
 ```
 
-`xgorm.CWithCtx(ctx, "report")` 就是 `xgorm.C("report").WithContext(ctx)` 的简写。只有一个库时不必写 `Clients`，
-直接 `XGorm: {DSN: "${DB_DSN}"}`，见[「配置」](#配置)。
-
-## 重点
-
-- **ctx 一定要带，后台任务一定要给截止时间。** PostgreSQL 没有读超时：对端不回话时只有 ctx 的截止时间管得住查询
-  （`StatementTimeout` 是服务端计时，救不了这一段）。见[「PostgreSQL」](#postgresql)。
-- **MySQL 的 DSN 没写 `parseTime` 时补成 `parseTime=true`**，`DATETIME` 扫得进 `time.Time`，时区跟着驱动的 `loc`（默认 UTC）。
-  见[「MySQL」](#mysql)。
-- **SQL 日志默认关**（`Log: false` 就是真的不写，不是 GORM 那个带颜色写 stdout 的默认）；打开后日志和 Span 里只有带占位符的 SQL，
-  服务端报错只记错误码——返回给你的错误原样不变，`errors.As` 照样取得到 `*mysql.MySQLError` / `*pgconn.PgError`。
-  见[「通用」](#通用)。
-- **TLS 写在 `TLS:` 块里**，证书一律校验、不会退回明文；开着它时 DSN 里不能再写 `sslmode` / `tls=`。
-  不开时 pgx 默认的 `sslmode=prefer` 连上了也**不校验证书**。见 [xtls](../xtls/README.md)。
-- **经 PgBouncer（事务池）** 要改 `default_query_exec_mode`，否则并发下成批报 `prepared statement … already exists`。
-  见[「PostgreSQL」](#postgresql)。
-- 启动时每个实例探一次，最多试 3 次；密码错不重试，报 `authentication to <addr> failed`。见
-  [behavior.md「启动期建连探测」](../docs/behavior.md#启动期建连探测)。
+`xgorm.CWithCtx(ctx, "report")` 就是 `xgorm.C("report").WithContext(ctx)` 的简写。
 
 ## 配置
 
-`mysql` / `postgres` 内置，ClickHouse 见[其它驱动](clickhouse/README.md#配置)。单实例写法：
+`mysql` / `postgres` 内置，ClickHouse 见[其它驱动](clickhouse/README.md#配置)。
 
 ```yaml
 XGorm:
@@ -119,7 +52,7 @@ XGorm:
   Log: false               # 把 SQL 接到 slog，默认关；只记占位符，不记参数值
   SlowThreshold: 3s        # 超过就记 warn，需 Log 开启；0 = 不记
   IgnoreNotFound: false    # 「没查到记录」是否不当错误
-  Trace: true              # 每条 SQL 一个 Span，OTel 数据库语义约定 v1.43.0
+  Trace: true              # 每条 SQL 一个 Span
   Metric: true             # 连接池指标 db_pool_*，按实例生效
   MySQL:                   # 仅 Driver: mysql 生效
     ReadTimeout: 3s        # 等一次回包的上限，0 = 不注入（驱动不限时）
@@ -129,7 +62,7 @@ XGorm:
     LockTimeout: 0s
     IdleInTxTimeout: 0s
     Params: {}             # 任意 PG 运行时参数 / pgx 连接参数，同名时以它为准
-  TLS:                     # 规则见「TLS 块」；空 ServerName = DSN 里的主机名
+  TLS:                     # 规则见 xtls；空 ServerName = DSN 里的主机名
     Enable: false
     CAFile: ""
     CertFile: ""
@@ -137,22 +70,87 @@ XGorm:
     ServerName: ""
 ```
 
-多实例写法：实例写在 `Clients` 下，`xgorm.C()` 取 `default`，`xgorm.C("report")` 取别的。两种写法不能混用。
+**多实例**写在 `Clients` 下，每个实例的字段同上，没写的用上面的默认值：
 
 ```yaml
 XGorm:
   Clients:
-    default: {DSN: "${DB_DSN}"}
-    report:  {DSN: "${REPORT_DSN}", Driver: mysql, MaxOpenConns: 5}
+    default: {DSN: "${DB_DSN}"}                                     # PostgreSQL
+    report:  {DSN: "${REPORT_DSN}", Driver: mysql, MaxOpenConns: 5} # report:secret@tcp(report-db:3306)/report
 ```
 
+`xgorm.C()` 取 `default`，`xgorm.C("report")` 取另一个。两种写法不能混用。
+
 - **DSN 里写了的参数以 DSN 为准**，配置里的超时只是默认值。时长一律不能为负。
-- **MySQL 的 DSN 没写 `parseTime` 时补成 `parseTime=true`**：`DATETIME` 扫得进 `time.Time`，时区跟着驱动的 `loc`（默认 UTC）。
-- **PostgreSQL 没有读超时**：连接卡住时只有调用方 ctx 的截止时间管得住，后台任务一定要自己给。经 PgBouncer 的要改
-  `default_query_exec_mode`。都见 [「行为与实测 · PostgreSQL」](#postgresql)。
-- 日志、Span 里只有带占位符的 SQL；服务端报错时只记错误码，返回给你的错误原样不变。
 - 单次建连探测的预算：MySQL 是 `DialTimeout + MySQL.ReadTimeout`，PG 是 `connect_timeout + DialTimeout`（默认 1.5s），
-  其余驱动 `2 × DialTimeout`。详细的量值和 GORM 默认行为见 [「行为与实测 · 通用」](#通用)。
+  其余驱动 `2 × DialTimeout`。见[「行为与实测」](#行为与实测)。
+
+## API
+
+| 函数 | 说明 |
+|---|---|
+| `C(name ...string) *gorm.DB` | 取实例，不带参数取 `default`。取不到直接 panic，消息里说清是调早了、没配还是名字写错 |
+| `CWithCtx(ctx, name ...string) *gorm.DB` | 取实例并绑定 ctx，即 `C(name...).WithContext(ctx)`；GORM 只能这样传 ctx |
+| `Has(name ...string) bool` | 实例配了没有，可选依赖先判断 |
+| `Names() []string` | 配了哪些实例 |
+| `New(ctx, cfg) (*gorm.DB, io.Closer, error)` | 纯构造器：不碰全局、不读文件，离开框架也能用；`io.Closer` 关闭底层连接池 |
+| `RegisterDialect(d Dialect)` | 注册别的驱动，同名重复注册直接 panic；`Dialect` 提供了 `OpenTLS` 才收 TLS 块 |
+| `Drivers() []Driver` | 已注册的驱动名，按字母序 |
+
+## 注意事项
+
+- **ctx 一定要带，后台任务一定要给截止时间。** PostgreSQL 没有读超时：对端不回话时只有 ctx 的截止时间管得住查询
+  （`StatementTimeout` 是服务端计时，救不了这一段）。见[「PostgreSQL」](#postgresql)。
+- **MySQL 的 DSN 没写 `parseTime` 时补成 `parseTime=true`**，`DATETIME` 扫得进 `time.Time`，时区跟着驱动的 `loc`（默认 UTC）。
+  见[「MySQL」](#mysql)。
+- **SQL 日志默认关**（`Log: false` 就是真的不写，不是 GORM 那个带颜色写 stdout 的默认）；打开后日志和 Span 里只有带占位符的 SQL，
+  服务端报错只记错误码——返回给你的错误原样不变，`errors.As` 照样取得到 `*mysql.MySQLError` / `*pgconn.PgError`。见[「通用」](#通用)。
+- **TLS 写在 `TLS:` 块里**，证书一律校验、不会退回明文；开着它时 DSN 里不能再写 `sslmode` / `tls=`。
+  不开时 pgx 默认的 `sslmode=prefer` 连上了也**不校验证书**。见 [xtls](../xtls/README.md)。
+- **经 PgBouncer（事务池）** 要改 `default_query_exec_mode`，否则并发下成批报 `prepared statement … already exists`。
+  见[「PostgreSQL」](#postgresql)。
+- **启动探测**：每个实例探一次，最多试 3 次；密码错不重试，报 `authentication to <addr> failed`。见
+  [behavior.md「启动期建连探测」](../docs/behavior.md#启动期建连探测)。
+
+## 可观测
+
+### 日志
+
+| 消息 | 级别 | 字段 |
+|---|---|---|
+| `xgorm connected` | INFO | `name`、`driver`、`addr`、`db`、`tls`、`max_open_conns`、`max_idle_conns` |
+| `SQL` / `slow SQL` / `SQL failed` | INFO / WARN / ERROR | `sql`（带占位符）、`elapsed`、`rows_affected`；失败时 `error`、`error_code`；慢查询时 `threshold`（需 `XGorm.Log: true`） |
+
+日志的全局约定（`trace_id` 注入、`xlog.AddKV`、框架的启停日志）见 [`docs/observability.md`](../docs/observability.md#日志)。
+
+### 指标
+
+| 指标 | 类型 | 标签 | 来源 |
+|---|---|---|---|
+| `db_pool_open` / `db_pool_in_use` / `db_pool_idle` / `db_pool_max_open` | gauge | `name`（实例名） | xgorm，`XGorm.Metric`，按实例 |
+| `db_pool_wait_total` / `db_pool_wait_duration_seconds_total` / `db_pool_closed_max_idle_total` / `db_pool_closed_max_lifetime_total` | counter | `name` | xgorm |
+
+指标名的前缀、常量标签和几条通用规则见 [`docs/observability.md`「指标」](../docs/observability.md#指标)。
+
+### 链路
+
+| 来源 | Span 名 | 关键属性 |
+|---|---|---|
+| xgorm | `gorm.create` / `gorm.query` / `gorm.update` / `gorm.delete` / `gorm.row` / `gorm.raw` | 见下 |
+
+<a id="数据库"></a>xgorm 的属性按 OTel 数据库语义约定 v1.43.0（Tracer 带着这一版的 schema URL）：
+
+| 属性 | 值 |
+|---|---|
+| `db.system.name` | `postgresql` / `mysql` / `clickhouse`（其余驱动按驱动名） |
+| `db.namespace` | 库名 |
+| `server.address` / `server.port` | 从 DSN 解出的主机、端口（多主机时是第一个） |
+| `db.query.text` | 带占位符的 SQL，不含参数值 |
+| `db.operation.name` | 发出去的语句的第一个关键字，原样大小写：`SELECT`、`INSERT`……（软删除发出去的是 `UPDATE`） |
+| `db.rows_affected` | 影响行数（ClickHouse 上永远是 0） |
+| `db.response.status_code` / `error.type` | 服务端报错时的错误码（MySQL 错误号 / PG 的 SQLSTATE）；其余错误 `error.type` 是 `_OTHER` |
+
+链路的全貌、传播与信任边界见 [`docs/observability.md`「链路」](../docs/observability.md#链路)。
 
 ## 行为与实测
 
@@ -250,7 +248,7 @@ DSN 里写了的（哪怕是 `parseTime=false`）以 DSN 为准；判断照抄�
 （`[mysql] 2026/09/24 10:00:00 packets.go:58 read tcp …: i/o timeout`）。这里在 xgorm 的 `init` 里接到 slog：
 一条 `xgorm go-sql-driver log`，级别 WARN，原文在 `detail`。驱动不给 ctx，这些日志不带 trace_id。
 实测对端不回话、8 条查询读超时，就是 8 条这样的日志，stderr 里一行 `[mysql]` 都没有。
-想换成自己的就在 `main` 里、xone 启动之前调 `mysql.SetLogger`：驱动在解析 DSN 时把当时的 logger 抄进连接配置，
+想换成自己的就在 `main` 里、框架启动之前调 `mysql.SetLogger`：驱动在解析 DSN 时把当时的 logger 抄进连接配置，
 而 xgorm 在启动钩子里才解析 DSN。
 
 ### PostgreSQL
@@ -299,46 +297,6 @@ PgBouncer 的事务池会把下一条语句派到另一个服务端连接上，�
   pgx 的错误原文是整串 DSN、只遮得住 `password=x` 这种规整写法（`password = hunter2` 原样带出），所以不回传它。
 - 多主机 URL 里 IPv6 地址不能排在第一个：`postgres://u:p@[::1]:1,h2:1/db` 会被 `url.Parse` 和 pgx 同时拒绝。
   挪到后面，或者改用 key=value 形式 `host=::1,h2 port=1,1`。
-
-## 可观测
-
-### 日志
-
-| 消息 | 级别 | 字段 |
-|---|---|---|
-| `xgorm connected` | INFO | `name`、`driver`、`addr`、`db`、`tls`、`max_open_conns`、`max_idle_conns` |
-| `SQL` / `slow SQL` / `SQL failed` | INFO / WARN / ERROR | `sql`（带占位符）、`elapsed`、`rows_affected`；失败时 `error`、`error_code`；慢查询时 `threshold`（需 `XGorm.Log: true`） |
-
-日志的全局约定（`trace_id` 注入、`xlog.AddKV`、框架的启停日志）见 [`docs/observability.md`](../docs/observability.md#日志)。
-
-### 指标
-
-| 指标 | 类型 | 标签 | 来源 |
-|---|---|---|---|
-| `db_pool_open` / `db_pool_in_use` / `db_pool_idle` / `db_pool_max_open` | gauge | `name`（实例名） | xgorm，`XGorm.Metric`，按实例 |
-| `db_pool_wait_total` / `db_pool_wait_duration_seconds_total` / `db_pool_closed_max_idle_total` / `db_pool_closed_max_lifetime_total` | counter | `name` | xgorm |
-
-指标名的前缀、常量标签和几条通用规则见 [`docs/observability.md`「指标」](../docs/observability.md#指标)。
-
-### 链路
-
-| 来源 | Span 名 | 关键属性 |
-|---|---|---|
-| xgorm | `gorm.create` / `gorm.query` / `gorm.update` / `gorm.delete` / `gorm.row` / `gorm.raw` | 见下 |
-
-<a id="数据库"></a>xgorm 的属性按 OTel 数据库语义约定 v1.43.0（Tracer 带着这一版的 schema URL）：
-
-| 属性 | 值 |
-|---|---|
-| `db.system.name` | `postgresql` / `mysql` / `clickhouse`（其余驱动按驱动名） |
-| `db.namespace` | 库名 |
-| `server.address` / `server.port` | 从 DSN 解出的主机、端口（多主机时是第一个） |
-| `db.query.text` | 带占位符的 SQL，不含参数值 |
-| `db.operation.name` | 发出去的语句的第一个关键字，原样大小写：`SELECT`、`INSERT`……（软删除发出去的是 `UPDATE`） |
-| `db.rows_affected` | 影响行数（ClickHouse 上永远是 0） |
-| `db.response.status_code` / `error.type` | 服务端报错时的错误码（MySQL 错误号 / PG 的 SQLSTATE）；其余错误 `error.type` 是 `_OTHER` |
-
-链路的全貌、传播与信任边界见 [`docs/observability.md`「链路」](../docs/observability.md#链路)。
 
 ## 排错
 

@@ -1,106 +1,65 @@
-# xredis —— Redis
+# xredis
 
-拿到的是原生 `*redis.Client`（go-redis v9），按名字取实例，链路、连接池指标已经装好。
-go-redis 的每个方法本来就收 ctx，所以没有 `CWithCtx`。
+Redis 客户端：拿到的是原生 `*redis.Client`（go-redis v9），框架按配置建好、退出时关掉。
+
+- 单实例、多实例都行，`xredis.C("name")` 按名字取
+- 命令听 ctx 的截止时间（go-redis 默认不听，只认 `ReadTimeout`）
+- 每条命令一个 Span，只带命令名、不带参数
+- 连接池指标 `redis_pool_*`，按实例开关
+- 启动时探一次，连不上直接启动失败
 
 ## 快速上手
 
 ```yaml
 # conf/application.yml
 XRedis:
-  Clients:
-    default: {Addr: "redis:6379", Password: "${REDIS_PASSWORD}"}
-    session: {Addr: "redis-session:6379", DB: 1}
+  Addr: "redis:6379"
+  Password: "${REDIS_PASSWORD}"
 ```
 
 ```go
-package user
-
 import (
-	"context"
 	"errors"
-	"time"
 
 	"github.com/redis/go-redis/v9"
 
 	"github.com/xiaoshicae/x-one/xredis"
 )
 
-var ErrNoSession = errors.New("session not found")
+err := xredis.C().Set(ctx, "k", "v", time.Minute).Err()
 
-// SessionUser 从 session 实例里取登录用户；没有这个 key 时 go-redis 返回 redis.Nil
-func SessionUser(ctx context.Context, token string) (string, error) {
-	uid, err := xredis.C("session").Get(ctx, "session:"+token).Result()
-	if errors.Is(err, redis.Nil) {
-		return "", ErrNoSession
-	}
-	return uid, err
-}
-
-// Allow 每分钟最多 100 次的固定窗口限流，走 default 实例
-func Allow(ctx context.Context, userID string) (bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond) // 命令听截止时间：到点就返回
-	defer cancel()
-
-	key := "rate:" + userID
-	pipe := xredis.C().TxPipeline()
-	n := pipe.Incr(ctx, key)
-	pipe.Expire(ctx, key, time.Minute)
-	if _, err := pipe.Exec(ctx); err != nil {
-		return false, err
-	}
-	return n.Val() <= 100, nil
+v, err := xredis.C().Get(ctx, "k").Result()
+if errors.Is(err, redis.Nil) {
+	// key 不存在
 }
 ```
 
-只有一个 Redis 时不必写 `Clients`：`XRedis: {Addr: "redis:6379"}`，见[「配置」](#配置)。
-
-## 重点
-
-- **命令听 ctx 的截止时间，不听取消。** ctx 被取消叫不醒一个已经阻塞在读上的命令，它照样等到 `ReadTimeout`；
-  要在停止时停得下来，给 ctx 带截止时间（上面的 `context.WithTimeout`）。见[「行为与实测」](#行为与实测)。
-- **调用方没给截止时间时，一条命令最多** `(MaxRetries+1) × (DialTimeout+ReadTimeout) + MaxRetries × MaxRetryBackoff`，默认 7s。
-- **负数一律不收**，只有 `MaxRetries: -1`、`MinRetryBackoff: -1ns`、`MaxRetryBackoff: -1ns` 表示「关掉」。
-- **Span 里只有命令名**，不带参数（redisotel 默认会把 `SET` 的值原样写进 `db.statement`）。
-- 每条连接约 66KiB 堆，连接池涨满时是 `PoolSize × 66KiB`（默认 `PoolSize` 是 10 × GOMAXPROCS）。
-- 启动时每个实例探一次，最多试 3 次；`WRONGPASS` / `NOAUTH` 不重试。见
-  [behavior.md「启动期建连探测」](../docs/behavior.md#启动期建连探测)。
+go-redis 的方法本来就收 ctx，所以没有 `CWithCtx`。
 
 ## 配置
-
-单实例 / 多实例两种写法，多实例和 XGorm 一样写在 `Clients` 下（`xredis.C("session")`）：
-
-```yaml
-XRedis:
-  Clients:
-    default: {Addr: "127.0.0.1:6379"}
-    session: {Addr: "10.0.0.2:6379", DB: 1}
-```
-
-单实例的全部字段：
 
 ```yaml
 XRedis:
   Addr: "127.0.0.1:6379"
-  Username: ""
+  Username: ""                  # Redis 6+ ACL 用户名
   Password: "${REDIS_PASSWORD}"
   DB: 0
-  DialTimeout: 500ms       # 拨号 + TLS 握手
-  ReadTimeout: 500ms       # 调用方没给截止时间时，一次读最多等这么久
+  DialTimeout: 500ms            # 拨号 + TLS 握手
+  ReadTimeout: 500ms            # 调用方没给截止时间时，一次读最多等这么久
   WriteTimeout: 500ms
-  PoolSize: 0              # 0 = go-redis 的默认 10 × GOMAXPROCS
-  MinIdleConns: 5
-  MaxIdleConns: 0          # 0 = 不限
-  MaxActiveConns: 0        # 0 = 不限
-  PoolTimeout: 1s
+  PoolSize: 0                   # 0 = go-redis 默认的 10 × GOMAXPROCS
+  MinIdleConns: 5               # 常驻的空闲连接；多实例时每个实例各这么多
+  MaxIdleConns: 0               # 0 = 不限
+  MaxActiveConns: 0             # 0 = 不限
+  PoolTimeout: 1s               # 池子满了等一条连接最多多久
   ConnMaxIdleTime: 5m
   ConnMaxLifetime: 5m
-  MaxRetries: 0            # 0 = go-redis 的默认 3 次，-1 关闭
-  MinRetryBackoff: 0s      # 0 = go-redis 的默认 10ms，-1ns 关闭
-  MaxRetryBackoff: 0s      # 0 = go-redis 的默认 1s，-1ns 关闭
-  Trace: true              # 每条命令一个 Span，只有命令名、不含参数
-  Metric: true             # 连接池指标 redis_pool_*，按实例生效
-  TLS:                     # 规则见「TLS 块」；空 ServerName = Addr 的主机部分
+  MaxRetries: 0                 # 0 = go-redis 默认的 3 次；-1 关掉重试
+  MinRetryBackoff: 0s           # 0 = go-redis 默认的 10ms；-1ns 关掉
+  MaxRetryBackoff: 0s           # 0 = go-redis 默认的 1s；-1ns 关掉
+  Trace: true                   # 每条命令一个 Span
+  Metric: true                  # 连接池指标
+  TLS:                          # 规则见 xtls；ServerName 空着 = Addr 的主机部分
     Enable: false
     CAFile: ""
     CertFile: ""
@@ -108,11 +67,62 @@ XRedis:
     ServerName: ""
 ```
 
-- **负数一律不收**，只有 `MaxRetries: -1`、`MinRetryBackoff: -1ns`、`MaxRetryBackoff: -1ns` 三个「关掉」例外。
-- **命令听 ctx 的截止时间，不听取消**：ctx 被取消叫不醒一个阻塞在读上的命令，它照样等到 `ReadTimeout`。
-  要在停止时停得下来，给 ctx 带截止时间。
-- 调用方没给截止时间时一条命令最多 `(MaxRetries+1) × (DialTimeout+ReadTimeout) + MaxRetries × MaxRetryBackoff`，默认 7s。
-- 新连接上不发 `CLIENT SETINFO`、不开维护通知；go-redis 自己的日志接到 slog。数字见 [「行为与实测」](#行为与实测)。
+**多实例**写在 `Clients` 下，每个实例的字段同上，没写的用上面的默认值：
+
+```yaml
+XRedis:
+  Clients:
+    default: {Addr: "redis:6379"}
+    session: {Addr: "redis-session:6379", DB: 1}
+```
+
+`xredis.C()` 取 `default`，`xredis.C("session")` 取另一个。两种写法不能混用。
+
+## API
+
+| 函数 | 说明 |
+|---|---|
+| `C(name ...string) *redis.Client` | 取实例，不带参数取 `default`。取不到直接 panic，消息里说清是调早了、没配还是名字写错 |
+| `Has(name ...string) bool` | 实例配了没有，可选依赖先判断 |
+| `Names() []string` | 配了哪些实例 |
+| `New(ctx, cfg) (*redis.Client, io.Closer, error)` | 纯构造器：不碰全局、不读文件，离开框架也能用 |
+
+## 注意事项
+
+- **要停得下来，就给 ctx 带截止时间。** 命令听截止时间、不听取消：ctx 被取消叫不醒一条已经阻塞在读上的命令，
+  它照样等到 `ReadTimeout`。见[「行为与实测」](#行为与实测)。
+- **一条命令最多要多久**（调用方没给截止时间时）：`(MaxRetries+1) × (DialTimeout+ReadTimeout) + MaxRetries × MaxRetryBackoff`，默认 7s。
+- **负数一律不收**，只有 `MaxRetries: -1`、`MinRetryBackoff: -1ns`、`MaxRetryBackoff: -1ns` 表示「关掉」。
+- **内存**：每条连接约 66KiB 堆，池子涨满时是 `PoolSize × 66KiB`。
+- **启动探测**：每个实例探一次，最多试 3 次；`WRONGPASS` / `NOAUTH` 不重试。见
+  [behavior.md「启动期建连探测」](../docs/behavior.md#启动期建连探测)。
+
+## 可观测
+
+### 日志
+
+| 消息 | 级别 | 字段 |
+|---|---|---|
+| `xredis connected` | INFO | `name`、`addr`、`db`、`tls`、`min_idle_conns` |
+
+日志的全局约定（`trace_id` 注入、`xlog.AddKV`、框架的启停日志）见 [`docs/observability.md`](../docs/observability.md#日志)。
+
+### 指标
+
+| 指标 | 类型 | 标签 | 来源 |
+|---|---|---|---|
+| `redis_pool_connections` / `redis_pool_connections_idle` | gauge | `name` | xredis，`XRedis.Metric`，按实例 |
+| `redis_pool_connections_stale_total` / `redis_pool_hits_total` / `redis_pool_misses_total` / `redis_pool_timeouts_total` | counter | `name` | xredis |
+
+指标名的前缀、常量标签和几条通用规则见 [`docs/observability.md`「指标」](../docs/observability.md#指标)。
+
+### 链路
+
+| 来源 | Span 名 | 关键属性 |
+|---|---|---|
+| xredis | redisotel 按命令起名 | 只有命令名，没有 `db.statement` 里的参数 |
+
+链路的全貌、传播与信任边界见 [`docs/observability.md`「链路」](../docs/observability.md#链路)。
 
 ## 行为与实测
 
@@ -161,30 +171,3 @@ xredis 把 `DialerRetries` 固定成 1，同样的场景默认配置 2.1s、`Max
 用命令 ctx 记的那些带 trace_id；最常见的 `failed to dial` 不带——go-redis 在它自己的协程里用
 `context.Background()` 拨号，实测 Redis 拒绝连接时 45 条一条都没有 trace_id。自定义的 logger 在 `main` 里、
 或在一个 import 了 xredis 的包里设置；放在没有 import xredis 的包的 `init` 里，可能被 xredis 盖掉。
-
-## 可观测
-
-### 日志
-
-| 消息 | 级别 | 字段 |
-|---|---|---|
-| `xredis connected` | INFO | `name`、`addr`、`db`、`tls`、`min_idle_conns` |
-
-日志的全局约定（`trace_id` 注入、`xlog.AddKV`、框架的启停日志）见 [`docs/observability.md`](../docs/observability.md#日志)。
-
-### 指标
-
-| 指标 | 类型 | 标签 | 来源 |
-|---|---|---|---|
-| `redis_pool_connections` / `redis_pool_connections_idle` | gauge | `name` | xredis，`XRedis.Metric`，按实例 |
-| `redis_pool_connections_stale_total` / `redis_pool_hits_total` / `redis_pool_misses_total` / `redis_pool_timeouts_total` | counter | `name` | xredis |
-
-指标名的前缀、常量标签和几条通用规则见 [`docs/observability.md`「指标」](../docs/observability.md#指标)。
-
-### 链路
-
-| 来源 | Span 名 | 关键属性 |
-|---|---|---|
-| xredis | redisotel 按命令起名 | 只有命令名，没有 `db.statement` 里的参数 |
-
-链路的全貌、传播与信任边界见 [`docs/observability.md`「链路」](../docs/observability.md#链路)。
