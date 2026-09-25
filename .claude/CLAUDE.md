@@ -52,7 +52,7 @@ scripts/check.sh                     # 架构约束 + 依赖边界 + 文档 + go
 scripts/mutate.py [--only X] [-k X] [-j N] [--dry-run]   # 变异测试，经 overlay 跑，不要求干净工作区
 scripts/e2e.sh [--load] [-run X]     # 真实服务测试：拉起 PG / MySQL / Redis / ClickHouse；CI 里是 .github/workflows/e2e.yml
 docker compose -f e2e/compose.yml up -d --wait   # 本机没装这些服务时
-scripts/release.sh vX.Y.Z --bump     # 发布第 1 步：钉版本号、改 CHANGELOG，走 PR 合进 main
+scripts/release.sh vX.Y.Z --bump     # 发布第 1 步：钉版本号、改 CHANGELOG，走 PR 合进 main（按 .claude/skills/release 做）
 scripts/release.sh vX.Y.Z --tag      # 第 2 步：在 main 上打 tag（不推送）；平时用 GitHub Actions 的 release 按钮
 go test -run=NONE -bench=. -benchtime=100000x ./xlog/ ./xflow/ ./xgin/middleware/   # 改热点代码前后各跑一次
 ```
