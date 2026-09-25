@@ -13,6 +13,7 @@ Import、合并、占位符。每个配置块的全部字段、默认值和最�
 | 按环境分文件 | 差异写进 `application-prod.yml`，`--profile=prod` 或 `XONE_PROFILE=prod` 选 | [Profiles](#profiles--按环境分文件)、[完整例子](#多环境配置一个完整的例子) |
 | 凭证不进版本库 | `Password: "${DB_PASSWORD}"`，没设就启动失败；可选的写 `${VAR:默认值}` | [占位符](#占位符) |
 | 拆成几个文件 | `Import: [shared.yml, optional:local.yml]` | [Import](#import--引入别的配置文件) |
+| 看最终生效的配置 | `XONE_DEBUG=1 ./app` | [XONE_DEBUG](#看最终生效的配置xone_debug) |
 | 读自己的配置块 | `xconfig.Unmarshal("MyApp", &c)` | [xconfig](../xconfig/README.md) |
 
 **import 了哪个集成，它就生效**，没写的块全用默认值——`XLog`、`XTrace`、`XMetric`、`XHttp`、`XGin`
@@ -24,6 +25,7 @@ Import、合并、占位符。每个配置块的全部字段、默认值和最�
 - [Import —— 引入别的配置文件](#import--引入别的配置文件)
 - [合并规则](#合并规则)
 - [多环境配置：一个完整的例子](#多环境配置一个完整的例子)
+- [看最终生效的配置：XONE_DEBUG](#看最终生效的配置xone_debug)
 - [占位符](#占位符)
 - [通用规则](#通用规则)
 - [编辑器补全](#编辑器补全)
@@ -216,8 +218,64 @@ K8s 里常见的做法：镜像里带着整个 `conf/`（或者用 ConfigMap 挂
 4. **片段的 profile 变体可以没有，主文件的不行。** `common/log-dev.yml` 不存在没关系；`application-staging.yml`
    不存在是启动失败——几乎总是 profile 名写错了。
 5. **`Profiles` 只能写在主文件里**，被引入的文件里写了是启动失败。
-6. 启动日志只打主文件（`loading config file=conf/application.yml`），不列 profile 和引入的文件；
-   对照上面「读了哪些文件」那一列看。
+6. 拿不准到底读了哪些文件、最终是什么值，`XONE_DEBUG=1` 启动一次，见[下一节](#看最终生效的配置xone_debug)。
+   平时的启动日志只打主文件（`loading config file=conf/application.yml`）。
+
+## 看最终生效的配置：XONE_DEBUG
+
+```bash
+XONE_DEBUG=1 ./app --profile=prod      # 1 / true / yes / on 都算打开
+```
+
+启动时往 stderr 多打几段，给人看的：
+
+```
+[xone debug] config file: conf/application.yml (default search path)
+[xone debug] profiles: prod (from --profile)
+[xone debug] files read, lowest to highest priority:
+  1. conf/application.yml
+  2. conf/common/log.yml
+  3. conf/common/log-prod.yml
+  4. conf/application-prod.yml
+  5. conf/secrets.yml
+[xone debug] effective config (secrets redacted):
+  App:
+    Name: order-api
+  XGin:
+    Port: 80
+  Order:
+    PayTimeout: 15m
+    Channels: [alipay]
+    CallbackToken: '***'
+  XLog:
+    Level: warn
+    Format: json
+[xone debug] x-one v0.1.0, go1.25.0
+[xone debug] start hooks, in order (stop hooks run in reverse):
+  1. Log       xapp.loadConfig
+  2. Log       xlog.initXLog
+  3. Telemetry xtrace.initXTrace
+  ...
+```
+
+- **配置文件是怎么找到的**：括号里是 `xone.WithConfigPath`、`--config`、`XONE_CONFIG` 或 `default search path`。
+- **profile 是从哪来的**：`--profile`、`XONE_PROFILE`，或者 `Profiles.Active in the config file`。
+- **最终配置是合并、展开 `${VAR}` 之后的**，也就是各组件真正读到的值；配置文件里的注释不带出来（合并之后看不出是哪个文件的）。
+- **凭证已遮掉**，显示成 `***`：key 名里含 password、passwd、secret、token、credential、apikey、accesskey、privatekey 的值整个遮掉
+  （比较前转小写、去掉 `_ - .`）；值里夹着的密码也遮——`postgres://app:***@db`、`report:***@tcp(db:3306)/report`、
+  `password=***`。**空的不遮**，一眼看得出哪个凭证没配。
+- **只在本地排查时开**：写的是多行的纯文本，不是 JSON，接在日志采集器后面就是几行解析失败的日志。
+
+**启动 banner** 只在 stderr 是终端时打：本地 `go run` 能看到，容器里、重定向到文件、接在日志采集器后面时一个字都不写。
+版本号取自二进制的构建信息；用 `replace` 指向本地目录时显示 `(devel)`。
+
+### 框架认的环境变量
+
+| 变量 | 作用 | 同义的启动参数 |
+|---|---|---|
+| `XONE_CONFIG` | 配置文件路径 | `--config=<path>` |
+| `XONE_PROFILE` | 激活的 profile，逗号分隔 | `--profile=prod,eu` |
+| `XONE_DEBUG` | 打出加载经过和最终配置，见上 | —— |
 
 ## 占位符
 

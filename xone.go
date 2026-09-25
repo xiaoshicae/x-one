@@ -144,6 +144,7 @@ func Run(r Runnable, opts ...Option) error {
 	// 注册中心里那条记录、那把分布式锁，只能等对端超时过期。
 	ctx, stopSignals := notifyShutdown(o)
 	defer stopSignals()
+	printBanner(stderr, isTerminal(stderr))
 
 	// 提前有人读过配置的话，这里沿用那一份。配置跟着这次 Run 走，
 	// 不论怎么结束都交还——连加载失败也算：否则那个失败会一直留着，
@@ -160,6 +161,7 @@ func Run(r Runnable, opts ...Option) error {
 		return errors.Join(err, stopWithin(o, nil))
 	}
 
+	debugHooks(hook.Start())
 	started, err := runStart(ctx, o)
 	switch {
 	case ctx.Err() != nil:

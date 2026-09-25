@@ -15,6 +15,13 @@
 
 ## 配置
 
+### 配的值没生效、不知道最终读到的是什么
+
+`XONE_DEBUG=1` 启动一次：打出用了哪个配置文件、激活了哪些 profile、按优先级读了哪些文件、合并之后的完整配置（凭证已遮掉）。
+最常见的三种：profile 没激活（`--profile` / `XONE_PROFILE` 会替换掉文件里的 `Profiles.Active`）、
+列表被高优先级文件整体替换、同一个文件被 `Import` 了两次而只算了先遇到的那一处。
+见 [config.md「看最终生效的配置：XONE_DEBUG」](config.md#看最终生效的配置xone_debug)。
+
 ### `config keys [MyApp] are not read by anyone`
 
 全部启动钩子跑完时，配置文件里还有顶层 key 没人读过。

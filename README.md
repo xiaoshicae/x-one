@@ -85,9 +85,14 @@ go get github.com/xiaoshicae/x-one/xgin@v0.1.0   # 按需：xtrace xmetric xgorm
   - 进程里没有上面那些集成、又想要日志 / 指标 / 链路时（比如只用 xcache 的消费者想要链路），匿名 import `xlog` / `xmetric` / `xtrace`；
   - 代码里不调、却想让它按配置建起来的集成（[`example/main.go`](example/main.go) 里的 xcache、xhttp）。
 
-## 多环境与拆分配置
+## 配置文件：放哪、按什么顺序加载
 
-公共的写在 `conf/application.yml`，环境差异写在 `application-<环境>.yml`，启动时选环境；大的配置可以拆成几个文件引进来：
+**找哪个文件**（第一个给出的就是它）：`xone.WithConfigPath(…)` → `--config=<path>` → 环境变量 `XONE_CONFIG`
+→ 约定路径 `conf/application.yml`、`config/application.yml`、`application.yml`（`.yaml` 也认）。
+点名要的文件不存在是启动失败；约定路径一个都没有就全用默认值。
+
+**按环境分文件、拆成几个文件**：公共的写在 `application.yml`，环境差异写在 `application-<环境>.yml`，
+大的配置用 `Import` 拆开：
 
 ```yaml
 # conf/application.yml
@@ -104,9 +109,20 @@ XGin:
 ./app --profile=prod           # 换成 application-prod.yml；--profile=prod,eu 两个叠着用
 ```
 
-map 递归合并、列表整体替换，后读的压过先读的；凭证写 `${VAR}`，没设就启动失败。
+**加载顺序**（后读的压过先读的）：
+
+```
+application.yml  <  它 Import 的  <  application-<环境>.yml  <  环境文件 Import 的
+```
+
+map 递归合并、列表整体替换；凭证写 `${VAR}`，没设就启动失败。
+
+**看最终生效的是什么**：`XONE_DEBUG=1 ./app`，启动时打出用了哪个文件、激活了哪些 profile、
+按顺序读了哪些文件、合并之后的完整配置（凭证已遮掉）。
+
 完整的目录、每种启动方式读到的值、容易踩的坑，见
-[config.md「多环境配置：一个完整的例子」](docs/config.md#多环境配置一个完整的例子)。
+[config.md「多环境配置：一个完整的例子」](docs/config.md#多环境配置一个完整的例子)；
+XONE_DEBUG 的输出见 [config.md「看最终生效的配置：XONE_DEBUG」](docs/config.md#看最终生效的配置xone_debug)。
 
 ## 模块一览
 

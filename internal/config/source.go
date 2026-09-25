@@ -47,24 +47,28 @@ type loaded struct {
 // 也就是说 import 进来的会压过引它的那个文件（Spring 的说法是
 // 「import 相当于插在声明它的那份文档正下方」，而下面的压过上面的），
 // profile 文件又压过不带 profile 的那份。
-func loadAll(base string) ([]loaded, error) {
+//
+// 另外返回激活的 profile 和它们是从哪来的，XONE_DEBUG 打出来。
+func loadAll(base string) ([]loaded, []string, string, error) {
 	seen := map[string]bool{} // 同一个文件只 import 一次，与 Spring 一致
 	doc, err := read(base, true, seen)
 	if err != nil {
-		return nil, err
+		return nil, nil, "", err
 	}
 
 	// profile 从三个地方来，优先级：启动参数 > 环境变量 > base 文件里的 Profiles.Active。
 	// 文件里那一份要在往下走之前取出来：base 的 import 和变体都按它选文件
 	declared, err := profilesOf(doc, base)
 	if err != nil {
-		return nil, err
+		return nil, nil, "", err
 	}
+	active, from := profiles(declared)
 
 	// 主文件的 profile 变体必须存在：点名要了某个 profile 文件却不在，
 	// 几乎总是名字写错了，静默跳过的结果是一份谁都没看过的配置以默认值起来。
 	// 被 import 进来的文件的变体则是可选的，见 fileSet
-	return fileSet(base, doc, true, Profiles(declared), seen, 0)
+	files, err := fileSet(base, doc, true, active, seen, 0)
+	return files, active, from, err
 }
 
 // fileSet 一个已经读好的文件连同它 import 的和它的 profile 变体，按优先级从低到高：

@@ -23,13 +23,19 @@ const (
 // 与 Spring 一致：靠后的 profile 压过靠前的，
 // 所以 --profile=base,prod 里 prod 的值最终生效。
 func Profiles(fromFile []string) []string {
+	p, _ := profiles(fromFile)
+	return p
+}
+
+// profiles 同 Profiles，另外说明是从哪来的（XONE_DEBUG 打出来）
+func profiles(fromFile []string) ([]string, string) {
 	if v := fromArgs(ProfileArgKey); v != "" {
-		return splitProfiles(v)
+		return splitProfiles(v), "--" + ProfileArgKey
 	}
 	if v := os.Getenv(ProfileEnvKey); v != "" {
-		return splitProfiles(v)
+		return splitProfiles(v), ProfileEnvKey
 	}
-	return fromFile
+	return fromFile, ProfilesKey + ".Active in the config file"
 }
 
 // splitProfiles 按逗号拆开，去掉空白和空项
@@ -57,18 +63,24 @@ var SearchPaths = []string{
 //
 // 都找不到时返回空串，由调用方决定是报错还是全用默认值起。
 func Locate() string {
+	p, _ := locate()
+	return p
+}
+
+// locate 同 Locate，另外说明是怎么找到的（XONE_DEBUG 打出来）
+func locate() (path, from string) {
 	if v := fromArgs(ArgKey); v != "" {
-		return v
+		return v, "--" + ArgKey
 	}
 	if v := os.Getenv(EnvKey); v != "" {
-		return v
+		return v, EnvKey
 	}
 	for _, p := range SearchPaths {
 		if xutil.FileExist(p) {
-			return p
+			return p, "default search path"
 		}
 	}
-	return ""
+	return "", ""
 }
 
 // fromArgs 从命令行读 --key=value 或 --key value，两种写法都支持。

@@ -104,8 +104,9 @@ func ensureLocked() error {
 // 失败也记下来：一份写坏了的配置，之后每一次读都该报同一个错，
 // 而不是每次重读一遍、或者第二次读时悄悄当成没配。
 func loadLocked(path string, log *slog.Logger) error {
+	from := "xone.WithConfigPath"
 	if path == "" {
-		path = Locate()
+		path, from = locate()
 	}
 	source = path
 
@@ -113,6 +114,7 @@ func loadLocked(path string, log *slog.Logger) error {
 	case path == "":
 		log.Warn("no config file found, using defaults for everything",
 			"searched", SearchPaths, "or_use", "--"+ArgKey+"=<path> or "+EnvKey)
+		Debugf("no config file: searched %s, everything uses its defaults", strings.Join(SearchPaths, ", "))
 		sections, claimed, ready = nil, map[string]bool{}, true
 		return nil
 	case !xutil.FileExist(path):
@@ -122,11 +124,12 @@ func loadLocked(path string, log *slog.Logger) error {
 	}
 
 	log.Info("loading config", "file", path)
-	s, err := load(path)
+	s, r, err := load(path)
 	if err != nil {
 		failed = err
 		return err
 	}
+	debugReport(path, from, r)
 	sections, claimed, ready = s, map[string]bool{}, true
 	return nil
 }
@@ -134,7 +137,7 @@ func loadLocked(path string, log *slog.Logger) error {
 // Load 读配置文件，把结果留在包里，替换掉原来的那一份。只给测试用——
 // 生产路径走 Ensure 和第一次读时的自动加载。
 func Load(path string) error {
-	s, err := load(path)
+	s, _, err := load(path)
 	if err != nil {
 		return err
 	}
@@ -149,10 +152,16 @@ func Load(path string) error {
 // 读的不一定只有一个文件：base 文件可以 Import 别的文件，
 // 激活的 profile 还会带上 application-{profile}.yml。
 // 合并规则和优先级见 loadAll 与 merge。
-func load(path string) (map[string]*yaml.Node, error) {
-	files, err := loadAll(path)
+//
+// 另外返回这次加载的经过（读了哪些文件、激活了哪些 profile、最终的配置），XONE_DEBUG 打出来。
+func load(path string) (map[string]*yaml.Node, *report, error) {
+	files, active, activeFrom, err := loadAll(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	r := &report{profiles: active, profilesFrom: activeFrom}
+	for _, f := range files {
+		r.files = append(r.files, f.path)
 	}
 	// 合并之后一个块里的字段可能来自好几个文件，报错时得说清是哪一个
 	from := map[*yaml.Node]string{}
@@ -169,13 +178,13 @@ func load(path string) (map[string]*yaml.Node, error) {
 		// 写了就算，哪怕是个空列表——那多半是抄 base 时带过来的，留着只会让人
 		// 以为它在起作用
 		if takeTopLevel(f.node, ProfilesKey) != nil {
-			return nil, xerror.Newf("xconfig", "config",
+			return nil, nil, xerror.Newf("xconfig", "config",
 				"%s may only be set in the base config file, found it in %s", ProfilesKey, f.path)
 		}
 		root = merge(root, f.node)
 	}
 	if absent(root) {
-		return nil, nil
+		return nil, r, nil
 	}
 
 	// 占位符在全部合并完之后统一展开一次：base 里一个必填的 ${VAR}
@@ -184,11 +193,13 @@ func load(path string) (map[string]*yaml.Node, error) {
 	values := map[*yaml.Node]string{}
 	expand(root, &missing, values)
 	if len(missing) > 0 {
-		return nil, xerror.Newf("xconfig", "config", "environment variables not set: %s", strings.Join(missing, ", "))
+		return nil, nil, xerror.Newf("xconfig", "config", "environment variables not set: %s", strings.Join(missing, ", "))
 	}
 	expanded.Store(&values)
+	r.root = root
 
-	return topLevel(root)
+	s, err := topLevel(root)
+	return s, r, err
 }
 
 // Unmarshal 把 key 那一段解进 into，并记下这一块有人读过。

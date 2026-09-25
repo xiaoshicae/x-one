@@ -191,7 +191,7 @@ mutate("import 进来的压过引它的", "internal/config/source.go", ".", "Tes
 \treturn out, nil'''))
 # 第三个参数是 variantRequired：主文件的 profile 变体必须存在
 mutate("profile 文件不存在直接失败", "internal/config/source.go", ".", "TestLoad",
-       swap('return fileSet(base, doc, true, Profiles(declared), seen, 0)', 'return fileSet(base, doc, false, Profiles(declared), seen, 0)'))
+       swap('files, err := fileSet(base, doc, true, active, seen, 0)', 'files, err := fileSet(base, doc, false, active, seen, 0)'))
 mutate("第二个信号能终止卡住的进程", "xone.go", ".", "TestRun",
        swap('\t\t\tsignal.Stop(ch)\n\t\t\to.log().Info(','\t\t\to.log().Info(',1))
 # Stop 要能真的做事。沿用被取消的 ctx 的话，每个关闭动作一进去就被拒绝——
@@ -487,3 +487,35 @@ mutate("加载失败的 Run 也交还配置", "xone.go", ".", "TestRun_加载失
 \t}
 \tdefer config.Reset()
 '''))
+
+section("启动输出")
+# banner 只在终端里打：容器、重定向、日志采集器后面，多行字符画是日志平台里解析失败的垃圾
+mutate("banner 只在终端里打", "banner.go", ".", "TestPrintBanner",
+       swap('\tif !terminal {\n\t\treturn\n\t}\n', ''))
+mutate("Run 拿 stderr 判断是不是终端", "xone.go", ".", "TestRun_stderr不是终端",
+       swap('printBanner(stderr, isTerminal(stderr))', 'printBanner(stderr, true)'))
+mutate("管道和文件不是终端", "banner.go", ".", "TestIsTerminal",
+       swap('st.Mode()&os.ModeCharDevice != 0', 'st.Mode() == st.Mode()'))
+mutate("replace 到本地时版本显示 (devel)", "banner.go", ".", "TestModuleVersion",
+       swap('\t\t\tif d.Replace != nil {\n\t\t\t\treturn "(devel)"\n\t\t\t}\n', ''))
+# XONE_DEBUG：只在明确打开时写，写的是加载经过和遮掉凭证的最终配置
+mutate("XONE_DEBUG 没开就不写", "internal/config/debug.go", ".", "TestDebug_|TestEnsure_不开|TestRun_不开",
+       swap('\t}\n\treturn false\n}\n\n// DebugOut', '\t}\n\treturn true\n}\n\n// DebugOut'))
+mutate("加载完打出经过", "internal/config/config.go", ".", "TestEnsure_XONE_DEBUG",
+       swap('\tdebugReport(path, from, r)\n', '\t_, _ = from, r\n'))
+mutate("Run 打出启动钩子的顺序", "xone.go", ".", "TestRun_XONE_DEBUG",
+       swap('\tdebugHooks(hook.Start())\n', ''))
+mutate("key 名是凭证的值整个遮掉", "internal/config/debug.go", ".", "TestRedacted",
+       swap('if strings.Contains(k, s) {', 'if s == "" {'))
+mutate("URL 里的密码遮掉", "internal/config/debug.go", ".", "TestRedacted",
+       swap('s = urlUserinfo.ReplaceAllString(s, "$1:"+redactedValue+"@")', 's = s'))
+mutate("MySQL DSN 里的密码遮掉", "internal/config/debug.go", ".", "TestRedacted",
+       swap('s = mysqlDSN.ReplaceAllString(s, "$1:"+redactedValue+"@")', 's = s'))
+mutate("password= 写法的密码遮掉", "internal/config/debug.go", ".", "TestRedacted",
+       swap('return kvPassword.ReplaceAllString(s, "$1="+redactedValue)', 'return s'))
+mutate("遮的是拷贝，真正的配置不动", "internal/config/debug.go", ".", "TestRedacted",
+       swap('\t\tc.Content[i] = redacted(ch)\n', '\t\tc.Content[i] = ch\n\t\tredacted(ch)\n'))
+mutate("空的凭证不遮：看得出没配", "internal/config/debug.go", ".", "TestRedacted",
+       swap(' && v.Value != ""', ''))
+mutate("最终配置里不带注释", "internal/config/debug.go", ".", "TestRedacted",
+       swap('\tc.HeadComment, c.LineComment, c.FootComment = "", "", ""\n', ''))
