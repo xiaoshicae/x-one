@@ -1,11 +1,70 @@
 # xredis —— Redis
 
-`*redis.Client`（go-redis），按名字取实例：
+拿到的是原生 `*redis.Client`（go-redis v9），按名字取实例，链路、连接池指标已经装好。
+go-redis 的每个方法本来就收 ctx，所以没有 `CWithCtx`。
+
+## 快速上手
+
+```yaml
+# conf/application.yml
+XRedis:
+  Clients:
+    default: {Addr: "redis:6379", Password: "${REDIS_PASSWORD}"}
+    session: {Addr: "redis-session:6379", DB: 1}
+```
 
 ```go
-v, err := xredis.C().Get(ctx, k).Result() // default 实例
-xredis.C("session")                       // Clients.session
+package user
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+
+	"github.com/xiaoshicae/x-one/xredis"
+)
+
+var ErrNoSession = errors.New("session not found")
+
+// SessionUser 从 session 实例里取登录用户；没有这个 key 时 go-redis 返回 redis.Nil
+func SessionUser(ctx context.Context, token string) (string, error) {
+	uid, err := xredis.C("session").Get(ctx, "session:"+token).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", ErrNoSession
+	}
+	return uid, err
+}
+
+// Allow 每分钟最多 100 次的固定窗口限流，走 default 实例
+func Allow(ctx context.Context, userID string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond) // 命令听截止时间：到点就返回
+	defer cancel()
+
+	key := "rate:" + userID
+	pipe := xredis.C().TxPipeline()
+	n := pipe.Incr(ctx, key)
+	pipe.Expire(ctx, key, time.Minute)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return false, err
+	}
+	return n.Val() <= 100, nil
+}
 ```
+
+只有一个 Redis 时不必写 `Clients`：`XRedis: {Addr: "redis:6379"}`，见[「配置」](#配置)。
+
+## 重点
+
+- **命令听 ctx 的截止时间，不听取消。** ctx 被取消叫不醒一个已经阻塞在读上的命令，它照样等到 `ReadTimeout`；
+  要在停止时停得下来，给 ctx 带截止时间（上面的 `context.WithTimeout`）。见[「行为与实测」](#行为与实测)。
+- **调用方没给截止时间时，一条命令最多** `(MaxRetries+1) × (DialTimeout+ReadTimeout) + MaxRetries × MaxRetryBackoff`，默认 7s。
+- **负数一律不收**，只有 `MaxRetries: -1`、`MinRetryBackoff: -1ns`、`MaxRetryBackoff: -1ns` 表示「关掉」。
+- **Span 里只有命令名**，不带参数（redisotel 默认会把 `SET` 的值原样写进 `db.statement`）。
+- 每条连接约 66KiB 堆，连接池涨满时是 `PoolSize × 66KiB`（默认 `PoolSize` 是 10 × GOMAXPROCS）。
+- 启动时每个实例探一次，最多试 3 次；`WRONGPASS` / `NOAUTH` 不重试。见
+  [behavior.md「启动期建连探测」](../docs/behavior.md#启动期建连探测)。
 
 ## 配置
 

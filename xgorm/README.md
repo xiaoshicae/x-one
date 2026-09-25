@@ -1,12 +1,107 @@
 # xgorm —— 数据库
 
-`*gorm.DB`，内置 MySQL / PostgreSQL；ClickHouse 驱动在 [`xgorm/clickhouse`](clickhouse/README.md)。
-拿到的是原生 client，按名字取实例：
+拿到的是原生 `*gorm.DB`，内置 MySQL / PostgreSQL（ClickHouse 驱动在 [`xgorm/clickhouse`](clickhouse/README.md)），
+按名字取实例，链路、连接池指标、SQL 日志（可选）已经装好。
+
+## 快速上手
+
+一个默认的 PostgreSQL 实例，加一个叫 `report` 的 MySQL 实例：
+
+```yaml
+# conf/application.yml
+XGorm:
+  Clients:
+    default:
+      DSN: "${DB_DSN}"                 # postgres://app:secret@db:5432/app，Driver 默认 postgres
+    report:
+      Driver: mysql
+      DSN: "${REPORT_DSN}"             # report:secret@tcp(report-db:3306)/report，parseTime 自动补成 true
+      MaxOpenConns: 5
+```
 
 ```go
-xgorm.CWithCtx(ctx).First(&u, id) // default 实例
-xgorm.C("report")                 // Clients.report
+package order
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"gorm.io/gorm"
+
+	"github.com/xiaoshicae/x-one/xgorm"
+)
+
+type Account struct {
+	ID      uint
+	Balance int64
+}
+
+type DailySales struct {
+	Day   time.Time
+	Total int64
+}
+
+var ErrInsufficientBalance = errors.New("insufficient balance")
+
+// 查询：一定用 CWithCtx 把 ctx 带上，截止时间、链路才传得下去。Web 请求里传 c.Request.Context()
+func FindAccount(ctx context.Context, id uint) (*Account, error) {
+	var a Account
+	if err := xgorm.CWithCtx(ctx).First(&a, id).Error; err != nil {
+		return nil, err // 没查到是 gorm.ErrRecordNotFound
+	}
+	return &a, nil
+}
+
+// 事务：回调返回错误就回滚，返回 nil 就提交
+func Transfer(ctx context.Context, from, to uint, amount int64) error {
+	return xgorm.CWithCtx(ctx).Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&Account{}).Where("id = ? AND balance >= ?", from, amount).
+			Update("balance", gorm.Expr("balance - ?", amount))
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrInsufficientBalance
+		}
+		return tx.Model(&Account{}).Where("id = ?", to).
+			Update("balance", gorm.Expr("balance + ?", amount)).Error
+	})
+}
+
+// 命名实例：xgorm.C("report") 是 Clients.report 那个原生 *gorm.DB。
+// 后台任务没有请求的 ctx，自己给截止时间
+func LastWeekSales(ctx context.Context) ([]DailySales, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	var rows []DailySales
+	err := xgorm.C("report").WithContext(ctx).
+		Raw("SELECT DATE(created_at) AS day, SUM(amount) AS total FROM orders WHERE created_at >= ? GROUP BY day ORDER BY day",
+			time.Now().AddDate(0, 0, -7)).
+		Scan(&rows).Error
+	return rows, err
+}
 ```
+
+`xgorm.CWithCtx(ctx, "report")` 就是 `xgorm.C("report").WithContext(ctx)` 的简写。只有一个库时不必写 `Clients`，
+直接 `XGorm: {DSN: "${DB_DSN}"}`，见[「配置」](#配置)。
+
+## 重点
+
+- **ctx 一定要带，后台任务一定要给截止时间。** PostgreSQL 没有读超时：对端不回话时只有 ctx 的截止时间管得住查询
+  （`StatementTimeout` 是服务端计时，救不了这一段）。见[「PostgreSQL」](#postgresql)。
+- **MySQL 的 DSN 没写 `parseTime` 时补成 `parseTime=true`**，`DATETIME` 扫得进 `time.Time`，时区跟着驱动的 `loc`（默认 UTC）。
+  见[「MySQL」](#mysql)。
+- **SQL 日志默认关**（`Log: false` 就是真的不写，不是 GORM 那个带颜色写 stdout 的默认）；打开后日志和 Span 里只有带占位符的 SQL，
+  服务端报错只记错误码——返回给你的错误原样不变，`errors.As` 照样取得到 `*mysql.MySQLError` / `*pgconn.PgError`。
+  见[「通用」](#通用)。
+- **TLS 写在 `TLS:` 块里**，证书一律校验、不会退回明文；开着它时 DSN 里不能再写 `sslmode` / `tls=`。
+  不开时 pgx 默认的 `sslmode=prefer` 连上了也**不校验证书**。见 [xtls](../xtls/README.md)。
+- **经 PgBouncer（事务池）** 要改 `default_query_exec_mode`，否则并发下成批报 `prepared statement … already exists`。
+  见[「PostgreSQL」](#postgresql)。
+- 启动时每个实例探一次，最多试 3 次；密码错不重试，报 `authentication to <addr> failed`。见
+  [behavior.md「启动期建连探测」](../docs/behavior.md#启动期建连探测)。
 
 ## 配置
 

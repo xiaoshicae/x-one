@@ -1,7 +1,8 @@
 # 使用指南
 
-从「跑起来了」到「上线」要知道的事。配置项查 [`config.md`](config.md)，报错查 [`troubleshooting.md`](troubleshooting.md)，
-为什么这样设计看 [`architecture.md`](architecture.md)。
+从「跑起来了」到「上线」要知道的事，按用到的先后排。每个模块怎么用、全部配置字段在它目录下的 README
+（见[模块一览](../README.md#模块一览)）；配置文件放哪、怎么叠查 [`config.md`](config.md)，报错查
+[`troubleshooting.md`](troubleshooting.md)，为什么这样设计看 [`architecture.md`](architecture.md)。
 
 | 术语 | 意思 |
 |---|---|
@@ -12,18 +13,20 @@
 | 停止预算 | `xone.WithStopTimeout`（默认 15s）：从开始退出到 `Run` 返回的总时长，整个退出流程只有这一份 |
 
 - [启动与关闭的全貌](#启动与关闭的全貌)
+- [读自己的配置](#读自己的配置)
 - [钩子与档位](#钩子与档位)
 - [停止钩子：配对与继承](#停止钩子配对与继承)
 - [Runnable](#runnable)
-- [读自己的配置](#读自己的配置)
 - [非 Web 服务：consumer / job](#非-web-服务consumer--job)
 - [多实例](#多实例)
-- [测试](#测试)
 - [错误处理](#错误处理)
+- [测试](#测试)
 - [部署](#部署)
 - [写一个自己的集成](#写一个自己的集成)
 
 ## 启动与关闭的全貌
+
+![启动与退出](images/lifecycle.svg)
 
 ```
 启动：接管信号 → 加载配置 → StageLog → StageTelemetry → StageClient → StageBusiness → StageServer → Runnable.Start
@@ -32,6 +35,26 @@
 
 `xone.Run` 阻塞到 `Start` 返回或者收到 SIGINT / SIGTERM，然后走退出流程。任何一个启动钩子失败，后面的不再跑，
 已经起来的逆序关掉，`Run` 返回那个错误；`MustRun` 把它打到 stderr 并以 1 退出。
+
+## 读自己的配置
+
+业务自己的配置块和框架的走同一套规则：默认值预填在结构体里、字段拼错启动失败、`${VAR}` 照样生效、`Validate()` 在启动时就跑。
+
+```go
+c := Config{Topic: "orders", Workers: 4, Timeout: 5 * time.Second} // 默认值预填
+if err := xconfig.Unmarshal("MyApp", &c); err != nil {
+	log.Fatal(err)
+}
+xone.MustRun(&Consumer{workers: c.Workers, timeout: c.Timeout})
+```
+
+- **在 `Start` 之前任何时候读都行**：在 `main` 里、`xone.Run` 之前，或者一个 `BeforeStart` 钩子里；第一次读的时候框架才加载配置文件，
+  读到的永远是最终值。**别只在 `Start` 里读**：全部启动钩子跑完时还没人读过的顶层 key 会让启动失败
+  （`config keys [...] are not read by anyone`）。
+- 结构体字段一定要写 `yaml` tag；要区分「没配」和「配了」用 `xconfig.Has("MyApp")`。
+
+完整的例子、在钩子里读的写法、`Has` / `DecodeStrict` / `UnmarshalClients` 见 [xconfig](../xconfig/README.md)；
+配置文件本身的规则（文件位置、Profile、Import、合并、占位符）见 [`config.md`](config.md)。
 
 ## 钩子与档位
 
@@ -99,41 +122,6 @@ type Runnable interface {
 
 `xgin.New()` 就是一个 Runnable。
 
-## 读自己的配置
-
-业务自己的配置块和框架的走同一套规则：默认值预填、字段拼错启动失败、`${VAR}` 照样生效。
-
-```go
-type Config struct {
-	Topic   string        `yaml:"Topic"`   // 一定要写 yaml tag
-	Workers int           `yaml:"Workers"`
-	Timeout time.Duration `yaml:"Timeout"`
-}
-
-func main() {
-	c := Config{Topic: "orders", Workers: 4, Timeout: 5 * time.Second} // 默认值预填
-	if err := xconfig.Unmarshal("MyApp", &c); err != nil {
-		log.Fatal(err)
-	}
-	xone.MustRun(&Consumer{workers: c.Workers, timeout: c.Timeout})
-}
-```
-
-```yaml
-MyApp:
-  Topic: orders
-  Workers: 8
-```
-
-- **在 `Start` 之前任何时候读都行**：在 `main` 里、`xone.Run` 之前，或者一个 `BeforeStart` 钩子里。第一次读的时候框架才去找
-  配置文件、加载它，读到的永远是最终值。
-- **别只在 `Start` 里读**：全部启动钩子跑完时还没人读过的顶层 key 会让启动失败（`config keys [...] are not read by anyone`）。
-- 结构体实现了 `Validate() error` 的话解完会调一次，配错的值在启动时就失败。
-- 整块没写时结构体原样不动；要区分「没配」和「配了」用 `xconfig.Has("MyApp")`（问过就算认领）。
-- 字段是 map / 切片、元素又要默认值的，给元素类型写 `UnmarshalYAML`，里面用 `xconfig.DecodeStrict`（不能用 `node.Decode`，它会丢掉严格检查）。
-
-在 `main` 里读还有一个好处：「哪来的配置」由 `main` 决定，你的类型不必认识 `xconfig`，测试里直接传值。
-
 ## 非 Web 服务：consumer / job
 
 xgin 没有特殊地位，它只是一个 Runnable。消费者服务要做的只是写一个 `Start`：
@@ -192,6 +180,29 @@ xgorm.Names()              // 已配置的实例名，排好序
 - 启动时按名字排序挨个建，有一个建不起来就把已建好的全关掉，错误里点名是哪一个。
 - `xhttp` 例外：只有一个客户端，任何时候 `xhttp.C()` / `xhttp.R(ctx)` 都可用；要第二套配置就 `xhttp.New(cfg)` 自己建。
 
+## 错误处理
+
+框架返回的错误都是 `*xerror.Error`，带着模块名和操作名，渲染成 `xone <模块> <op> failed, err=[<原因>]`：
+
+```
+xone xgorm connect failed, err=[authentication to db:5432 failed: FATAL: password authentication failed …]
+```
+
+```go
+if err := xone.Run(app); err != nil {
+	switch {
+	case xerror.Is(err, "xconfig"):   // 整棵错误树里有没有 xconfig 报的（配置写错了）
+	case xerror.Module(err) == "xgorm": // 最外层是谁报的
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) { /* 底层错误一路用 %w 包着，errors.Is / As 照常取得到 */ }
+}
+```
+
+- `xerror.Is` 遍历整棵树（包括 `errors.Join`），`xerror.Module` 只看最外层。`Run` 把启动错误和关闭时的错误 Join 在一起，主因在最前面。
+- op 是固定的一组词：`config`（配置不合法）、`init`、`new`、`connect`（建连、探测）、`close`、`register`、`start` / `stop`、`execute`（xflow）。
+- 业务调用（`xgorm.C().First(...)`、`xredis.C().Get(...)`）返回的是原生库的错误，框架不包。
+
 ## 测试
 
 两种办法，按要测的东西选：
@@ -228,29 +239,6 @@ func TestInitXKV(t *testing.T) {
 - `StartHooks(t)` 跑这个测试二进制里登记过的全部钩子（被测包连同它 import 的集成）。不起服务、不接管信号、
   不检查没人读的 key——那些要测就直接调 `xone.Run`。
 - 配置和钩子是进程级的全局状态，**用了 `xonetest` 的测试不能 `t.Parallel`**。
-
-## 错误处理
-
-框架返回的错误都是 `*xerror.Error`，带着模块名和操作名，渲染成 `xone <模块> <op> failed, err=[<原因>]`：
-
-```
-xone xgorm connect failed, err=[authentication to db:5432 failed: FATAL: password authentication failed …]
-```
-
-```go
-if err := xone.Run(app); err != nil {
-	switch {
-	case xerror.Is(err, "xconfig"):   // 整棵错误树里有没有 xconfig 报的（配置写错了）
-	case xerror.Module(err) == "xgorm": // 最外层是谁报的
-	}
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) { /* 底层错误一路用 %w 包着，errors.Is / As 照常取得到 */ }
-}
-```
-
-- `xerror.Is` 遍历整棵树（包括 `errors.Join`），`xerror.Module` 只看最外层。`Run` 把启动错误和关闭时的错误 Join 在一起，主因在最前面。
-- op 是固定的一组词：`config`（配置不合法）、`init`、`new`、`connect`（建连、探测）、`close`、`register`、`start` / `stop`、`execute`（xflow）。
-- 业务调用（`xgorm.C().First(...)`、`xredis.C().Get(...)`）返回的是原生库的错误，框架不包。
 
 ## 部署
 

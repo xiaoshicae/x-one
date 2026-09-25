@@ -3,6 +3,14 @@
 这份文档只讲 **为什么是现在这个样子**。怎么用见 [`guide.md`](guide.md)，配置项见 [`config.md`](config.md)，
 量过的默认值见 [`behavior.md`](behavior.md)，参与开发见 [`development.md`](development.md)。
 
+![x-one 模块分层](images/architecture.svg)
+
+*模块分层：核心模块之上，每个带三方依赖的集成是一个独立的 Go module；集成经 `xhook` / `xconfig` 接入框架，不 import 根包。*
+
+![启动与退出](images/lifecycle.svg)
+
+*启动与退出：接管信号 → 加载配置 → 按档位执行启动钩子 → `Runnable.Start`；退出时逆序执行停止钩子，整个退出流程共用一份停止预算。*
+
 - [设计原则](#设计原则)
   - [一、`init()` 只登记，不初始化](#一init-只登记不初始化)
   - [二、每个集成是独立的 Go module](#二每个集成是独立的-go-module)

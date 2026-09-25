@@ -1,12 +1,141 @@
 # xgin —— Web 服务
 
-Gin Web 服务，内置访问日志、链路、指标、panic 恢复。`xgin.New()` 就是一个交给 `xone.Run` 的 Runnable：
+拿到的是原生 `*gin.Engine`，访问日志、链路、指标（自动挂 `/metrics`）、panic 恢复已经装好。`xgin.New()` 就是一个
+交给 `xone.Run` 的 Runnable：监听、优雅退出都是框架的事。
+
+## 快速上手
+
+一个带路由分组、参数校验、查库的用户服务：
 
 ```go
-xone.MustRun(xgin.New().WithRoutes(func(e *gin.Engine) {
-	e.GET("/hello", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"msg": "hello"}) })
-}))
+// main.go
+package main
+
+import (
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
+	"github.com/xiaoshicae/x-one"
+	"github.com/xiaoshicae/x-one/xgin"
+	"github.com/xiaoshicae/x-one/xgorm"
+)
+
+type User struct {
+	ID    uint   `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+type createUserReq struct {
+	Name  string `json:"name" binding:"required,max=64"`
+	Email string `json:"email" binding:"required,email"`
+}
+
+func main() {
+	xone.MustRun(xgin.New().
+		WithMiddleware(limitBody(1 << 20)). // 自定义中间件排在内置的之后
+		WithRoutes(routes))
+}
+
+func routes(e *gin.Engine) {
+	e.GET("/healthz", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	v1 := e.Group("/api/v1")
+	v1.GET("/users/:id", getUser)
+	v1.POST("/users", createUser)
+}
+
+func getUser(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be a positive integer"})
+		return
+	}
+
+	var u User
+	err = xgorm.CWithCtx(c.Request.Context()).First(&u, id).Error // 请求的 ctx：客户端断开、服务停止时查询跟着停
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+	case err != nil:
+		_ = c.Error(err) // 登记的错误进访问日志的 errors 字段和 Span
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+	default:
+		c.JSON(http.StatusOK, u)
+	}
+}
+
+func createUser(c *gin.Context) {
+	var req createUserReq
+	if err := c.ShouldBindJSON(&req); err != nil { // 按 binding tag 校验
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx := c.Request.Context()
+	u := User{Name: req.Name, Email: req.Email}
+	if err := xgorm.CWithCtx(ctx).Create(&u).Error; err != nil {
+		_ = c.Error(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	slog.InfoContext(ctx, "user created", "user_id", u.ID) // 自动带上这次请求的 trace_id
+	c.JSON(http.StatusCreated, u)
+}
+
+// limitBody 给请求体封顶：框架不替业务定上限，MaxMultipartMemory 也不是上限
+func limitBody(n int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, n)
+		c.Next()
+	}
+}
 ```
+
+```yaml
+# conf/application.yml
+App:
+  Name: demo.user.api          # 链路里的 service.name
+XGin:
+  Port: 8080
+  LogSkipPaths: [/healthz]     # 健康检查不记访问日志
+  # 在负载均衡后面时写上它的网段，否则 client_ip 是负载均衡的地址、透传 Header 一个都不收
+  # TrustedProxies: ["10.0.0.0/8"]
+XGorm:
+  DSN: "${DB_DSN}"             # 默认 postgres；表 users 已经建好
+```
+
+```bash
+DB_DSN='postgres://app:secret@127.0.0.1:5432/app' go run .
+curl -X POST localhost:8080/api/v1/users -d '{"name":"ann","email":"ann@example.com"}'   # 201
+curl localhost:8080/api/v1/users/1                                                       # 200，响应头带 X-Trace-Id
+curl localhost:8080/metrics                                                              # http_requests_total 等，route 标签是 /api/v1/users/:id
+```
+
+- 路由回调拿到的是原生 engine，`e.Group`、`e.Use`、`e.SetTrustedProxies` 都照常用；`WithRoutes` 可以调多次，按顺序生效。
+- panic 之后默认回 500，要换响应用 `WithRecoverFunc(f)`。validator 的报错要中文就开 `ZHTranslations`，用法见
+  [`xgin/trans`](trans/trans.go)（`trans.ToZH(err)`）。
+- 同一进程里的第二个服务（比如内部管理端口）：`c := xgin.CurrentConfig(); c.Port = 9090`，再
+  `xgin.New().WithConfig(c).WithRoutes(adminRoutes)`，见[「配置」](#配置)。
+
+## 重点
+
+- **默认一个代理都不信**（gin 自己默认全信）：在负载均衡后面要把它的网段写进 `TrustedProxies`，否则 `client_ip` 是负载均衡的地址，
+  透传 Header 和 baggage 也一个都不收。见[「行为与实测」](#行为与实测)。
+- **请求体没有上限**：框架不替业务定，要限就像上面那样 `http.MaxBytesReader`。`MaxMultipartMemory`（默认 8MB）是落盘阈值，
+  不是上限，堆开销约为它的三倍。见[「行为与实测」](#行为与实测)。
+- **handler 里的慢操作传 `c.Request.Context()`**：停止时框架等在途请求最多到停止预算的 2/3（默认 10s），到点断开连接、
+  取消请求的 ctx；不看 ctx 的 handler 停不下来，`Stop` 会报 `N handler(s) still running`。见[「配置」](#配置)下的第一条。
+- **访问日志默认不记 body**；开 `LogRequestBody` / `LogResponseBody` 之前用 `middleware.AddSensitiveFields(...)` 补上业务自己的
+  敏感字段。见[「访问日志」](#访问日志)。
+- **超时**：`ReadHeaderTimeout`（默认 10s）、`IdleTimeout`（默认 60s）必须 > 0；`ReadTimeout` / `WriteTimeout` 默认不限，
+  因为它们会打断大文件上传、SSE 和长轮询。
+- 中止的请求（`http.ErrAbortHandler`）在访问日志、指标、链路里记 **499**，不是 200。见[「499：中止的请求」](#499中止的请求)。
 
 ## 配置
 

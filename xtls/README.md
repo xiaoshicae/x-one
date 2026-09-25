@@ -1,7 +1,33 @@
 # xtls —— 客户端 TLS 块
 
-客户端 TLS 块，XGorm / XRedis / XHttp 共用（核心模块）。在这几个模块的配置里写 `TLS:`，
-字段、默认值、校验规则只有这一份（`xtls.Config`）。服务端（XGin）的 TLS 见 [xgin](../xgin/README.md#配置)。
+XGorm / XRedis / XHttp 连出去时的 TLS 写成同一个 `TLS:` 块（核心模块，`xtls.Config`），字段、默认值、校验规则只有这一份。
+服务端（XGin）的 TLS 是另外几个字段，见 [xgin](../xgin/README.md#配置)。
+
+## 快速上手
+
+用内部 CA 签的证书连 PostgreSQL，服务端要求双向认证：
+
+```yaml
+# conf/application.yml
+XGorm:
+  DSN: "${DB_DSN}"                    # DSN 里不再写 sslmode
+  TLS:
+    Enable: true
+    CAFile: /etc/ssl/internal-ca.pem  # 只认这个 CA，系统根证书不再参与
+    CertFile: /etc/ssl/client.pem     # 服务端要客户端证书时和 KeyFile 成对填
+    KeyFile: /etc/ssl/client-key.pem
+    ServerName: db.internal           # 按 IP 连、证书上是域名时填
+```
+
+XRedis、XHttp 块里写法完全一样。代码不用改。
+
+## 重点
+
+- **证书一律校验，没有跳过校验的开关**：自签证书把 CA 填进 `CAFile`。最低 TLS 1.2。
+- **开着 TLS 块就不会退回明文**；DSN 里不能再写 TLS 参数（PG 的 `ssl*`、MySQL 的 `tls=`、ClickHouse 的 `secure` 等），两处都写是配置错误。
+- **不开 TLS 块时 pgx 默认连上了也不校验证书**（`sslmode=prefer`），go-sql-driver 不写 `tls` 就是明文。见[「行为与实测」](#行为与实测)。
+- 没开 `Enable` 却写了别的几项、`CertFile` / `KeyFile` 只配一个，读配置时就失败。
+- 证书被拒不重试：再试还是同一张证书、同一个结论。
 
 ## 配置
 

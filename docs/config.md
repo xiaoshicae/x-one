@@ -3,7 +3,17 @@
 一个 YAML 文件，框架统一读，按顶层 key 分发给各组件。这份文档讲**所有配置块共用的规则**：文件位置、Profile、
 Import、合并、占位符。每个配置块的全部字段、默认值和最要紧的几条规则在它所属模块的 README 里，
 见[配置块 → 模块文档](#配置块--模块文档)。为什么这样定、量出来的数字在 [`behavior.md`](behavior.md) 和各模块 README；
-怎么在代码里用在 [`guide.md`](guide.md)。
+在代码里读自己的配置块见 [xconfig](../xconfig/README.md)，其余用法在 [`guide.md`](guide.md)。
+
+最常用的几件事：
+
+| 想要 | 怎么写 | 详见 |
+|---|---|---|
+| 指定配置文件 | 不指定就找 `conf/application.yml`；要换用 `--config=<path>` 或 `XONE_CONFIG` | [文件位置与优先级](#文件位置与优先级) |
+| 按环境分文件 | 差异写进 `application-prod.yml`，`--profile=prod` 或 `XONE_PROFILE=prod` 选 | [Profiles](#profiles--按环境分文件) |
+| 凭证不进版本库 | `Password: "${DB_PASSWORD}"`，没设就启动失败；可选的写 `${VAR:默认值}` | [占位符](#占位符) |
+| 拆成几个文件 | `Import: [shared.yml, optional:local.yml]` | [Import](#import--引入别的配置文件) |
+| 读自己的配置块 | `xconfig.Unmarshal("MyApp", &c)` | [xconfig](../xconfig/README.md) |
 
 **import 了哪个集成，它就生效**，没写的块全用默认值——`XLog`、`XTrace`、`XMetric`、`XHttp`、`XGin`
 不配也照常工作。例外是 **`XGorm`、`XRedis`、`XCache`**：它们要连的东西只有你知道，

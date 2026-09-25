@@ -1,13 +1,50 @@
 # xlog —— 日志
 
-基于 `log/slog` 的日志，有链路时自动带 `trace_id`（核心模块）。业务代码直接用标准库：
+基于标准库 `log/slog`（核心模块）：装好之后 `slog.Default()` 就是按 `XLog` 配好的 logger，业务代码直接用标准库，
+有链路时每条日志自动带 `trace_id` / `span_id`。
+
+## 快速上手
 
 ```go
-slog.InfoContext(ctx, "order created", "order_id", id)
-xlog.AddKV(ctx, "user_id", uid) // 之后同一请求里的每条日志都带着它
+package order
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/xiaoshicae/x-one/xlog"
+)
+
+func Create(ctx context.Context, userID string, amount int64) {
+	xlog.AddKV(ctx, "user_id", userID) // 之后同一请求里的每条日志（包括访问日志）都带着它
+
+	slog.InfoContext(ctx, "order created", "amount", amount) // 用带 ctx 的方法，才带得上 trace_id
+	if amount > 100000 {
+		slog.WarnContext(ctx, "large order", "amount", amount)
+	}
+}
 ```
 
-日志的全局约定（`trace_id` 注入、`xlog.AddKV`、框架的启停日志）见 [`docs/observability.md`](../docs/observability.md#日志)。
+```yaml
+# conf/application.yml（可选，不写就是 info 级别的 JSON 打到标准输出）
+XLog:
+  Level: info
+  File:
+    Enable: true
+    Path: /var/log/app
+    Name: app.log
+```
+
+日志的 message 和字段名建议用英文：它们会变成日志平台里的检索词和 JSON key。
+
+## 重点
+
+- **用 `slog.InfoContext(ctx, …)`**，不带 ctx 的 `slog.Info` 拿不到 `trace_id`。
+- **`xlog.AddKV` 要有作用域**：xgin 在每个请求开头开好；自己的非 Web 入口（消费一条消息、跑一次任务）用 `xlog.CtxWithScope(ctx)` 开。
+  见 [observability.md「日志」](../docs/observability.md#日志)。
+- **`Timezone` 配了却加载不到直接启动失败**；scratch / distroless 镜像要 `import _ "time/tzdata"`。见[「行为与实测」](#行为与实测)。
+- **`Perm` 是按八进制解析的字符串**，`"0644"` / `"644"` / `"0o644"` 都认——yaml 把裸写的 `644` 当成十进制，所以不用整数字段。
+- 文件按 `RotateTime` 轮转（至少 1m）、按 `MaxAge` 清理；只删自己命名的 `app.log.<时间后缀>`。
 
 ## 配置
 

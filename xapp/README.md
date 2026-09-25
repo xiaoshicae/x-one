@@ -1,10 +1,25 @@
 # xapp —— 应用身份
 
-应用名、版本（核心模块，`go get github.com/xiaoshicae/x-one` 就有）。
+应用名、版本（核心模块）。链路的 `service.name` / `service.version`、接口文档的默认标题和版本都取自这里，只配一次。
+
+## 快速上手
+
+```yaml
+# conf/application.yml
+App:
+  Name: shop.order.api
+  Version: v1.2.0
+```
 
 ```go
-name, version := xapp.Name(), xapp.Version()
+slog.Info("build info", "app", xapp.Name(), "version", xapp.Version())
 ```
+
+## 重点
+
+- 指标不读这一块：要在指标上区分应用，用 `XMetric.ConstLabels`。
+- 环境变量 `OTEL_SERVICE_NAME` / `OTEL_RESOURCE_ATTRIBUTES` 压过这里。
+- 名字建议写成 `team.system.app`。
 
 ## 配置
 

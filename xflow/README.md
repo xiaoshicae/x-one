@@ -1,10 +1,71 @@
 # xflow —— 流程编排
 
-流程编排，失败自动回滚（核心模块）。
+把一串步骤编排成一个流程（核心模块）：强依赖的步骤失败时，已经做过的步骤逆序回滚。每一步只写 `Process` 和 `Rollback`。
+
+## 快速上手
 
 ```go
-err := xflow.New[T](name, steps...).Execute(ctx, data)
+package order
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/xiaoshicae/x-one/xflow"
+)
+
+// Order 贯穿整个流程的数据：入参、各步的中间结果都放在这里
+type Order struct {
+	ID       string
+	SKU      string
+	Amount   int64
+	chargeID string // 扣款成功后记下，回滚时退款用
+}
+
+type reserveStock struct{}
+
+func (reserveStock) Process(ctx context.Context, o *Order) error  { return inventory.Reserve(ctx, o.SKU, 1) }
+func (reserveStock) Rollback(ctx context.Context, o *Order) error { return inventory.Release(ctx, o.SKU, 1) }
+
+type charge struct{}
+
+func (charge) Process(ctx context.Context, o *Order) (err error) {
+	o.chargeID, err = payment.Charge(ctx, o.ID, o.Amount)
+	return err
+}
+
+func (charge) Rollback(ctx context.Context, o *Order) error {
+	if o.chargeID == "" {
+		return nil // 没扣成功就没什么可退；回滚要写成幂等的
+	}
+	return payment.Refund(ctx, o.chargeID)
+}
+
+type notify struct{}
+
+func (notify) Process(ctx context.Context, o *Order) error { return sms.Send(ctx, o.ID) }
+func (notify) Rollback(context.Context, *Order) error      { return nil }
+func (notify) Dependency() xflow.Dependency                { return xflow.Weak } // 弱依赖：失败只记一笔，继续往下走
+
+var placeOrder = xflow.New[*Order]("place_order", reserveStock{}, charge{}, notify{})
+
+func Place(ctx context.Context, o *Order) error {
+	res := placeOrder.Execute(ctx, o)
+	if len(res.RollbackErrors) > 0 { // 有资源没补偿回来，要人工介入
+		slog.ErrorContext(ctx, "order compensation failed", "order_id", o.ID, "result", res.String())
+	}
+	return res.Err // 强依赖失败或 ctx 取消时非 nil
+}
 ```
+
+`charge` 失败时 `reserveStock` 被回滚、`notify` 不执行；`notify` 失败只记进 `res.Skipped`，订单照常成功。
+
+## 重点
+
+- **回滚不沿用调用方的 ctx**：请求一超时，补偿最需要执行，那时原来的 ctx 已经取消了。回滚改由 `XFlow.RollbackTimeout`（默认 30s）限时。
+- **预算到点就不再等**：不看 ctx 的 `Rollback` 到点也会被放弃、记进 `RollbackErrors`，但它的协程仍在后台跑、仍可能读写 `data`。
+- 弱依赖失败之后同样会被纳入回滚范围，所以 `Rollback` 不能假设 `Process` 成功过。
+- xflow 不开 Span，要链路就在步骤里自己 `otel.Tracer(...).Start`。
 
 ## 配置
 

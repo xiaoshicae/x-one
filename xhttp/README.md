@@ -1,10 +1,63 @@
 # xhttp —— 出站 HTTP
 
-出站 HTTP（`*resty.Client`），带链路与指标。任何时候都有一个可用的客户端：
+拿到的是原生 `*resty.Client`（resty v2），链路（`traceparent` 自动带给下游）、出站指标已经装好。
+任何时候都有一个可用的客户端，不配也能用。
+
+## 快速上手
 
 ```go
-resp, err := xhttp.R(ctx).Get(url)
+package weather
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/xiaoshicae/x-one/xhttp"
+)
+
+type Now struct {
+	City  string  `json:"city"`
+	TempC float64 `json:"temp_c"`
+}
+
+func Current(ctx context.Context, city string) (*Now, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second) // 给整次请求封顶：每次重试和中间的退避都算在里面
+	defer cancel()
+
+	var out Now
+	resp, err := xhttp.R(ctx).
+		SetQueryParam("city", city).
+		SetResult(&out). // 2xx 时把 JSON 解进 out
+		Get("https://weather.internal/api/v1/now")
+	if err != nil {
+		return nil, err
+	}
+	if resp.IsError() { // 4xx / 5xx 不是 err，要自己判断
+		return nil, fmt.Errorf("weather api returned %s", resp.Status())
+	}
+	return &out, nil
+}
 ```
+
+```yaml
+# conf/application.yml（可选，不写就全用默认值）
+XHttp:
+  Timeout: 1s              # 一次尝试的超时
+  RetryCount: 2            # 只重试传输层的错，且只重试幂等方法
+```
+
+## 重点
+
+- **`Timeout` 管一次尝试，不是整次请求**：`Timeout: 300ms` 配 `RetryCount: 3` 实测跑满 1.24s。要封顶就像上面那样用 ctx。
+  见[「行为与实测」](#行为与实测)。
+- **只重试传输层的错**（建连失败、超时、连接被重置），拿到了响应就不重试，5xx 也不重试；`RetryOnlyIdempotent` 默认开着，POST 不重发。
+- **设了 `HTTP_PROXY` / `HTTPS_PROXY` 就全部出站都走代理**；跨 host 重定向时自定义的凭证头（如 `X-Api-Key`）照样带给新 host。
+  见[「行为与实测」](#行为与实测)的表。
+- **TLS 块管这个客户端的每一个 https 请求**：填了 `CAFile` 公网的 https 下游就校验不过了。要同时调公网，另用 `xhttp.New` 建一个。
+- **指标的 `host` 标签是 URL 的 `host[:port]` 原样**：目标来自用户输入或直连一批 IP 时基数会失控，那种调用另建一个
+  `Metric: false` 的客户端。见[「指标」](#指标)。
+- 日志和 Span 里的 URL 都去掉了查询串；没有 cookie jar，不相干的调用之间不串 cookie。
 
 ## 配置
 

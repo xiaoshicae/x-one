@@ -22,7 +22,7 @@
 - **拼错了**：`XRedsi`、`Xgin`。对照 [config.md](config.md) 的块名。
 - **忘了 import 对应的包**：写了 `XGorm` 块却没有 `import _ "github.com/xiaoshicae/x-one/xgorm"`（或者用它的包）。
 - **业务自己的块读得太晚**：只在 `Start` 里才第一次 `xconfig.Unmarshal` 的块不算。挪到 `main` 里、`xone.Run` 之前，
-  或者一个 `BeforeStart` 钩子里，见 [guide.md「读自己的配置」](guide.md#读自己的配置)。
+  或者一个 `BeforeStart` 钩子里，见 [xconfig](../xconfig/README.md#重点)。
 - 「配了才用、没配就跳过」的包用 `xconfig.Has(key)` 判断：问过就算认领了。
 
 ### `field Bogus not found in type xgin.Config`

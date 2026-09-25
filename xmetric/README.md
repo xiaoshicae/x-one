@@ -1,11 +1,52 @@
 # xmetric —— 指标
 
-Prometheus 指标。指标端点由 xgin 挂；业务打点用快捷方法，要完整控制就用 `xmetric.Registry()` 拿原生的 `*prometheus.Registry`：
+Prometheus 指标：原生的 `*prometheus.Registry` 用 `xmetric.Registry()` 取，日常打点有一组免样板的快捷方法。
+指标端点由 xgin 自动挂在 `/metrics`。
+
+## 快速上手
 
 ```go
-xmetric.CounterInc("orders_total", xmetric.T("status", "ok"))
-defer xmetric.Timer("handle_order")()
+package order
+
+import (
+	"context"
+	"time"
+
+	"github.com/xiaoshicae/x-one/xmetric"
+)
+
+func Place(ctx context.Context, o *Order) (err error) {
+	start := time.Now()
+	defer func() {
+		status := "ok"
+		if err != nil {
+			status = "error"
+		}
+		xmetric.CounterInc("orders_total", xmetric.T("status", status))
+		xmetric.ObserveDuration("order_place", time.Since(start), xmetric.T("status", status)) // 导出为 order_place_seconds
+	}()
+	return save(ctx, o)
+}
+
+// 标签不随结果变时更短：defer xmetric.Timer("order_query")()
 ```
+
+```yaml
+# conf/application.yml（可选）
+XMetric:
+  Namespace: shop          # 所有指标名前加 shop_
+  ConstLabels:
+    env: "${ENV:dev}"      # 附加到所有指标上
+```
+
+## 重点
+
+- **名字写错读配置时就失败**：`Namespace` 和 `ConstLabels` 的 key 只收字母、数字、下划线，不以数字开头
+  （client_golang 不报错，会悄悄把 `my-app` 导出成 `my_app_…`）。见[「行为与实测」](#行为与实测)。
+- **桶要严格递增**，写了就整体替换默认值；空列表 `[]` 不是「用默认」，直接失败。
+- `ConstLabels` 不能用 `le`、`quantile`、`version` 和框架指标自己的标签名（`method`、`status`、`route`、`name`……）。
+- 耗时指标自动补 `_seconds` 后缀，桶是 `XMetric.HistogramBuckets`。
+- 不用 xgin 的服务自己挂 `xmetric.Handler()`。框架自带的指标见 [observability.md「指标」](../docs/observability.md#指标)。
 
 ## 配置
 

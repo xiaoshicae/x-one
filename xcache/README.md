@@ -1,12 +1,62 @@
 # xcache —— 本地缓存
 
-本地缓存（ristretto）。包级的 `Get` / `Set` 走 `default` 实例，原生的 `*ristretto.Cache` 用 `xcache.C()`：
+拿到的是原生 `*ristretto.Cache`（`xcache.C()`）。常用的读写有包级的 `Get` / `Set`，走 `default` 实例、用配置里的 `DefaultTTL`。
+
+## 快速上手
+
+```yaml
+# conf/application.yml
+XCache:
+  MaxCost: 10000           # 包级 Set 的 cost 固定为 1，所以就是最多 1 万条
+  NumCounters: 100000      # 建议取预期条目数的 10 倍
+  DefaultTTL: 1m
+```
 
 ```go
-xcache.Set("k", v)
-v, ok := xcache.Get("k")
-xcache.C("hot") // Clients.hot
+package user
+
+import (
+	"context"
+	"time"
+
+	"github.com/xiaoshicae/x-one/xcache"
+)
+
+type User struct {
+	ID   string
+	Name string
+}
+
+// Get 先查本地缓存，没有再回源，回源的结果按 DefaultTTL 缓存
+func Get(ctx context.Context, id string, load func(context.Context, string) (*User, error)) (*User, error) {
+	key := "user:" + id
+	if v, ok := xcache.Get(key); ok {
+		return v.(*User), nil
+	}
+	u, err := load(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	xcache.Set(key, u)
+	return u, nil
+}
+
+// 要自己定 cost 和 TTL 就用原生的 ristretto：SetWithTTL(key, value, cost, ttl)
+func PutHot(key string, v any) {
+	xcache.C().SetWithTTL(key, v, 1, 10*time.Second)
+}
 ```
+
+多个缓存写在 `Clients` 下（`XCache: {Clients: {hot: {...}, cold: {...}}}`），用 `xcache.C("hot")` 取。
+
+## 重点
+
+- **`MaxCost` 只算你给的 cost**，不含 ristretto 每条 56 字节的内部开销（ristretto 默认算进去，`MaxCost: 2000` 实际只存得下 35 条）。
+  见[「行为与实测」](#行为与实测)。
+- **停止时只 `Clear` 不 `Close`**：`Close` 和并发读写一起跑会 panic。自己 `xcache.New` 建的、确定没人在用了，可以自己 `Close()`。
+- **TTL 到期不是到点就移除**，要过几秒；`DefaultTTL` 为负启动失败，0 是永不过期。
+- **`Metric`（默认开）有内存开销**：每实例约 84KB，写过 10 万个以上不同的键后多 8–12MB。
+- `xcache.DefaultTTL("name")` 名字写错时和 `C("name")` 一样 panic，不返回 0（0 是永不过期）。
 
 ## 配置
 

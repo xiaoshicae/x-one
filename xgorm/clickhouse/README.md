@@ -1,7 +1,54 @@
 # xgorm/clickhouse —— ClickHouse 驱动
 
 给 [xgorm](../README.md) 加 ClickHouse 驱动：匿名 import 一行，配置里写 `Driver: clickhouse`，拿到的仍是原生 `*gorm.DB`。
-其余配置项、日志、指标、Span 都和 xgorm 一样，见 [xgorm](../README.md)。
+其余配置项、多实例、日志、指标、Span 都和 xgorm 一样。
+
+## 快速上手
+
+```go
+package stats
+
+import (
+	"context"
+	"time"
+
+	"github.com/xiaoshicae/x-one/xgorm"
+	_ "github.com/xiaoshicae/x-one/xgorm/clickhouse" // 注册驱动，代码里不直接调它
+)
+
+type PageViews struct {
+	Path  string
+	Views uint64
+}
+
+func TopPages(ctx context.Context) ([]PageViews, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second) // 截止时间要比 read_timeout 短，见「重点」
+	defer cancel()
+
+	var out []PageViews
+	err := xgorm.CWithCtx(ctx, "events").
+		Raw("SELECT path, count() AS views FROM page_views WHERE day = today() GROUP BY path ORDER BY views DESC LIMIT 10").
+		Scan(&out).Error
+	return out, err
+}
+```
+
+```yaml
+# conf/application.yml
+XGorm:
+  Clients:
+    default: {DSN: "${DB_DSN}"}                                 # PostgreSQL
+    events:  {Driver: clickhouse, DSN: "${CH_DSN}"}             # clickhouse://user:pass@ch:9000/analytics
+```
+
+## 重点
+
+- **`read_timeout` 没写时是 300s，而且管的是一整段读**：健康的长查询也会被它打断；读超时的查询会被 `database/sql` 重发，一共发 3 次。
+  **给查询的截止时间要比 `read_timeout` 短**。见[「行为与实测」](#行为与实测)。
+- **新建连接不听 ctx**：拨号和握手只按 `dial_timeout`（`DialTimeout`，默认 500ms）。
+- 驱动对写入报的影响行数永远是 0。
+- DSN 必须是 `clickhouse://` / `tcp://` / `http://` / `https://` 的 URL；DSN 是 `http://` 时开着 TLS 块启动失败。
+- 驱动名写错或忘了 import 时启动失败：`unknown Driver="clickhouse", registered: [mysql postgres]`。
 
 ## 配置
 
