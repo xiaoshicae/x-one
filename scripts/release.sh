@@ -1,19 +1,30 @@
 #!/bin/sh
-# 打 tag 发布。多模块仓库的每个 module 有自己的 tag。
+# 发布。多模块仓库的每个 module 有自己的 tag，全都打在 main 上的同一个提交上。
 #
-#   scripts/release.sh v0.1.0           # 只打印要做什么，不改任何东西
-#   scripts/release.sh v0.1.0 --apply   # 真的改 go.mod、提交、打 tag，再提交一次把 replace 还原（仍不推送）
-#   scripts/release.sh v0.1.0 --verify  # 推送之后：用一个全新的外部工程验证装得上、跑得起来
+# 分两步，中间是一个普通的 PR（main 的分支保护照常生效）：
 #
-# 发布前要一轮绿的 e2e（真实的 PG / MySQL / Redis）：默认在第 2 步跑 scripts/e2e.sh；
-# 这个提交刚在别处跑绿过（比如 CI 的 e2e 工作流）的话加 --e2e-passed 跳过，由你担保。
+#   scripts/release.sh v0.1.0 --bump     # 1. 把各模块 go.mod 里仓库内的 require 改成 v0.1.0、
+#                                        #    CHANGELOG 的「未发布」改成这一版；只改文件，不提交
+#   （提交、开 PR、CI 绿了合进 main）
+#   scripts/release.sh v0.1.0 --tag      # 2. 在 main 的最新提交上给每个模块打 tag（不推送）
+#   scripts/release.sh v0.1.0 --verify   # 推送之后：用一个全新的外部工程验证装得上、跑得起来
 #
-# 推送是单独一步，由人来做：Go 的 module proxy 会永久缓存 tag，
-# 推错了删不掉，只能再发一个版本盖过去。
+# 第 2 步平时用 GitHub Actions 的 release 按钮做（.github/workflows/release.yml）：
+# 同样的检查，跑完只推 tag、再 --verify。
+#
+# 为什么 main 上的 go.mod 能直接发：开发用的 replace 一直留着，
+# 而使用者的构建会忽略依赖里的 replace——他们只看 require 的版本。
+# 所以发布只需要把 require 钉成要发的版本，replace 不用去掉，也就不需要
+# 单独的发布提交和还原提交，tag 直接打在 main 上。
+#
+# --tag 发布前要一轮绿的 e2e（真实的 PG / MySQL / Redis）：默认在这一步跑 scripts/e2e.sh；
+# 这个提交刚在别处跑绿过（比如 release 按钮自己先跑了）的话加 --e2e-passed 跳过，由你担保。
+#
+# 推送是单独一步：Go 的 module proxy 会永久缓存 tag，推错了删不掉，只能再发一个版本盖过去。
 set -e
 cd "$(dirname "$0")/.."
 
-usage() { echo "用法：scripts/release.sh v0.1.0 [--apply | --verify] [--e2e-passed]"; exit 1; }
+usage() { echo "用法：scripts/release.sh vX.Y.Z (--bump | --tag [--e2e-passed] | --verify)"; exit 1; }
 VERSION="$1"
 [ -n "$VERSION" ] || usage
 shift
@@ -21,14 +32,14 @@ MODE=
 E2E_PASSED=
 for a; do
   case "$a" in
-    --apply|--verify) [ -z "$MODE" ] || usage; MODE=$a;;
+    --bump|--tag|--verify) [ -z "$MODE" ] || usage; MODE=$a;;
     --e2e-passed) E2E_PASSED=1;;
     *) usage;;
   esac
 done
+[ -n "$MODE" ] || usage
 case "$VERSION" in
-  # 只收 v0 / v1：模块路径里没有 /v2 后缀，go mod edit 会拒收 v2 及以上的版本号，
-  # 而那一步发生在第 3 步中途——go.mod 已经改了一半，脚本才退出
+  # 只收 v0 / v1：模块路径里没有 /v2 后缀，go mod edit 会拒收 v2 及以上的版本号
   v0.*.*|v1.*.*) ;;
   v*.*.*) echo "模块路径没有 /vN 后缀，只能发 v0 / v1，got=$VERSION"; exit 1;;
   *) echo "版本号格式应为 vX.Y.Z，got=$VERSION"; exit 1;;
@@ -156,15 +167,89 @@ echo "✓ $VERSION 验证通过"
 }
 if [ "$MODE" = "--verify" ]; then verify; exit 0; fi
 
-run() {
-  echo "  \$ $*"
-  if [ "$MODE" = "--apply" ]; then
-    "$@"
-  fi
+# inrepo Require|Replace go.mod：列出 require（路径@版本）/ replace（路径）里仓库内的模块。
+# 两张表要分开取：从前从整份 -json 里 grep 路径，只出现在 replace 里的
+# （xgin 替换了 xtrace 却不 require 它）也被补了一条 require，发出去的 go.mod 平白多一个依赖
+inrepo() {
+  GOWORK=off go mod edit -json "$2" | python3 -c '
+import json, sys
+mod, key = sys.argv[1], sys.argv[2]
+for e in json.load(sys.stdin).get(key) or []:
+    p = e["Path"] if key == "Require" else e["Old"]["Path"]
+    if p == mod or p.startswith(mod + "/"):
+        print(p + "@" + e["Version"] if key == "Require" else p)' "$MOD" "$1"
 }
 
-echo "== 1. 确认工作区干净 =="
+# 钉版本号要连不发布的 example / e2e / internal/schemagen 一起：它们 require 的子模块
+# 钉成 $VERSION 之后又 require 核心的 $VERSION，自己的 go.mod 还写着 v0.0.0 的话，
+# go 会说 go.mod 要更新，check.sh 的 vet 当场就红。tag 只打 $MODS
+PINNED=$(git ls-files '*/go.mod' | xargs -n1 dirname)
+
+# unpinned：仓库内的 require 里还没钉成 $VERSION 的，一行一个「模块: 依赖@版本」
+unpinned() {
+  for m in $PINNED; do
+    for dep in $(inrepo Require "$m/go.mod"); do
+      [ "${dep##*@}" = "$VERSION" ] || echo "  $m: $dep"
+    done
+  done
+}
+
+if [ "$MODE" = "--bump" ]; then
+  echo "== 1. 把各模块 go.mod 里仓库内的 require 钉成 $VERSION（replace 留着） =="
+  # 用 go mod edit 而不是 sed：require 块的缩进、子模块路径后缀这些细节
+  # 手写正则很容易弄错，而弄错的后果是发出去一个装不上的版本。
+  # 原来是 v0.0.0、上一个版本，还是 go 工具自己补的伪版本，都一样改写
+  for m in $PINNED; do
+    for dep in $(inrepo Require "$m/go.mod"); do
+      GOWORK=off go mod edit -require="${dep%@*}@$VERSION" "$m/go.mod"
+    done
+  done
+  left=$(unpinned)
+  [ -z "$left" ] || { echo "✗ 还有没钉好的仓库内依赖："; echo "$left"; exit 1; }
+  echo "  ✓ $(echo $PINNED | wc -w) 个子模块的 go.mod 都钉到了 $VERSION"
+
+  echo "== 2. CHANGELOG：「未发布」改成 $VERSION，上面再开一个空的「未发布」 =="
+  if grep -q "^## \[$VERSION\]" docs/CHANGELOG.md; then
+    echo "  CHANGELOG 里已经有 $VERSION 这一节，不动"
+  else
+    python3 - "$VERSION" "$(date +%Y-%m-%d)" <<'PY'
+import sys
+v, day = sys.argv[1], sys.argv[2]
+p = "docs/CHANGELOG.md"
+s = open(p).read()
+head = "## [未发布]\n"
+assert s.count(head) == 1, "CHANGELOG 里找不到唯一的「## [未发布]」"
+open(p, "w").write(s.replace(head, "## [未发布]\n\n## [%s] - %s\n" % (v, day), 1))
+PY
+    echo "  ✓ 已改，这一版的条目写在 ## [$VERSION] 下面"
+  fi
+
+  echo "== 3. 检查 =="
+  scripts/check.sh
+  cat <<TIP
+
+已改好，没有提交。接下来：
+
+  git switch -c release/$VERSION && git commit -am "release: $VERSION" && git push -u origin release/$VERSION
+
+开 PR 合进 main（这时 main 上的 go.mod 已经 require $VERSION，靠 replace 照常开发），
+合进去之后在 GitHub 上点 Actions → release → Run workflow，或者本地：
+
+  scripts/release.sh $VERSION --tag
+TIP
+  exit 0
+fi
+
+# ---- --tag ----
+echo "== 1. 确认这个提交可以发 $VERSION =="
 [ -z "$(git status --porcelain)" ] || { echo "✗ 工作区有未提交的改动，先提交或暂存"; exit 1; }
+if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+  echo "✗ tag $VERSION 已经存在，换一个版本号"; exit 1
+fi
+left=$(unpinned)
+[ -z "$left" ] || { echo "✗ 这个提交的 go.mod 还没钉到 $VERSION，先合并 scripts/release.sh $VERSION --bump 的那个 PR："; echo "$left"; exit 1; }
+grep -q "^## \[$VERSION\]" docs/CHANGELOG.md || { echo "✗ docs/CHANGELOG.md 里没有 ## [$VERSION] 这一节"; exit 1; }
+echo "  ✓ $(git log -1 --format='%h %s')"
 
 # 输出不吞掉：红了的话要看的正是那几行
 echo "== 2. 跑一遍检查、测试和 e2e =="
@@ -178,78 +263,22 @@ else
 fi
 echo "  ✓ 通过"
 
-echo "== 3. 把各子模块开发用的 replace 换成真实版本号 =="
-# replace 指向仓库内的相对路径，只在本地开发有意义。
-# 消费者的构建会忽略依赖里的 replace，所以留着不会出错，
-# 但那意味着子模块 require 的是 v0.0.0，谁都拉不到。
-#
-# 用 go mod edit 而不是 sed：require 块的缩进、子模块路径后缀这些细节
-# 手写正则很容易弄错，而弄错的后果是发出去一个装不上的版本。
-#
-# inrepo Require|Replace go.mod：列出 require（路径@版本）/ replace（路径）里仓库内的模块。
-# 两张表要分开取：从前从整份 -json 里 grep 路径，只出现在 replace 里的
-# （xgin 替换了 xtrace 却不 require 它）也被补了一条 require，发出去的 go.mod 平白多一个依赖
-inrepo() {
-  GOWORK=off go mod edit -json "$2" | python3 -c '
-import json, sys
-mod, key = sys.argv[1], sys.argv[2]
-for e in json.load(sys.stdin).get(key) or []:
-    p = e["Path"] if key == "Require" else e["Old"]["Path"]
-    if p == mod or p.startswith(mod + "/"):
-        print(p + "@" + e["Version"] if key == "Require" else p)' "$MOD" "$1"
-}
+# 发出去的 go.mod 带着 replace ../xxx：使用者的构建会忽略依赖里的 replace，
+# 只按 require 的 $VERSION 去拉——那些 tag 就在这一步打。
+# 去掉 replace 之后编不编得过，这里验不了（tag 还没推，依赖拉不到），交给推送之后的 --verify
+echo "== 3. 在 $(git log -1 --format=%h) 上打 tag =="
+git tag "$VERSION"
+echo "  $VERSION"
 for m in $MODS; do
-  echo "  $m/go.mod"
-  # require 了的钉成 $VERSION：-require 直接改写版本号，原来是 v0.0.0 还是
-  # go 工具自己补的伪版本（xgin 里 xmetric 的 v0.0.0-2026…）都一样
-  for dep in $(inrepo Require "$m/go.mod"); do
-    run env GOWORK=off go mod edit -require="${dep%@*}@$VERSION" "$m/go.mod"
-  done
-  for dep in $(inrepo Replace "$m/go.mod"); do
-    run env GOWORK=off go mod edit -dropreplace="$dep" "$m/go.mod"
-  done
-  if [ "$MODE" = "--apply" ]; then
-    # 改完再读一遍：仓库内的 require 只剩 $VERSION，replace 一条不剩
-    left=$(inrepo Replace "$m/go.mod"; inrepo Require "$m/go.mod" | grep -v "@$VERSION\$" || true)
-    [ -z "$left" ] || { echo "✗ $m/go.mod 里还有没钉好的仓库内依赖：$left"; exit 1; }
-  fi
+  git tag "$m/$VERSION"
+  echo "  $m/$VERSION"
 done
 
-# 去掉 replace 之后还能不能编译，这里验不了：tag 还没推，依赖拉不到。
-# 那一步交给推送之后的 --verify
-echo "== 4. 提交并打 tag =="
-run git add -A
-run git commit -m "release: $VERSION"
-run git tag "$VERSION"
-for m in $MODS; do
-  run git tag "$m/$VERSION"
-done
+cat <<TIP
 
-echo "== 5. 把开发用的 replace 还原回来，单独一个提交 =="
-# tag 要的是去掉 replace 的那一版，但分支不能停在那里：没有 replace，
-# 子模块 require 的就是刚发出去的核心，scripts/ 下的检查和测试都是
-# GOWORK=off 跑的，从此测的是已发布的代码，而不是工作区里正在改的这份——
-# 改了核心、子模块测试照过，因为它根本没用到你的改动。
-#
-# 直接取发布提交之前那一版 go.mod，而不是再拼一遍 replace：那一版就是
-# 发布前测试通过的状态，照原样拿回来不会有「拼错了一条」这种事
-run git checkout "$VERSION^" -- $(printf '%s/go.mod ' $MODS)
-run git commit -m "chore: restore the workspace replace directives after $VERSION"
-if [ "$MODE" = "--apply" ]; then
-  # 发布提交只该动了这些 go.mod：还原之后整棵树必须和发布之前一模一样
-  git diff --quiet "$VERSION^" HEAD || { echo "✗ 还原之后和发布前不一致，检查 $VERSION 那个提交改了什么"; exit 1; }
-  echo "  ✓ 工作区回到发布前的状态，tag 仍指向去掉 replace 的那个提交"
-fi
+已在本地打好 tag，没有推送。确认无误后只推这一组 tag：
 
-echo
-if [ "$MODE" = "--apply" ]; then
-  cat <<TIP
-
-已在本地打好 tag，并在它后面补了一个还原 replace 的提交。确认无误后推送：
-
-  git push origin main --tags
-
-两个提交一起推：tag 指向去掉 replace 的发布提交，main 停在还原之后的那个。
+  git push --atomic origin \$(git tag --points-at $VERSION | sed 's|^|refs/tags/|')
 
 推送之后 tag 就被 module proxy 永久缓存了，删不掉，只能再发一版盖过去。
 推完必须验证一遍别人装不装得上 —— CI 跑的是工作区里的代码，
@@ -257,6 +286,3 @@ if [ "$MODE" = "--apply" ]; then
 
   scripts/release.sh $VERSION --verify
 TIP
-else
-  echo "以上是 --apply 时会执行的命令，当前什么都没改。"
-fi

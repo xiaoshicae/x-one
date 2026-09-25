@@ -2,17 +2,18 @@ name: release
 
 # 发布按钮：Actions → release → Run workflow，填版本号（如 v0.1.0）。
 #
-# 做的事和本地 scripts/release.sh 一样，只是在 GitHub 的机器上跑、跑完自己推送：
-#   1. 跑一遍 e2e（真实的 PG / MySQL / Redis / ClickHouse，同 e2e.yml）；
-#   2. release.sh --apply：检查、单测，把各模块 go.mod 里的 replace 换成真实版本号，
-#      提交、给每个模块打 tag（v0.1.0、xgin/v0.1.0……），再补一个还原 replace 的提交；
-#   3. 只推这个版本的 tag（--atomic：要么全上去，要么一个都不上去），不推 main：
-#      tag 指向的发布提交不必在 main 上，还原 replace 的那个提交和发布前的 main 一模一样。
-#      于是 main 的分支保护（必须经 PR）不挡发布，也不用给 Actions 放行；
-#   4. release.sh --verify：在一个全新的外部工程里 go get，验证装得上、跑得起来。
+# 发布分两步，这个按钮是第二步：
+#   1. scripts/release.sh vX.Y.Z --bump 改好 go.mod 和 CHANGELOG，走普通的 PR 合进 main；
+#   2. 点这个按钮：在 main 的最新提交上给每个模块打 tag（v0.1.0、xgin/v0.1.0……）并推送。
+# tag 就打在 main 上，main 的分支保护照常生效：这里只推 tag，不推任何分支。
 #
-# 只能手动触发、只能从 main 发。tag 推出去就被 Go 的 module proxy 永久缓存，删不掉，
-# 推错了只能再发一版盖过去——所以前面任何一步红了，都不会推送。
+# 按钮做的事：
+#   - release.sh --tag：确认 go.mod 已经钉到这个版本、CHANGELOG 有这一节、tag 还没用过，
+#     跑检查和单测，在本地打 tag；
+#   - e2e（真实的 PG / MySQL / Redis / ClickHouse，同 e2e.yml）；
+#   - 只推这一组 tag（--atomic：要么全上去，要么一个都不上去）；
+#   - release.sh --verify：在一个全新的外部工程里 go get，验证装得上、跑得起来。
+# 前面任何一步红了都不推送。tag 推出去就被 Go 的 module proxy 永久缓存，删不掉。
 on:
   workflow_dispatch:
     inputs:
@@ -86,34 +87,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # release.sh 要看已有的 tag，还要取发布提交的上一版
+          fetch-depth: 0 # release.sh 要看这个版本的 tag 是不是已经有了
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
           cache: true
           cache-dependency-path: '**/go.sum'
 
-      - name: 这个版本还没发过
-        run: |
-          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
-            echo "::error::tag $VERSION 已经存在，换一个版本号"
-            exit 1
-          fi
+      - name: release.sh --tag（确认可以发、检查、单测、在本地打 tag）
+        run: scripts/release.sh "$VERSION" --tag --e2e-passed
 
       # 跳过的三条同 e2e.yml：PG / MySQL / Redis 的 TLS 用例要 root 起本机实例，runner 不是 root。
-      # e2e 在这里先跑，release.sh 就不必再跑一遍（--e2e-passed）
+      # 上一步用了 --e2e-passed，由这一步兑现：这里红了，tag 只在这台机器上，不会推出去
       - name: e2e
         shell: bash
         run: scripts/e2e.sh -skip 'TestTLS_(PostgreSQL|MySQL|Redis)$' 2>&1 | tee e2e.log
 
-      - name: release.sh --apply（本地提交、打 tag）
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          scripts/release.sh "$VERSION" --apply --e2e-passed
-
-      # 只推这个版本的那一组 tag。它们指向去掉 replace 的发布提交，提交随 tag 一起上去；
-      # 本地那个还原 replace 的提交不推（和发布前的 main 一样），main 因此不受分支保护影响
       - name: 推送 tag
         run: |
           refs=$(git tag --points-at "$VERSION" | sed 's|^|refs/tags/|')
