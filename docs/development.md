@@ -131,6 +131,9 @@ scripts/release.sh v0.1.0 --tag      # 2. 在 main 的最新提交上给每个�
 scripts/release.sh v0.1.0 --verify   # 推送之后：在一个全新的外部工程里 go get，验证装得上、跑得起来
 ```
 
+第 1 步可以交给 Claude：在这个仓库里说「发 v0.2.0」，它按 `.claude/skills/release/SKILL.md` 钉版本号、
+整理 CHANGELOG、开好 PR，停在那里。
+
 **第 2 步平时用发布按钮**：GitHub 上 Actions → `release` → Run workflow，填版本号。它跑 `--tag`、e2e（同 `e2e.yml`），
 只推这一组 tag（`--atomic`），再 `--verify`；任何一步红了都不推送，不推任何分支。仓库的
 Settings → Actions → General → Workflow permissions 要是 Read and write；有针对 tag 的 ruleset 的话要给它放行。

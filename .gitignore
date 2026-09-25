@@ -15,7 +15,7 @@
 # go build ./internal/schemagen 在根目录产出的就是它，同样误提交过一次（3.4 MB）
 /schemagen
 
-# .claude/ 里只签入 CLAUDE.md；工作树副本和本机设置不进仓库
+# .claude/ 里只签入 CLAUDE.md 和 skills/；工作树副本和本机设置不进仓库
 /.claude/worktrees/
 /.claude/settings.local.json
 
