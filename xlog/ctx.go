@@ -54,6 +54,20 @@ func (s *scope) each(f func(k string, v any)) {
 	}
 }
 
+// copyWith 复制一份字段，再叠上 kvs（同名以 kvs 为准）
+func (s *scope) copyWith(kvs map[string]any) *scope {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c := &scope{kv: make(map[string]any, max(len(s.kv)+len(kvs), scopeInitCap))}
+	for k, v := range s.kv {
+		c.kv[k] = v
+	}
+	for k, v := range kvs {
+		c.kv[k] = v
+	}
+	return c
+}
+
 func (s *scope) len() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -75,6 +89,32 @@ func CtxWithScope(ctx context.Context) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, ctxScopeKey{}, &scope{})
+}
+
+// CtxWithKV 派生一个带着 kvs 的新 context：父 context 已有的字段照样带着，
+// 再叠上 kvs（同名以 kvs 为准）。
+//
+// 和 AddKV 的分工在影响范围：AddKV 原地写，同一个请求里后面的每一行日志都带上；
+// CtxWithKV 只影响它返回的那个 context，适合给一段调用打标——批量处理里每一条
+// 带上自己的 order_id、起一个 goroutine 带上 worker 名字——兄弟之间互不串。
+//
+//	for _, o := range orders {
+//		ctx := xlog.CtxWithKV(ctx, map[string]any{"order_id": o.ID})
+//		process(ctx, o) // 这里面的日志都带着 order_id，下一轮不带上一轮的
+//	}
+//
+// 派生出来的 context 自带一个作用域：在它上面 AddKV 只写进它自己，
+// 不回流到父 context——入口处的访问日志因此看不到这些字段。
+// 派生之后父 context 再 AddKV 的字段，它也看不到：它拿的是派生那一刻的副本。
+func CtxWithKV(ctx context.Context, kvs map[string]any) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	parent := scopeFrom(ctx)
+	if parent == nil {
+		parent = &scope{}
+	}
+	return context.WithValue(ctx, ctxScopeKey{}, parent.copyWith(kvs))
 }
 
 // AddKV 往当前作用域写一个字段。

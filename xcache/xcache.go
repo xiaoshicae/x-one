@@ -8,6 +8,7 @@ import (
 
 	"github.com/dgraph-io/ristretto/v2"
 
+	"github.com/xiaoshicae/x-one/internal/config"
 	"github.com/xiaoshicae/x-one/internal/xclient"
 	"github.com/xiaoshicae/x-one/xconfig"
 	"github.com/xiaoshicae/x-one/xerror"
@@ -100,8 +101,27 @@ func DefaultTTL(name ...string) time.Duration { return reg.Get(name...).ttl }
 //
 // 只作用于名为 default 的实例。具名实例用 C("name") 拿原生对象操作。
 
-// Get 从默认实例读一个值
-func Get(key string) (any, bool) { return C().Get(key) }
+// Get 从默认实例读一个值，按 V 取出来，不用自己断言：
+//
+//	u, ok := xcache.Get[*User]("user:1")
+//
+// 存的类型和 V 对不上时当作没命中，返回零值和 false——缓存本来就允许不命中，
+// 调用方照常回源，不会拿到一个错类型的值。典型的是存的 User、取的 *User：
+// 这种写法永远不命中，没有别的迹象，所以 XONE_DEBUG 开着时打一行出来。
+// 什么类型都收就写 Get[any]。
+func Get[V any](key string) (V, bool) {
+	var zero V
+	v, ok := C().Get(key)
+	if !ok {
+		return zero, false
+	}
+	typed, ok := v.(V)
+	if !ok {
+		config.Debugf("xcache: key %q holds %T, Get asked for %T, treated as a miss", key, v, zero)
+		return zero, false
+	}
+	return typed, true
+}
 
 // Set 往默认实例写一个值，用配置里的 DefaultTTL，cost 为 1。
 //

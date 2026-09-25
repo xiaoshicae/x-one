@@ -11,13 +11,10 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// configDocs 每个配置块写在哪一节：模块的配置块在那个模块 README 的「## 配置」，
-// 配置加载自己的两个 key 在 docs/config.md 以 key 开头的那一节（`## Import —— …`）。
+// configDocs 每个配置块写在哪一节：模块的配置块在那个模块 README 的「## 配置」。
 // 加了一个配置块就在这里登记，没登记的 checkDocs 会报出来
 var configDocs = map[string]docSection{
-	"Profiles":    {"docs/config.md", "Profiles"},
-	"Import":      {"docs/config.md", "Import"},
-	"App":         {"xapp/README.md", "配置"},
+	"XApp":        {"xapp/README.md", "配置"},
 	"XLog":        {"xlog/README.md", "配置"},
 	"XTrace":      {"xtrace/README.md", "配置"},
 	"XMetric":     {"xmetric/README.md", "配置"},
@@ -31,8 +28,12 @@ var configDocs = map[string]docSection{
 }
 
 // exampleDocs 自己没有配置块、却写了 YAML 示例的节：只校验示例。
-// xgorm/clickhouse 的示例写的是 XGorm 块
-var exampleDocs = []docSection{{"xgorm/clickhouse/README.md", "配置"}}
+// xgorm/clickhouse 的示例写的是 XGorm 块；docs/config.md 的 Profiles、Import 两节讲的是 XApp 的两项
+var exampleDocs = []docSection{
+	{"xgorm/clickhouse/README.md", "配置"},
+	{"docs/config.md", "Profiles"},
+	{"docs/config.md", "Import"},
+}
 
 // docSection 一份文档里的一个二级标题：path 相对仓库根，title 是标题的第一个词
 type docSection struct{ path, title string }

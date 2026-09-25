@@ -4,11 +4,11 @@
 // 放在任何一个组件的配置里，另外几个就得重复配一遍，然后总有一天它们会不一致。
 // 所以单独一块，谁都能读。
 //
-//	App:
+//	XApp:
 //	  Name: xone.demo.app
 //	  Version: v1.2.0
 //
-// 本包不初始化任何东西，只是在配置加载时认领 App 这一块。
+// 本包不初始化任何东西，只是在配置加载时认领 XApp 这一块（其中的 Profiles、Import 由配置加载本身读，到不了这里）。
 package xapp
 
 import (
@@ -19,7 +19,7 @@ import (
 )
 
 // ConfigKey 本模块在配置文件里的顶层 key
-const ConfigKey = "App"
+const ConfigKey = "XApp"
 
 // Config 应用身份
 type Config struct {
@@ -36,9 +36,9 @@ func DefaultConfig() Config { return Config{} }
 
 var cfg = DefaultConfig()
 
-// init 本包没有要初始化的资源，只把 App 这一块读进来。
+// init 本包没有要初始化的资源，只把 XApp 这一块读进来。
 //
-// 挂在 StageLog：链路要拿 App.Name 当服务名，它在 StageTelemetry，
+// 挂在 StageLog：链路要拿 XApp.Name 当服务名，它在 StageTelemetry，
 // 所以这一块必须更早读好。
 func init() {
 	xhook.BeforeStart(loadConfig, xhook.At(xhook.StageLog))

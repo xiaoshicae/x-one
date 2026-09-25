@@ -792,7 +792,7 @@ func TestInitXHttp_没配也装好一个能用的默认客户端(t *testing.T) {
 	// HTTP 客户端没配就不装的话，C() 每次退回兜底实例，
 	// 超时和重试全是另一套值——而使用者没配本来就该是「用默认的」
 	keepGlobals(t)
-	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "XApp:\n  Name: demo\n")
 
 	if err := initXHttp(context.Background()); err != nil {
 		t.Fatalf("没配不该报错：%v", err)

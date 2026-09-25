@@ -85,6 +85,46 @@ go get github.com/xiaoshicae/x-one/xgin@v0.1.0   # 按需：xtrace xmetric xgorm
   - 进程里没有上面那些集成、又想要日志 / 指标 / 链路时（比如只用 xcache 的消费者想要链路），匿名 import `xlog` / `xmetric` / `xtrace`；
   - 代码里不调、却想让它按配置建起来的集成（[`example/main.go`](example/main.go) 里的 xcache、xhttp）。
 
+## 配置文件：放哪、按什么顺序加载
+
+**找哪个文件**（第一个给出的就是它）：`xone.WithConfigPath(…)` → `--config=<path>` → 环境变量 `XONE_CONFIG`
+→ 约定路径 `conf/application.yml`、`config/application.yml`、`application.yml`（`.yaml` 也认）。
+点名要的文件不存在是启动失败；约定路径一个都没有就全用默认值。
+
+**按环境分文件、拆成几个文件**：公共的写在 `application.yml`，环境差异写在 `application-<环境>.yml`，
+大的配置用 `Import` 拆开。这两项写在 `XApp` 块里，和应用名放在一起：
+
+```yaml
+# conf/application.yml
+XApp:
+  Name: order-api               # 日志、链路里的服务名
+  Profiles: ${APP_ENV:dev}      # 默认 dev；--profile=prod 或 XONE_PROFILE=prod 覆盖它
+  Import:
+    - common/log.yml            # 相对这个文件的目录；optional:local.yml 表示可以没有
+XGin:
+  Port: 8080
+```
+
+```bash
+./app                          # 读 application.yml、common/log.yml、application-dev.yml
+./app --profile=prod           # 换成 application-prod.yml；--profile=prod,eu 两个叠着用
+```
+
+**加载顺序**（后读的压过先读的）：
+
+```
+application.yml  <  它 Import 的  <  application-<环境>.yml  <  环境文件 Import 的
+```
+
+map 递归合并、列表整体替换；凭证写 `${VAR}`，没设就启动失败。
+
+**看最终生效的是什么**：`XONE_DEBUG=1 ./app`，启动时打出用了哪个文件、激活了哪些 profile、
+按顺序读了哪些文件、合并之后的完整配置（凭证已遮掉）。
+
+完整的目录、每种启动方式读到的值、容易踩的坑，见
+[config.md「多环境配置：一个完整的例子」](docs/config.md#多环境配置一个完整的例子)；
+XONE_DEBUG 的输出见 [config.md「看最终生效的配置：XONE_DEBUG」](docs/config.md#看最终生效的配置xone_debug)。
+
 ## 模块一览
 
 | 模块 | 给你什么 | 怎么用 | 文档 |
@@ -124,7 +164,7 @@ go get github.com/xiaoshicae/x-one/xgin@v0.1.0   # 按需：xtrace xmetric xgorm
 | 从跑起来到上线：钩子、Runnable、非 Web 服务、测试、部署、写自己的集成 | [`docs/guide.md`](docs/guide.md) 使用指南 |
 | 读自己的配置块 | [`xconfig/README.md`](xconfig/README.md) |
 | 某个模块的用法和全部配置字段 | 那个模块目录下的 `README.md`（见上表） |
-| 配置文件放哪、Profile、Import、合并、占位符 | [`docs/config.md`](docs/config.md) |
+| 配置文件放哪、Profile、Import、合并、占位符、多环境的完整例子 | [`docs/config.md`](docs/config.md) |
 | 与底层库不同的默认值总表 | [`docs/behavior.md`](docs/behavior.md) |
 | 日志、指标、链路的全局约定，链路的信任边界 | [`docs/observability.md`](docs/observability.md) |
 | 按错误原文排错 | [`docs/troubleshooting.md`](docs/troubleshooting.md) |

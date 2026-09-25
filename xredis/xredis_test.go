@@ -479,7 +479,7 @@ func initComponent(t *testing.T, c Config) error {
 func TestInitXRedis_没写这一块就一个连接都不建(t *testing.T) {
 	// xredis 是可选依赖：没配不该让服务起不来，更不该去连 localhost:6379
 	t.Cleanup(func() { _ = closeXRedis(context.Background()) })
-	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "XApp:\n  Name: demo\n")
 
 	if err := initXRedis(context.Background()); err != nil {
 		t.Fatalf("没配不该报错：%v", err)
@@ -624,7 +624,7 @@ func TestInitXRedis_没配时C说的是没配而不是调早了(t *testing.T) {
 	// 没配也要让注册表知道启动钩子跑过了。否则 C() 会把「没配」说成「调早了」，
 	// 使用者会去查调用时机，而真正该查的是配置文件
 	t.Cleanup(func() { _ = closeXRedis(context.Background()) })
-	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "XApp:\n  Name: demo\n")
 	if err := initXRedis(context.Background()); err != nil {
 		t.Fatal(err)
 	}

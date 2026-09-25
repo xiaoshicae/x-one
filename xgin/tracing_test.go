@@ -17,7 +17,7 @@ func Test用了xgin不另外import_xtrace也有链路(t *testing.T) {
 	otel.SetTracerProvider(noop.NewTracerProvider())
 	t.Cleanup(func() { otel.SetTracerProvider(prev) })
 
-	xonetest.UseConfigYAML(t, "App:\n  Name: demo\n")
+	xonetest.UseConfigYAML(t, "XApp:\n  Name: demo\n")
 	xonetest.StartHooks(t)
 
 	_, span := otel.Tracer("test").Start(context.Background(), "op")

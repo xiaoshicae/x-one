@@ -36,5 +36,8 @@ mutate("Metric 关掉的缓存实例不导出", "xcache/xcache.go", "./xcache", 
 mutate("xmetric 重装后缓存指标照样导出", "xcache/xcache.go", "./xcache", "TestInstall_只导出开了Metric",
        swap('func installMetrics() {\n\tif _, err := xmetric.RegisterAs(',
      'var installed bool\n\nfunc installMetrics() {\n\tif installed {\n\t\treturn\n\t}\n\tinstalled = true\n\tif _, err := xmetric.RegisterAs('))
+# 断言失败要当作没命中：返回断言出来的 ok 之外的值，错类型的零值就当成了命中
+mutate("Get 类型对不上当作没命中", "xcache/xcache.go", "./xcache", "TestGet_类型对不上",
+       swap('\t\treturn zero, false\n\t}\n\treturn typed, true', '\t}\n\treturn typed, true'))
 mutate("缓存实例的日志带着名字", "xcache/xcache.go", "./xcache", "TestInstall_每个实例的日志带着名字",
        swap('"xcache created", "name", c.name,', '"xcache created", "name", "",'))

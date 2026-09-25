@@ -144,10 +144,10 @@ func newPropagator(cfg Config) (propagation.TextMapPropagator, error) {
 // 这些都是描述性的属性，为它们让整个服务起不来，代价不对等。
 //
 // service.name 的优先级从低到高：OTel 自己的 unknown_service:<可执行文件名>、
-// App.Name / App.Version、OTEL_RESOURCE_ATTRIBUTES、OTEL_SERVICE_NAME。
+// XApp.Name / XApp.Version、OTEL_RESOURCE_ATTRIBUTES、OTEL_SERVICE_NAME。
 // resource.New 按选项顺序合并、同名的后者覆盖前者（实测），所以顺序就是优先级：
 // 环境变量是部署方的最后一句话，应当压过打进镜像的配置文件。
-// App.Name 没配时不写：原先无条件写进 service.name=""，
+// XApp.Name 没配时不写：原先无条件写进 service.name=""，
 // 连 OTel 的兜底名和 OTEL_SERVICE_NAME 一起盖掉，看板上多出一个无名服务。
 // 兜底名来自 WithService，它顺带给每个进程一个随机的 service.instance.id。
 func newResource(ctx context.Context) *resource.Resource {
@@ -165,7 +165,7 @@ func newResource(ctx context.Context) *resource.Resource {
 	return res
 }
 
-// appAttributes App 块里配了的服务名与版本，没配的那一项不写
+// appAttributes XApp 块里配了的服务名与版本，没配的那一项不写
 func appAttributes() []attribute.KeyValue {
 	var attrs []attribute.KeyValue
 	if name := xapp.Name(); name != "" {

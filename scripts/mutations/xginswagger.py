@@ -4,7 +4,7 @@ from . import cut, mutate, section, swap
 section("HTTP 服务")
 # 元信息要推迟到第一次访问才填：标题默认取的 App.Name 要等 xapp 的启动钩子，
 # Register 早于 xone.Run 时在那一刻就填，标题就不对
-mutate("Swagger 元信息等 App 读好再填", "xginswagger/swagger.go", "./xginswagger", "TestRegister",
+mutate("Swagger 元信息等 XApp 读好再填", "xginswagger/swagger.go", "./xginswagger", "TestRegister",
        swap('\tc, _ := fileConfig()\n\n', '\tc, _ := fileConfig()\n\tif info != nil {\n\t\tfill(info, c)\n\t}\n\n'),
        swap('once.Do(func() { fill(info, c) })', 'once.Do(func() {})'))
 mutate("Swagger 挂在配置的前缀下", "xginswagger/swagger.go", "./xginswagger", "TestRegister",

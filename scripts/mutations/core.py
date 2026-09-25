@@ -37,6 +37,11 @@ mutate("旧粒度的文件按它自己那一档的周期算过期", "xlog/rotate
 # 只在轮转时清的话，按天轮转、一天重启几次的服务永远等不到那次轮转
 mutate("打开时就清理一次过期文件", "xlog/rotate.go", ".", "TestRotateWriter",
        swap('\tw.purge(w.currentName)\n\treturn w, nil', '\treturn w, nil'))
+# CtxWithKV 要派生一份副本：直接往父作用域里写，兄弟之间就串了、访问日志也被污染
+mutate("CtxWithKV 不写回父 ctx", "xlog/ctx.go", ".", "TestCtxWithKV",
+       swap('return context.WithValue(ctx, ctxScopeKey{}, parent.copyWith(kvs))', 'parent.addAll(kvs)\n\treturn context.WithValue(ctx, ctxScopeKey{}, parent)'))
+mutate("CtxWithKV 带着父 ctx 已有的字段", "xlog/ctx.go", ".", "TestCtxWithKV",
+       swap('\tfor k, v := range s.kv {\n\t\tc.kv[k] = v\n\t}\n\tfor k, v := range kvs {', '\tfor k, v := range kvs {'))
 mutate("片段也有 profile 变体", "internal/config/source.go", ".", "TestLoad",
        swap('nested, err := fileSet(target, d, false, profiles, seen, depth+1)',
      'nested, err := withImports(target, d, profiles, seen, depth+1)'))
@@ -118,18 +123,18 @@ mutate("占位符展开为空时保持默认值", "internal/config/config.go", "
        swap('\tcase n.Value == "":\n\t\tn.Tag = "!!null"\n', '\tcase n.Value == "":\n'))
 mutate("锚点可以跨顶层块引用", "internal/config/source.go", ".", "TestLoad",
        swap('\tbudget := maxResolvedNodes\n\tout, err := resolveAliases(&doc, &budget)', '\tout, err := &doc, error(nil)'))
-mutate("Profiles.Active 收逗号分隔的字符串", "internal/config/config.go", ".", "TestLoad",
+mutate("XApp.Profiles 收逗号分隔的字符串", "internal/config/config.go", ".", "TestLoad",
        swap('out = append(out, splitProfiles(a)...)', 'out = append(out, a)'))
-mutate("Profiles 里的占位符会展开", "internal/config/config.go", ".", "TestLoad",
+mutate("XApp.Profiles 里的占位符会展开", "internal/config/config.go", ".", "TestLoad",
        swap('''\tvar missing []string
 \texpand(node, &missing, nil)
 \tif len(missing) > 0 {
 \t\treturn nil, xerror.Newf("xconfig", "config",
-\t\t\t"environment variables not set in %s of %s: %s", ProfilesKey, path, strings.Join(missing, ", "))
+\t\t\t"environment variables not set in %s.%s of %s: %s", AppKey, ProfilesKey, path, strings.Join(missing, ", "))
 \t}
 ''', ''))
-mutate("被引进来的文件里写了 Profiles 就报错", "internal/config/config.go", ".", "TestLoad",
-       swap('if takeTopLevel(f.node, ProfilesKey) != nil {',
+mutate("被引进来的文件里写了 XApp.Profiles 就报错", "internal/config/config.go", ".", "TestLoad",
+       swap('if takeFromApp(f.node, ProfilesKey) != nil {',
      'if p, _ := profilesOf(f.node, f.path); len(p) > 0 {'))
 # config_schema.json 从前在编辑器里一个字段拼错都标不出来，单实例 / 多实例两种写法
 # 却全被标红——下面四条各守一处它和运行时对不上的地方
@@ -191,7 +196,7 @@ mutate("import 进来的压过引它的", "internal/config/source.go", ".", "Tes
 \treturn out, nil'''))
 # 第三个参数是 variantRequired：主文件的 profile 变体必须存在
 mutate("profile 文件不存在直接失败", "internal/config/source.go", ".", "TestLoad",
-       swap('return fileSet(base, doc, true, Profiles(declared), seen, 0)', 'return fileSet(base, doc, false, Profiles(declared), seen, 0)'))
+       swap('files, err := fileSet(base, doc, true, active, seen, 0)', 'files, err := fileSet(base, doc, false, active, seen, 0)'))
 mutate("第二个信号能终止卡住的进程", "xone.go", ".", "TestRun",
        swap('\t\t\tsignal.Stop(ch)\n\t\t\to.log().Info(','\t\t\to.log().Info(',1))
 # Stop 要能真的做事。沿用被取消的 ctx 的话，每个关闭动作一进去就被拒绝——
@@ -487,3 +492,45 @@ mutate("加载失败的 Run 也交还配置", "xone.go", ".", "TestRun_加载失
 \t}
 \tdefer config.Reset()
 '''))
+
+section("启动输出")
+# banner 只在终端里打：容器、重定向、日志采集器后面，多行字符画是日志平台里解析失败的垃圾
+mutate("banner 只在终端里打", "banner.go", ".", "TestPrintBanner",
+       swap('\tif !terminal {\n\t\treturn\n\t}\n', ''))
+mutate("Run 拿 stderr 判断是不是终端", "xone.go", ".", "TestRun_stderr不是终端",
+       swap('printBanner(stderr, isTerminal(stderr))', 'printBanner(stderr, true)'))
+mutate("管道和文件不是终端", "banner.go", ".", "TestIsTerminal",
+       swap('st.Mode()&os.ModeCharDevice != 0', 'st.Mode() == st.Mode()'))
+mutate("replace 到本地时版本显示 (devel)", "banner.go", ".", "TestModuleVersion",
+       swap('\t\t\tif d.Replace != nil {\n\t\t\t\treturn "(devel)"\n\t\t\t}\n', ''))
+# XONE_DEBUG：只在明确打开时写，写的是加载经过和遮掉凭证的最终配置
+mutate("XONE_DEBUG 没开就不写", "internal/config/debug.go", ".", "TestDebug_|TestEnsure_不开|TestRun_不开",
+       swap('\t}\n\treturn false\n}\n\n// DebugOut', '\t}\n\treturn true\n}\n\n// DebugOut'))
+mutate("加载完打出经过", "internal/config/config.go", ".", "TestEnsure_XONE_DEBUG",
+       swap('\tdebugReport(path, from, r)\n', '\t_, _ = from, r\n'))
+mutate("Run 打出启动钩子的顺序", "xone.go", ".", "TestRun_XONE_DEBUG",
+       swap('\tdebugHooks(hook.Start())\n', ''))
+mutate("key 名是凭证的值整个遮掉", "internal/config/debug.go", ".", "TestRedacted",
+       swap('if strings.Contains(k, s) {', 'if s == "" {'))
+mutate("URL 里的密码遮掉", "internal/config/debug.go", ".", "TestRedacted",
+       swap('s = urlUserinfo.ReplaceAllString(s, "$1:"+redactedValue+"@")', 's = s'))
+mutate("MySQL DSN 里的密码遮掉", "internal/config/debug.go", ".", "TestRedacted",
+       swap('s = mysqlDSN.ReplaceAllString(s, "$1:"+redactedValue+"@")', 's = s'))
+mutate("password= 写法的密码遮掉", "internal/config/debug.go", ".", "TestRedacted",
+       swap('return kvPassword.ReplaceAllString(s, "$1="+redactedValue)', 'return s'))
+mutate("遮的是拷贝，真正的配置不动", "internal/config/debug.go", ".", "TestRedacted",
+       swap('\t\tc.Content[i] = redacted(ch)\n', '\t\tc.Content[i] = ch\n\t\tredacted(ch)\n'))
+mutate("空的凭证不遮：看得出没配", "internal/config/debug.go", ".", "TestRedacted",
+       swap(' && v.Value != ""', ''))
+mutate("最终配置里不带注释", "internal/config/debug.go", ".", "TestRedacted",
+       swap('\tc.HeadComment, c.LineComment, c.FootComment = "", "", ""\n', ''))
+# XApp 跟着框架一起来：只 import 根包的程序写了 XApp.Name 也能启动
+mutate("根包带着 xapp", "xone.go", ".", "TestRun_只用核心也能写XApp",
+       swap('\t_ "github.com/xiaoshicae/x-one/xapp"\n', ''))
+# 一级的 App / Import / Profiles 是 v0.1.0 的写法：静默忽略的话，配了的 profile 和 import 悄悄不生效
+mutate("旧写法启动失败并说明怎么改", "internal/config/source.go", ".", "TestLoad_一级的",
+       swap('\tif err := checkLegacy(out, path); err != nil {\n\t\treturn nil, err\n\t}\n', ''))
+mutate("只剩 Profiles / Import 的 XApp 连块一起摘掉", "internal/config/source.go", ".", "TestLoad_XApp只写了",
+       swap('if val != nil && len(app.Content) == 0 {', 'if false {'))
+mutate("XApp 里的 Import 被加载器取走", "internal/config/source.go", ".", "TestLoad_XApp里的Name",
+       swap('\tnode := takeFromApp(doc, ImportKey)\n', '\tnode := takeFromApp(doc.Content[0], ImportKey)\n'))

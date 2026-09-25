@@ -13,7 +13,7 @@
 # 开关不走环境变量：用例用 harness.Options.Overlay 叠一份 profile 上来，写的就是使用者会写的 YAML。
 # 这里没写的项就是框架的默认值——用例测默认行为时拿到的是真的默认值，不是这份文件替它写死的。
 
-App:
+XApp:
   Name: xone.e2e.service
   Version: e2e
 

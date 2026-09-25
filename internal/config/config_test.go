@@ -838,7 +838,7 @@ func TestLoad_字段写错时报出配置文件和那一行(t *testing.T) {
 			"application-prod.yml": "Demo:\n  Addr:\n    b: 2\n",
 		}, "application.yml", ":4: cannot unmarshal !!map"},
 		{"import 进来的文件里拼错", "", map[string]string{
-			"application.yml": "Import: part.yml\nDemo:\n  Addr: a\n",
+			"application.yml": "XApp:\n  Import: part.yml\nDemo:\n  Addr: a\n",
 			"part.yml":        "Demo:\n  Adrr: b\n",
 		}, "part.yml", ":2: field Adrr not found"},
 		{"嵌套在 UnmarshalYAML 里的那一次", "", map[string]string{

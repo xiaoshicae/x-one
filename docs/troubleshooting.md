@@ -15,6 +15,33 @@
 
 ## 配置
 
+### 配的值没生效、不知道最终读到的是什么
+
+`XONE_DEBUG=1` 启动一次：打出用了哪个配置文件、激活了哪些 profile、按优先级读了哪些文件、合并之后的完整配置（凭证已遮掉）。
+最常见的三种：profile 没激活（`--profile` / `XONE_PROFILE` 会替换掉文件里的 `XApp.Profiles`）、
+列表被高优先级文件整体替换、同一个文件被 `Import` 了两次而只算了先遇到的那一处。
+见 [config.md「看最终生效的配置：XONE_DEBUG」](config.md#看最终生效的配置xone_debug)。
+
+### `top-level Import in conf/application.yml is no longer supported: move it under XApp (XApp.Import)`
+
+v0.1.0 的写法。应用名、默认 profile、要引入的文件现在都在 `XApp` 块里：
+
+```text
+# 旧                          # 新
+App:                          XApp:
+  Name: order-api               Name: order-api
+Profiles:                       Profiles: dev
+  Active: dev                   Import: [common/log.yml]
+Import: [common/log.yml]
+```
+
+一级的 `App`、`Import`、`Profiles` 各报一条，照错误里说的改就行。
+
+### `XApp.Profiles may only be set in the base config file, found it in conf/shared.yml`
+
+默认 profile 只能写在主配置文件里：被引入的文件、环境文件再去激活 profile，「该读哪些文件」就和读的顺序互相依赖了。
+挪回主文件，或者改用 `--profile` / `XONE_PROFILE`。
+
 ### `config keys [MyApp] are not read by anyone`
 
 全部启动钩子跑完时，配置文件里还有顶层 key 没人读过。
@@ -35,7 +62,7 @@
 ### `environment variables not set: DB_PASSWORD`
 
 配置里写了 `${DB_PASSWORD}`（必填），进程的环境里没有它。设上，或者改成带默认值的 `${DB_PASSWORD:…}`。
-`environment variables not set in Import of …` / `in Profiles of …` 同理，出在 `Import` 路径或 `Profiles.Active` 里。
+`environment variables not set in XApp.Import of …` / `in XApp.Profiles of …` 同理，出在 `XApp.Import` 的路径或 `XApp.Profiles` 里。
 
 变量设成了空串等于「这一项没写」，字段会保持默认值；要空串写 `"${VAR:}"`。
 

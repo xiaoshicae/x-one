@@ -4,50 +4,40 @@
   "title": "XOne 配置",
   "type": "object",
   "properties": {
-    "App": {
+    "XApp": {
       "type": [
         "object",
         "null"
       ],
       "description": "应用身份",
       "properties": {
-        "Name": {
-          "type": "string",
-          "description": "应用名，建议全局唯一，如 team.system.app"
-        },
-        "Version": {
-          "type": "string",
-          "description": "应用版本，如 v1.2.0"
-        }
-      },
-      "additionalProperties": false
-    },
-    "Import": {
-      "type": [
-        "string",
-        "array"
-      ],
-      "description": "引入别的配置文件，对应 Spring 的 spring.config.import。引进来的压过引它的那个文件；相对路径按引它的文件所在目录解析；optional: 前缀表示文件不存在就跳过",
-      "items": {
-        "type": "string"
-      }
-    },
-    "Profiles": {
-      "type": [
-        "object",
-        "null"
-      ],
-      "description": "激活哪些 profile，对应 Spring 的 spring.profiles.active。优先级低于 --profile 和 XONE_PROFILE",
-      "properties": {
-        "Active": {
+        "Import": {
           "type": [
             "string",
             "array"
           ],
-          "description": "profile 列表，靠后的压过靠前的；也可以写成逗号分隔的字符串",
+          "description": "引入别的配置文件，对应 Spring 的 spring.config.import。引进来的压过引它的那个文件；相对路径按引它的文件所在目录解析；optional: 前缀表示文件不存在就跳过",
           "items": {
             "type": "string"
           }
+        },
+        "Name": {
+          "type": "string",
+          "description": "应用名，建议全局唯一，如 team.system.app"
+        },
+        "Profiles": {
+          "type": [
+            "string",
+            "array"
+          ],
+          "description": "激活哪些 profile，对应 Spring 的 spring.profiles.active：一个名字、逗号分隔的字符串或列表，靠后的压过靠前的。优先级低于 --profile 和 XONE_PROFILE；只能写在主配置文件里",
+          "items": {
+            "type": "string"
+          }
+        },
+        "Version": {
+          "type": "string",
+          "description": "应用版本，如 v1.2.0"
         }
       },
       "additionalProperties": false
@@ -348,7 +338,7 @@
         },
         "Title": {
           "type": "string",
-          "description": "文档标题。默认取 App.Name。"
+          "description": "文档标题。默认取 XApp.Name。"
         },
         "URLPrefix": {
           "type": "string",

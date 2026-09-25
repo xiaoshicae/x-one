@@ -10,9 +10,10 @@ Import、合并、占位符。每个配置块的全部字段、默认值和最�
 | 想要 | 怎么写 | 详见 |
 |---|---|---|
 | 指定配置文件 | 不指定就找 `conf/application.yml`；要换用 `--config=<path>` 或 `XONE_CONFIG` | [文件位置与优先级](#文件位置与优先级) |
-| 按环境分文件 | 差异写进 `application-prod.yml`，`--profile=prod` 或 `XONE_PROFILE=prod` 选 | [Profiles](#profiles--按环境分文件) |
+| 按环境分文件 | 差异写进 `application-prod.yml`，`--profile=prod` 或 `XONE_PROFILE=prod` 选 | [Profiles](#profiles--按环境分文件)、[完整例子](#多环境配置一个完整的例子) |
 | 凭证不进版本库 | `Password: "${DB_PASSWORD}"`，没设就启动失败；可选的写 `${VAR:默认值}` | [占位符](#占位符) |
-| 拆成几个文件 | `Import: [shared.yml, optional:local.yml]` | [Import](#import--引入别的配置文件) |
+| 拆成几个文件 | `XApp: {Import: [shared.yml, optional:local.yml]}` | [Import](#import--引入别的配置文件) |
+| 看最终生效的配置 | `XONE_DEBUG=1 ./app` | [XONE_DEBUG](#看最终生效的配置xone_debug) |
 | 读自己的配置块 | `xconfig.Unmarshal("MyApp", &c)` | [xconfig](../xconfig/README.md) |
 
 **import 了哪个集成，它就生效**，没写的块全用默认值——`XLog`、`XTrace`、`XMetric`、`XHttp`、`XGin`
@@ -23,6 +24,8 @@ Import、合并、占位符。每个配置块的全部字段、默认值和最�
 - [Profiles —— 按环境分文件](#profiles--按环境分文件)
 - [Import —— 引入别的配置文件](#import--引入别的配置文件)
 - [合并规则](#合并规则)
+- [多环境配置：一个完整的例子](#多环境配置一个完整的例子)
+- [看最终生效的配置：XONE_DEBUG](#看最终生效的配置xone_debug)
 - [占位符](#占位符)
 - [通用规则](#通用规则)
 - [编辑器补全](#编辑器补全)
@@ -51,20 +54,22 @@ Import、合并、占位符。每个配置块的全部字段、默认值和最�
 ## Profiles —— 按环境分文件
 
 写法和 Spring 一样：`application.yml` 放公共的，`application-{profile}.yml` 放这个环境特有的。
+默认激活哪个 profile 写在 `XApp.Profiles`，和应用名 `XApp.Name`、下一节的 `XApp.Import` 在同一个块里——
+对应 Spring 把 `spring.profiles.active`、`spring.config.import` 收在 `spring` 下面。
 
 ```bash
 ./app --profile=prod           # 或 XONE_PROFILE=prod
 ./app --profile=prod,eu        # 多个用逗号分隔，靠后的压过靠前的
 ```
 
-也可以写在 base 文件里（只能写在 base 文件里）：
+也可以写在 base 文件的 `XApp` 块里（只能写在 base 文件里）：
 
 ```yaml
-Profiles:
-  Active: ${APP_ENV:dev}   # 列表或逗号分隔的字符串都收；占位符在决定读哪些文件之前就展开
+XApp:
+  Profiles: ${APP_ENV:dev}   # 一个名字、逗号分隔的字符串或列表都收；占位符在决定读哪些文件之前就展开
 ```
 
-- 优先级：`--profile` > `XONE_PROFILE` > 文件里的 `Profiles.Active`。
+- 优先级：`--profile` > `XONE_PROFILE` > 文件里的 `XApp.Profiles`。
 - profile 文件名由 base 文件推出来，目录和扩展名都跟着它：`--config=/etc/app/svc.yaml` 配 `--profile=prod`
   找的是 `/etc/app/svc-prod.yaml`。
 - **与 Spring 的一处不同**：点名的 profile 文件不存在时**直接启动失败**，Spring 是静默跳过。
@@ -75,16 +80,17 @@ Profiles:
 `conf/application.yml` 里写 `shared.yml` 就是 `conf/shared.yml`。
 
 ```yaml
-Import:                    # 一个就写字符串，多个写列表，靠后的压过靠前的
-  - shared.yml             # 即 conf/shared.yml
-  - db.yml
-  - optional:local.yml     # optional: 前缀，文件不存在就跳过
+XApp:
+  Import:                  # 一个就写字符串，多个写列表，靠后的压过靠前的
+    - shared.yml           # 即 conf/shared.yml
+    - db.yml
+    - optional:local.yml   # optional: 前缀，文件不存在就跳过
 ```
 
 - 引进来的压过引它的那个文件（import 相当于插在它正下方）。
 - 引进来的文件同样有 profile 变体：`db.yml` 配 `--profile=prod` 会再找 `db-prod.yml`；片段的变体**不存在不算错**。
 - 同一个文件只读一次（菱形引用只算一次，成环在第二次遇到时断开、不报错）；嵌套最多 16 层。
-- 被引进来的文件里可以再写 `Import`，但**不能写 `Profiles`**。
+- 被引进来的文件里可以再写 `XApp.Import`，但**不能写 `XApp.Profiles`**。
 - `Import` 的路径里可以写 `${VAR}`，它在读文件之前就展开。
 
 ## 合并规则
@@ -113,6 +119,168 @@ application.yml  <  它 Import 的（含片段自己的 -prod 变体）  <  appl
 - **锚点和别名**（`&name` / `*name` / `<<: *name`）在同一个文件内随便用，可以跨顶层块；不能跨文件。
   展开后一个文件超过十万个节点直接启动失败。
 
+## 多环境配置：一个完整的例子
+
+下面这套文件和每一种启动方式的结果都是实际跑出来的（`xconfig.Unmarshal` 读到的最终值）。
+
+### 目录
+
+```
+conf/
+├── application.yml        公共配置，每个环境都读；决定默认 profile、引入公共片段
+├── application-dev.yml    dev 特有（默认 profile）
+├── application-prod.yml   prod 特有，另外引入 secrets.yml
+├── application-eu.yml     欧洲区特有，和 prod 叠着用：--profile=prod,eu
+├── secrets.yml            只有 prod 引入，凭证全是 ${VAR}
+└── common/
+    ├── log.yml            日志配置，被 application.yml 引入
+    └── log-prod.yml       log.yml 的 prod 变体：prod 时自动叠上，别的环境没有这个文件也不报错
+```
+
+### 文件内容
+
+```yaml
+# conf/application.yml
+XApp:
+  Name: order-api
+  Profiles: ${APP_ENV:dev}     # 没设 APP_ENV 就是 dev；--profile / XONE_PROFILE 给了就不看这一项
+  Import:
+    - common/log.yml           # 相对这个文件所在的目录：conf/common/log.yml
+XGin:
+  Port: 8080
+Order:                         # 业务自己的块，用 xconfig.Unmarshal("Order", &c) 读
+  PayTimeout: 15m
+  Channels: [alipay, wechat]
+```
+
+```yaml
+# conf/common/log.yml
+XLog:
+  Level: info
+  Format: json
+```
+
+```yaml
+# conf/common/log-prod.yml
+XLog:
+  Level: warn                  # 只写要改的那一项，Format 沿用 log.yml 的 json
+```
+
+```yaml
+# conf/application-dev.yml
+XApp:
+  Import: [optional:local.yml] # 各人本机的覆盖，不进版本库；文件不在就跳过
+XLog:
+  Level: debug
+  Format: text
+```
+
+```yaml
+# conf/application-prod.yml
+XApp:
+  Import: [secrets.yml]
+XGin:
+  Port: 80
+Order:
+  Channels: [alipay]           # 列表整体替换：prod 只剩 alipay
+```
+
+```yaml
+# conf/secrets.yml
+Order:
+  CallbackToken: "${ORDER_TOKEN}"   # 没设就启动失败，不会带着空串起来
+```
+
+```yaml
+# conf/application-eu.yml
+Order:
+  PayTimeout: 30m
+```
+
+### 怎么启动、读到什么
+
+| 启动方式 | 读了哪些文件（优先级从低到高） | 最终的值 |
+|---|---|---|
+| `./app` | `application.yml` → `common/log.yml` → `application-dev.yml`（→ `local.yml`，有的话） | `XGin.Port` 8080；`XLog` text / debug；`Channels` [alipay, wechat] |
+| `./app --profile=prod`<br>`APP_ENV=prod ./app`<br>`XONE_PROFILE=prod ./app` | `application.yml` → `common/log.yml` → `common/log-prod.yml` → `application-prod.yml` → `secrets.yml` | `XGin.Port` 80；`XLog` json / warn；`Channels` [alipay]；`CallbackToken` 取自 `ORDER_TOKEN` |
+| `./app --profile=prod,eu` | 上一行，再叠 `application-eu.yml` | 同上，`PayTimeout` 30m |
+| `XONE_PROFILE=eu ./app` | `application.yml` → `common/log.yml` → `application-eu.yml` | `XLog` json / info：**dev 没有生效**，见下面第 1 条；`PayTimeout` 30m |
+| `./app --profile=prod`，没设 `ORDER_TOKEN` | —— | 启动失败：`environment variables not set: ORDER_TOKEN` |
+| `./app --profile=staging` | —— | 启动失败：`read config conf/application-staging.yml: … no such file or directory` |
+
+K8s 里常见的做法：镜像里带着整个 `conf/`（或者用 ConfigMap 挂到 `conf/`），Deployment 里设 `APP_ENV=prod`，
+凭证从 Secret 注入成环境变量（`ORDER_TOKEN`）。
+
+### 容易踩的几点
+
+1. **`--profile` / `XONE_PROFILE` 是替换 `XApp.Profiles`，不是追加。** 上面 `XONE_PROFILE=eu` 那一行，
+   文件里默认的 dev 就不生效了；要两个都要就写全：`--profile=dev,eu`。
+2. **列表整体替换。** prod 的 `Channels: [alipay]` 不是往 `[alipay, wechat]` 里合并，而是换掉它。
+3. **引入的文件压过引它的文件，同一个文件只读一次。** `optional:local.yml` 写在 `application-dev.yml` 的 `XApp.Import` 里，
+   它压过 dev（本机覆盖优先级最高）；要是**同时**在 `application.yml` 里也引了它，只有先遇到的那一处算——
+   它就落在 `application.yml` 的位置上，压不过 `application-dev.yml` 里写的同一项。
+4. **片段的 profile 变体可以没有，主文件的不行。** `common/log-dev.yml` 不存在没关系；`application-staging.yml`
+   不存在是启动失败——几乎总是 profile 名写错了。
+5. **`XApp.Profiles` 只能写在主文件里**，被引入的文件、环境文件里写了是启动失败。
+6. 拿不准到底读了哪些文件、最终是什么值，`XONE_DEBUG=1` 启动一次，见[下一节](#看最终生效的配置xone_debug)。
+   平时的启动日志只打主文件（`loading config file=conf/application.yml`）。
+
+## 看最终生效的配置：XONE_DEBUG
+
+```bash
+XONE_DEBUG=1 ./app --profile=prod      # 1 / true / yes / on 都算打开
+```
+
+启动时往 stderr 多打几段，给人看的：
+
+```
+[xone debug] config file: conf/application.yml (default search path)
+[xone debug] profiles: prod (from --profile)
+[xone debug] files read, lowest to highest priority:
+  1. conf/application.yml
+  2. conf/common/log.yml
+  3. conf/common/log-prod.yml
+  4. conf/application-prod.yml
+  5. conf/secrets.yml
+[xone debug] effective config (secrets redacted):
+  XApp:
+    Name: order-api
+  XGin:
+    Port: 80
+  Order:
+    PayTimeout: 15m
+    Channels: [alipay]
+    CallbackToken: '***'
+  XLog:
+    Level: warn
+    Format: json
+[xone debug] x-one v0.1.0, go1.25.0
+[xone debug] start hooks, in order (stop hooks run in reverse):
+  1. Log       xapp.loadConfig
+  2. Log       xlog.initXLog
+  3. Telemetry xtrace.initXTrace
+  ...
+```
+
+- **配置文件是怎么找到的**：括号里是 `xone.WithConfigPath`、`--config`、`XONE_CONFIG` 或 `default search path`。
+- **profile 是从哪来的**：`--profile`、`XONE_PROFILE`，或者 `XApp.Profiles in the config file`。
+- **最终配置是合并、展开 `${VAR}` 之后的**，也就是各组件真正读到的值；配置文件里的注释不带出来（合并之后看不出是哪个文件的）。
+- **凭证已遮掉**，显示成 `***`：key 名里含 password、passwd、secret、token、credential、apikey、accesskey、privatekey 的值整个遮掉
+  （比较前转小写、去掉 `_ - .`）；值里夹着的密码也遮——`postgres://app:***@db`、`report:***@tcp(db:3306)/report`、
+  `password=***`。**空的不遮**，一眼看得出哪个凭证没配。
+- **只在本地排查时开**：写的是多行的纯文本，不是 JSON，接在日志采集器后面就是几行解析失败的日志。
+
+**启动 banner**（带 x-one 的版本）只在 stderr 是终端时打：本地 `go run` 能看到，容器里、重定向到文件、接在日志采集器后面时一个字都不写。
+版本号取自二进制的构建信息；用 `replace` 指向本地目录时显示 `(devel)`。
+
+### 框架认的环境变量
+
+| 变量 | 作用 | 同义的启动参数 |
+|---|---|---|
+| `XONE_CONFIG` | 配置文件路径 | `--config=<path>` |
+| `XONE_PROFILE` | 激活的 profile，逗号分隔 | `--profile=prod,eu` |
+| `XONE_DEBUG` | 打出加载经过和最终配置，见上 | —— |
+
 ## 占位符
 
 | 写法 | 含义 |
@@ -124,7 +292,7 @@ application.yml  <  它 Import 的（含片段自己的 -prod 变体）  <  appl
 | `${PORT:}` 或变量是空串 | 等于**这一项没写**，字段保持结构体里的默认值（不是低优先级文件里的值）。真要空串就加引号：`"${PW:}"` |
 | 变量的值恰好是 `null` / `~` | 不当成没写，按字符串处理：字符串字段拿到这个字面量，其他类型的字段报类型错误 |
 
-- 占位符在**全部文件合并完之后**才展开（`Import`、`Profiles` 的路径和值例外）：base 里一个必填的 `${SECRET}`
+- 占位符在**全部文件合并完之后**才展开（`XApp.Import`、`XApp.Profiles` 例外）：base 里一个必填的 `${SECRET}`
   被 profile 文件整块覆盖掉了，就不再要求它设置。
 - 展开发生在解析后的节点上，不是对原始文本替换：值里有冒号、换行也改变不了 YAML 结构。
 - 类型不对时报错里不带展开出来的值：报的是 ``cannot unmarshal !!str `${DB_PASSWORD}` (expanded value redacted) into int``。
@@ -167,7 +335,7 @@ XGorm（PostgreSQL / MySQL / ClickHouse）、XRedis、XHttp 连出去时的 TLS 
 
 | 配置块 | 是什么 | 模块文档 |
 |---|---|---|
-| `App` | 应用身份 | [xapp/README.md](../xapp/README.md#配置) |
+| `XApp` | 应用身份、profile、Import | [xapp/README.md](../xapp/README.md#配置) |
 | `XLog` | 日志 | [xlog/README.md](../xlog/README.md#配置) |
 | `XTrace` | 链路 | [xtrace/README.md](../xtrace/README.md#配置) |
 | `XMetric` | 指标 | [xmetric/README.md](../xmetric/README.md#配置) |

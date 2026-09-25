@@ -118,23 +118,7 @@ func build(repo string) (*root, error) {
 		return nil, err
 	}
 
-	props := map[string]*node{
-		// 这两个由加载器自己消费，不属于任何模块，所以在这里补上
-		"Profiles": {
-			Type:                 []string{"object", "null"},
-			AdditionalProperties: false,
-			Description:          "激活哪些 profile，对应 Spring 的 spring.profiles.active。优先级低于 --profile 和 XONE_PROFILE",
-			Properties: map[string]*node{
-				"Active": {Type: stringOrList, Items: &node{Type: "string"},
-					Description: "profile 列表，靠后的压过靠前的；也可以写成逗号分隔的字符串"},
-			},
-		},
-		"Import": {
-			Type:        stringOrList,
-			Items:       &node{Type: "string"},
-			Description: "引入别的配置文件，对应 Spring 的 spring.config.import。引进来的压过引它的那个文件；相对路径按引它的文件所在目录解析；optional: 前缀表示文件不存在就跳过",
-		},
-	}
+	props := map[string]*node{}
 
 	// 先全部解一遍：配置块的字段可以引用别的包里的结构体（各模块共用的 xtls.Config）
 	pkgs := make([]*pkg, 0, len(dirs))
@@ -160,6 +144,18 @@ func build(repo string) (*root, error) {
 		}
 		props[p.configKey] = n
 	}
+
+	// XApp.Profiles / XApp.Import 由加载器自己消费，不在 xapp.Config 里，所以在这里补上
+	app, ok := props["XApp"]
+	if !ok {
+		return nil, fmt.Errorf("no XApp block: xapp.ConfigKey changed? Profiles and Import live under it")
+	}
+	app.Properties["Profiles"] = &node{Type: stringOrList, Items: &node{Type: "string"},
+		Description: "激活哪些 profile，对应 Spring 的 spring.profiles.active：一个名字、逗号分隔的字符串或列表，靠后的压过靠前的。" +
+			"优先级低于 --profile 和 XONE_PROFILE；只能写在主配置文件里"}
+	app.Properties["Import"] = &node{Type: stringOrList, Items: &node{Type: "string"},
+		Description: "引入别的配置文件，对应 Spring 的 spring.config.import。引进来的压过引它的那个文件；" +
+			"相对路径按引它的文件所在目录解析；optional: 前缀表示文件不存在就跳过"}
 
 	// 顶层不设 additionalProperties: false：业务自己的配置块（见 docs/guide.md
 	// 「读自己的配置」）也写在顶层，schema 不可能认识它们。

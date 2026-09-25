@@ -1,7 +1,7 @@
 // Package xcache 按配置装好 ristretto 本地缓存，使用者拿到的是原生的 *ristretto.Cache。
 //
 //	xcache.Set("user:1", u)          // 用配置里的默认 TTL 和 cost=1
-//	v, ok := xcache.Get("user:1")
+//	u, ok := xcache.Get[*User]("user:1")
 //	xcache.C().SetWithTTL(k, v, 8, time.Hour)  // 要完整控制就用原生的
 //
 // 包级的 Get/Set 只是默认实例上的便利写法，没有另造一个缓存类型——

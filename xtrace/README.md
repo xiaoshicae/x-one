@@ -58,7 +58,7 @@ func pay(c *gin.Context) {
 
 ```yaml
 # conf/application.yml
-App:
+XApp:
   Name: shop.order.api     # 就是 service.name
 XTrace:
   SampleRatio: 0.1         # 只管根 Span；有上游时听上游的
@@ -75,7 +75,7 @@ XGin:
   [observability.md「传播与信任边界」](../docs/observability.md#传播与信任边界)。
 - **有上游时一律听上游的 sampled 位**，`SampleRatio: 1` 也不例外。`SampleRatio: 0` 是不采样但照常生成、透传 TraceID；
   连 Span 都不要用 `Enable: false`。
-- **`service.name`** 取 `App.Name`，环境变量 `OTEL_RESOURCE_ATTRIBUTES` / `OTEL_SERVICE_NAME` 压过它。见[「行为与实测」](#行为与实测)。
+- **`service.name`** 取 `XApp.Name`，环境变量 `OTEL_RESOURCE_ATTRIBUTES` / `OTEL_SERVICE_NAME` 压过它。见[「行为与实测」](#行为与实测)。
 - `ForwardHeaderRules` 的 `Domains` 只认 `api.internal.com` 和 `*.trusted.com` 两种写法，`*.trusted.com` 不匹配裸域。
 
 ## 配置
@@ -115,7 +115,7 @@ OTel SDK v1.46.0、otelhttp v0.71.0。
 `ParentBased(TraceIDRatioBased(SampleRatio))`：有上游时一律听上游的 sampled 位，`SampleRatio: 1` 也不例外。
 
 **`service.name` 的优先级**，后面的压过前面的：OTel 自己的兜底名 `unknown_service:<可执行文件名>` →
-`App.Name` / `App.Version` → `OTEL_RESOURCE_ATTRIBUTES` → `OTEL_SERVICE_NAME`。没配的那一项不写，
+`XApp.Name` / `XApp.Version` → `OTEL_RESOURCE_ATTRIBUTES` → `OTEL_SERVICE_NAME`。没配的那一项不写，
 不会写进一个空的 `service.name=""` 把兜底名盖掉。
 
 **resource 采集出错时只打一条告警、用采到的那部分继续**：`OTEL_RESOURCE_ATTRIBUTES` 写错一项、

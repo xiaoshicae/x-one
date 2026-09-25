@@ -1,6 +1,6 @@
 # xcache —— 本地缓存
 
-拿到的是原生 `*ristretto.Cache`（`xcache.C()`）。常用的读写有包级的 `Get` / `Set`，走 `default` 实例、用配置里的 `DefaultTTL`。
+拿到的是原生 `*ristretto.Cache`（`xcache.C()`）。常用的读写有包级的 `Get` / `Set`，走 `default` 实例、用配置里的 `DefaultTTL`；`Get[V]` 按类型取出来，类型对不上当作没命中。
 
 ## 快速上手
 
@@ -30,8 +30,8 @@ type User struct {
 // Get 先查本地缓存，没有再回源，回源的结果按 DefaultTTL 缓存
 func Get(ctx context.Context, id string, load func(context.Context, string) (*User, error)) (*User, error) {
 	key := "user:" + id
-	if v, ok := xcache.Get(key); ok {
-		return v.(*User), nil
+	if u, ok := xcache.Get[*User](key); ok { // 类型对不上当作没命中
+		return u, nil
 	}
 	u, err := load(ctx, id)
 	if err != nil {

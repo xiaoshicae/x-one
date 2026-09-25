@@ -99,7 +99,7 @@ func limitBody(n int64) gin.HandlerFunc {
 
 ```yaml
 # conf/application.yml
-App:
+XApp:
   Name: demo.user.api          # 链路里的 service.name
 XGin:
   Port: 8080

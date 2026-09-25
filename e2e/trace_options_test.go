@@ -264,7 +264,7 @@ func TestCoverage_service_name取自App且被OTEL环境变量压过(t *testing.T
 			t.Parallel()
 			o := harness.Options{Spans: true, Env: c.env}
 			if c.noApp {
-				o.Config = covConfig(t, map[string]string{"App": ""})
+				o.Config = covConfig(t, map[string]string{"XApp": ""})
 			}
 			p := harness.Start(t, o)
 			srv := serverSpan(t, p, traceIDOf(t, p.Get(t, "/ping")))
