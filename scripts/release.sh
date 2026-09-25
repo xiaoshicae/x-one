@@ -122,7 +122,9 @@ echo "  ✓ 装得上、编得过"
 echo "== 起一遍：启动 → 请求 → 退出 =="
 ./verify --config=/dev/null >out.txt 2>&1 &
 pid=$!
-trap 'kill -9 "$pid" 2>/dev/null; rm -rf "$DIR"' EXIT
+# 走到这里时服务通常已经退出，kill 失败是正常的：不加 || true 的话，set -e 让这次失败
+# 成了整个脚本的退出码——v0.1.0 的发布就这样在「✓ 验证通过」之后报了 exit 1
+trap 'kill -9 "$pid" 2>/dev/null || true; rm -rf "$DIR"' EXIT
 
 i=0
 until curl -sf http://127.0.0.1:8080/ping >/dev/null 2>&1; do
