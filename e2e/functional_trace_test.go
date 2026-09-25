@@ -240,28 +240,29 @@ func TestFunctional_采样率为0时不导出Span但照常生成并透传TraceID
 }
 
 // XTrace.ForwardHeaders 只收可信对端（XGin.TrustedProxies）发来的值；traceparent 不受这条影响。
-// xtrace/README.md XTrace：默认一个都不信，于是默认什么都不透传；不可信的对端带着这些头来时打一条告警，整个进程只打一次
+// xtrace/README.md XTrace：默认只信私有网段；不可信的对端带着这些头来时打一条告警，整个进程只打一次。
+// e2e 的请求都从本机发出，「不可信的对端」用 TrustedProxies: [] 造——和公网对端走的是同一条路
 func TestFunctional_下游收到traceparent且透传头只收可信对端的(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
-	t.Run("默认不信任何对端", func(t *testing.T) {
+	t.Run("TrustedProxies 写 [] 就谁都不信", func(t *testing.T) {
 		t.Parallel()
 		stub := harness.NewStub(t)
-		p := harness.Start(t, harness.Options{Downstream: stub.URL})
+		p := harness.Start(t, harness.Options{Downstream: stub.URL, Overlay: "XGin:\n  TrustedProxies: []\n"})
 		for i := range 3 {
 			r := p.Get(t, "/proxy", "X-Request-Id", fmt.Sprintf("rid-untrusted-%d", i), "X-Forwarded-For", "198.51.100.7",
 				"Baggage", "tenant=forged")
 			last := stub.Last(t)
 			// xtrace/README.md XTrace：「baggage 同样只收可信对端的」
 			if got := last.Header.Get("Baggage"); got != "" {
-				t.Errorf("TrustedProxies 没配时 baggage 不该透传，下游却收到了 %q", got)
+				t.Errorf("TrustedProxies: [] 时 baggage 不该透传，下游却收到了 %q", got)
 			}
 			if tp := last.Header.Get("Traceparent"); !strings.HasPrefix(tp, "00-"+traceIDOf(t, r)+"-") {
 				t.Errorf("下游应收到这次请求那条链路的 traceparent（%s），实际 %q", traceIDOf(t, r), tp)
 			}
 			if got := last.Header.Get("X-Request-Id"); got != "" {
-				t.Errorf("TrustedProxies 没配时 X-Request-Id 不该透传，下游却收到了 %q", got)
+				t.Errorf("TrustedProxies: [] 时 X-Request-Id 不该透传，下游却收到了 %q", got)
 			}
 		}
 		warn := "xtrace ignored forward headers from an untrusted peer, only peers in XGin.TrustedProxies are trusted"
@@ -272,18 +273,16 @@ func TestFunctional_下游收到traceparent且透传头只收可信对端的(t *
 		// 访问日志的 client_ip 同样不信 X-Forwarded-For
 		for _, l := range p.FindLogs(func(l harness.Log) bool { return l.Msg() == "request completed" && l.Str("route") == "/proxy" }) {
 			if l.Str("client_ip") != "127.0.0.1" {
-				t.Errorf("TrustedProxies 没配时 client_ip 应是直连对端 127.0.0.1，实际 %q", l.Str("client_ip"))
+				t.Errorf("TrustedProxies: [] 时 client_ip 应是直连对端 127.0.0.1，实际 %q", l.Str("client_ip"))
 			}
 		}
 	})
 
-	t.Run("TrustedProxies 里有 127.0.0.1", func(t *testing.T) {
+	t.Run("默认就信私有网段的对端（本机 127.0.0.1）", func(t *testing.T) {
+		// K8s 里 Ingress、Pod、sidecar 都在私有网段里：不配 TrustedProxies 透传就生效
 		t.Parallel()
 		stub := harness.NewStub(t)
-		p := harness.Start(t, harness.Options{
-			Downstream: stub.URL,
-			Overlay:    "XGin:\n  TrustedProxies: [\"127.0.0.1/32\"]\n",
-		})
+		p := harness.Start(t, harness.Options{Downstream: stub.URL})
 		r := p.Get(t, "/proxy", "X-Request-Id", "rid-trusted-1", "X-Forwarded-For", "198.51.100.7", "Baggage", "tenant=acme")
 		last := stub.Last(t)
 		if got := last.Header.Get("X-Request-Id"); got != "rid-trusted-1" {

@@ -70,8 +70,8 @@ XGin:
 ## 重点
 
 - **框架不内置任何 exporter**：不 `AddSpanProcessor` 的话 Span 照样生成、`trace_id` 照样进日志，只是不上报。本地调试开 `Console: true`。
-- **透传 Header 和 `baggage` 只收可信对端的**：直连对端在 `XGin.TrustedProxies` 里才收，`TrustedProxies` 默认空，
-  于是**默认什么都不透传**。`traceparent` / `b3` 谁发来的都接。见
+- **透传 Header 和 `baggage` 只收可信对端的**：直连对端在 `XGin.TrustedProxies` 里才收。`TrustedProxies` 默认只信私有网段
+  （负载均衡、K8s 的 Ingress 和 Pod），公网直连的不收。`traceparent` / `b3` 谁发来的都接。见
   [observability.md「传播与信任边界」](../docs/observability.md#传播与信任边界)。
 - **有上游时一律听上游的 sampled 位**，`SampleRatio: 1` 也不例外。`SampleRatio: 0` 是不采样但照常生成、透传 TraceID；
   连 Span 都不要用 `Enable: false`。
@@ -97,7 +97,7 @@ XTrace:
 ```
 
 - **透传的 Header 和 `baggage` 只收可信对端发来的**：直连对端在 `XGin.TrustedProxies` 里才收。`TrustedProxies`
-  默认一个都不信，于是**默认什么都不透传**。`traceparent` / `b3` 谁发来的都接。细节见
+  默认只信私有网段，公网直连的不收。`traceparent` / `b3` 谁发来的都接。细节见
   [observability.md「传播与信任边界」](../docs/observability.md#传播与信任边界)。
 - `XGin.Trace` / `XHttp.Trace` 只管开不开 Span，关掉之后透传照常。
 - `SampleRatio: 0` 是「不采样但照常生成、透传 TraceID」；要连 Span 都不产生用 `Enable: false`。

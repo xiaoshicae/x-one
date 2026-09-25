@@ -106,11 +106,11 @@ func TestCoverage_ForwardHeaderRules只把头发给匹配的域名且只收可�
 	t.Run("不可信对端：规则里的头也不收", func(t *testing.T) {
 		t.Parallel()
 		fp := newForwardProxy(t)
-		p := harness.Start(t, harness.Options{Env: proxyEnv(fp), Overlay: rules})
+		p := harness.Start(t, harness.Options{Env: proxyEnv(fp), Overlay: "XGin:\n  TrustedProxies: []\n" + rules})
 		send(t, p, "api.internal.test")
 		h := fp.header(t, "api.internal.test")
 		if h.Get("X-Internal-Token") != "" || h.Get("X-Request-Id") != "" {
-			t.Errorf("TrustedProxies 没配时什么都不透传，发给 api.internal.test 的却带着 X-Internal-Token=%q X-Request-Id=%q",
+			t.Errorf("TrustedProxies: [] 时什么都不透传，发给 api.internal.test 的却带着 X-Internal-Token=%q X-Request-Id=%q",
 				h.Get("X-Internal-Token"), h.Get("X-Request-Id"))
 		}
 	})

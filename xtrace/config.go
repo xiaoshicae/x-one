@@ -59,7 +59,7 @@ type Config struct {
 	// ForwardHeaders 向所有域名透传的 Header。默认无。
 	//
 	// 只收可信对端发来的值：用 xgin 时就是 XGin.TrustedProxies 里的那些，
-	// 默认一个都不信，于是默认什么都不透传。理由见 HeaderPropagator.Extract。
+	// 默认只信私有网段（负载均衡、K8s 的 Ingress 和 Pod），公网直连的不收。理由见 HeaderPropagator.Extract。
 	ForwardHeaders []string `yaml:"ForwardHeaders"`
 
 	// ForwardHeaderRules 按域名透传的 Header 规则。默认无。

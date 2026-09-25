@@ -292,7 +292,7 @@
         },
         "TrustedProxies": {
           "type": "array",
-          "description": "信任哪些代理发来的 X-Forwarded-For / X-Real-IP。 默认一个都不信，此时 ClientIP() 就是对端地址本身。 gin 自己的默认是「全都信」，那意味着任何人发一个 X-Forwarded-For: 1.2.3.4 就能决定访问日志里的 client_ip 是什么—— 日志可以被伪造，建在这个字段上的限流和审计也一起失效。 这种事不该靠使用者记得去关，所以这里默认关掉。 真的在负载均衡后面时，把它那一段网段写进来： 它同时决定收不收透传 Header（XTrace.ForwardHeaders / ForwardHeaderRules）和 baggage： 只有直连的对端在这张表里，那些值才会被收下、带给下游。「谁是自己人」 只在这一处说。所以这里只写确实可信的那一跳——负载均衡会原样转发客户端 发来的头，要先在它那里剥掉 X-Tenant-Id 这类头，再把它写进来。",
+          "description": "信任哪些直连的对端：它们发来的 X-Forwarded-For / X-Real-IP 才用来算 client_ip， 它们发来的透传 Header（XTrace.ForwardHeaders / ForwardHeaderRules）和 baggage 才会被收下、带给下游。 「谁是自己人」只在这一处说。 默认是 [private]：回环、私有网段、100.64.0.0/10 和 IPv6 的 ::1、fc00::/7（见 privateNetworks）。 负载均衡、K8s 的 Ingress 和 Pod、sidecar 都落在这些网段里，Pod IP 再随机也不用一个个写； 直接暴露在公网的服务，对端是公网地址，一个都不信，X-Forwarded-For 照样伪造不了 client_ip。 gin 自己的默认是「全都信」：任何人发一个 X-Forwarded-For: 1.2.3.4 就能决定 client_ip。 在默认之外再加网段时把 private 一起写上（列表整体替换默认值）；要谁都不信就写 []： 内网里也有不可信的客户端（办公网、VPN 用户能直连服务）时，别用 private，写确切的那几段。",
           "items": {
             "type": "string"
           }
@@ -1302,7 +1302,7 @@
         },
         "ForwardHeaders": {
           "type": "array",
-          "description": "向所有域名透传的 Header。默认无。 只收可信对端发来的值：用 xgin 时就是 XGin.TrustedProxies 里的那些， 默认一个都不信，于是默认什么都不透传。理由见 HeaderPropagator.Extract。",
+          "description": "向所有域名透传的 Header。默认无。 只收可信对端发来的值：用 xgin 时就是 XGin.TrustedProxies 里的那些， 默认只信私有网段（负载均衡、K8s 的 Ingress 和 Pod），公网直连的不收。理由见 HeaderPropagator.Extract。",
           "items": {
             "type": "string"
           }

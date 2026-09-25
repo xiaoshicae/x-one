@@ -42,8 +42,8 @@ func TestFunctional_访问日志字段齐全并和业务日志与Span共用trace
 	t.Run("字段齐全", func(t *testing.T) {
 		for k, want := range map[string]string{
 			"level": "INFO", "method": "POST", "route": "/users", "path": "/users", "status": "201",
-			// xgin/README.md XGin.TrustedProxies：默认一个都不信，X-Forwarded-For 改不了 client_ip
-			"client_ip":                    "127.0.0.1",
+			// xgin/README.md XGin.TrustedProxies：默认信私有网段，本机发来的 X-Forwarded-For 被认，client_ip 是它里面的地址
+			"client_ip":                    "203.0.113.9",
 			"request_headers.X-Visible":    "keep-me",
 			"request_headers.Content-Type": "application/json",
 		} {

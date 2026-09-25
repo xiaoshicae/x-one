@@ -555,13 +555,26 @@ func TestWithRecoverFunc_换掉_panic_之后的响应(t *testing.T) {
 
 // ---- 配置落到 engine 上 ----
 
-func TestBuild_默认不信任何代理(t *testing.T) {
+func TestBuild_默认只信私有网段的代理(t *testing.T) {
 	// gin 自己的默认是 trustedProxies = 0.0.0.0/0 + ::/0，也就是全都信。
 	// 那意味着任何人发一个 X-Forwarded-For 就能决定访问日志里的
-	// client_ip 是什么——日志可以伪造，建在这个字段上的限流和审计一起失效
+	// client_ip 是什么——日志可以伪造，建在这个字段上的限流和审计一起失效。
+	// 默认只信私有网段：负载均衡、Ingress 转发来的认，公网直连的不认
 	e := New().WithConfig(configWith(quiet)).WithRoutes(echoClientIP).Engine()
+	if got := clientIPOf(t, e, "203.0.113.9:1234"); got != "203.0.113.9" {
+		t.Errorf("公网对端的 X-Forwarded-For 不该认，client_ip 应该是对端地址本身，got=%q（请求头里伪造的是 1.2.3.4）", got)
+	}
+	if got := clientIPOf(t, e, "10.0.0.5:1234"); got != "1.2.3.4" {
+		t.Errorf("私有网段的对端（负载均衡）发来的 X-Forwarded-For 该认，got=%q", got)
+	}
+}
+
+func TestBuild_TrustedProxies写空列表就谁都不信(t *testing.T) {
+	// 默认值是 [private]，要一个都不信得能写出来
+	e := New().WithConfig(configWith(quiet, func(c *Config) { c.TrustedProxies = []string{} })).
+		WithRoutes(echoClientIP).Engine()
 	if got := clientIPOf(t, e, "10.0.0.5:1234"); got != "10.0.0.5" {
-		t.Errorf("client_ip 应该是对端地址本身，got=%q（请求头里伪造的是 1.2.3.4）", got)
+		t.Errorf("写了 [] 就该谁都不信，got=%q", got)
 	}
 }
 
@@ -864,8 +877,8 @@ func TestEngine_配置文件不合法时按偏安全的默认值装配(t *testin
 	// 解到一半的非法配置里，TrustedProxies 可能正是 0.0.0.0/0。错误由 Start 报，不监听
 	testkit.UseConfigEnv(t, "XGin:\n  Port: 0\n  TrustedProxies: [0.0.0.0/0]\n")
 	g := New().WithRoutes(echoClientIP)
-	if got := clientIPOf(t, g.Engine(), "10.0.0.5:1234"); got != "10.0.0.5" {
-		t.Errorf("配置不合法时该退回谁都不信，client_ip=%q", got)
+	if got := clientIPOf(t, g.Engine(), "203.0.113.9:1234"); got != "203.0.113.9" {
+		t.Errorf("配置不合法时该退回默认值（只信私有网段），公网对端的转发头不该认，client_ip=%q", got)
 	}
 
 	err := startErr(t, g)
@@ -1173,14 +1186,53 @@ func TestBuild_只有TrustedProxies里的对端发来的透传Header才被收下
 	}
 }
 
-func TestBuild_不配TrustedProxies时谁发来的透传Header都不收(t *testing.T) {
+func TestBuild_不配TrustedProxies时只收私有网段发来的透传Header(t *testing.T) {
+	// K8s 里 Pod IP 随机，但都在私有网段里：默认就认，不用一个个写
 	trusted := probeTrust(t)
 	e := New().WithConfig(configWith(quiet)).Engine()
 
-	for _, remote := range []string{"127.0.0.1:1234", "10.0.0.5:1234"} {
-		if trusted(e, remote) {
-			t.Errorf("默认谁都不信，对端 %s 却被当成了可信", remote)
+	for remote, want := range map[string]bool{
+		"127.0.0.1:1234":        true, // sidecar
+		"10.0.0.5:1234":         true, // Pod / 负载均衡
+		"172.20.1.2:1234":       true,
+		"192.168.1.7:80":        true,
+		"100.64.3.4:80":         true, // 有的 CNI 拿它当 Pod 网段
+		"[::1]:443":             true,
+		"[fd00::5]:443":         true,  // IPv6 ULA
+		"[::ffff:10.0.0.5]:443": true,  // IPv4 映射成 IPv6 的写法
+		"203.0.113.9:1234":      false, // 公网
+		"172.32.0.1:1234":       false, // 172.16.0.0/12 的邻居
+		"[2001:db8::1]:443":     false,
+	} {
+		if got := trusted(e, remote); got != want {
+			t.Errorf("默认配置下对端 %s 可信=%v，want %v", remote, got, want)
 		}
+	}
+}
+
+func TestLoadConfig_配置文件里写TrustedProxies空列表就谁都不信(t *testing.T) {
+	// 默认值预填在结构体里；配置文件写 [] 得真的换成空列表，而不是解码时被当成「没写」留下默认的 private
+	testkit.UseConfigEnv(t, "XGin:\n  TrustedProxies: []\n")
+	if got := clientIPOf(t, New().WithRoutes(echoClientIP).Engine(), "10.0.0.5:1234"); got != "10.0.0.5" {
+		t.Errorf("配置文件写了 [] 就该谁都不信，got=%q", got)
+	}
+}
+
+func TestBuild_TrustedProxies里private和别的网段一起写(t *testing.T) {
+	// 列表整体替换默认值：要在私有网段之外再加一段，把 private 一起写上
+	trusted := probeTrust(t)
+	e := New().WithConfig(configWith(quiet, func(c *Config) {
+		c.TrustedProxies = []string{"private", "203.0.113.0/24"}
+	})).Engine()
+	for remote, want := range map[string]bool{"10.0.0.5:1": true, "203.0.113.9:1": true, "198.51.100.1:1": false} {
+		if got := trusted(e, remote); got != want {
+			t.Errorf("对端 %s 可信=%v，want %v", remote, got, want)
+		}
+	}
+	// 写 [] 就谁都不信，透传 Header 也一样
+	none := New().WithConfig(configWith(quiet, func(c *Config) { c.TrustedProxies = []string{} })).Engine()
+	if trusted(none, "10.0.0.5:1") {
+		t.Error("写了 [] 就该谁都不信")
 	}
 }
 

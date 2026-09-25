@@ -99,7 +99,8 @@ xtrace 装好全局的 TracerProvider 和 Propagator。会产生 Span 的集成�
 | 透传 Header | `XTrace.ForwardHeaders` / `ForwardHeaderRules` 里列的 | **只收可信对端的** | `ForwardHeaders` 发给所有下游，`ForwardHeaderRules` 只发给匹配域名的 |
 
 - **可信对端 = 直连的那一跳在 `XGin.TrustedProxies` 里**（TCP 那一跳，不是从 `X-Forwarded-For` 推出来的 client IP）。
-  `TrustedProxies` 默认一个都不信，所以默认 baggage 和透传 Header 一个都不收。「谁是自己人」只在这一处说。
+  `TrustedProxies` 默认只信私有网段（负载均衡、K8s 的 Ingress 和 Pod、sidecar），公网直连的对端发来的一个都不收。
+  「谁是自己人」只在这一处说。
 - 不可信的对端带着这些头来时各打一条告警，整个进程只打一次。
 - 负载均衡一般原样转发客户端发来的头：把它写进 `TrustedProxies` 之前，先在它那里剥掉这些头，否则等于又信了所有客户端。
 - `XGin.Trace: false`、`XHttp.Trace: false` 只关这一跳的 Span，上面三样照常接、照常带。`XTrace.Enable: false` 时

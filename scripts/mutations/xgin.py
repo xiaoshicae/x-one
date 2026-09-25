@@ -20,8 +20,8 @@ mutate("Shutdown 给等 handler 留出一截", "xgin/xgin.go", "./xgin", "TestSt
 mutate("内置路由也走用户中间件", "xgin/xgin.go", "./xgin", "TestBuild",
        swap('\t\te.Use(middleware.Recover(g.recover))\n\t\te.Use(g.extra...)\n', '\t\te.Use(middleware.Recover(g.recover))\n'),
        swap('\t\tfor _, f := range g.routes {', '\t\te.Use(g.extra...)\n\t\tfor _, f := range g.routes {'))
-mutate("默认不信任 X-Forwarded-For", "xgin/xgin.go", "./xgin", "TestBuild|TestLog",
-       cut('\tif err := e.SetTrustedProxies(c.TrustedProxies); err != nil {',
+mutate("公网对端的 X-Forwarded-For 不认", "xgin/xgin.go", "./xgin", "TestBuild|TestLog",
+       cut('\tif err := e.SetTrustedProxies(c.trustedProxies()); err != nil {',
     '_ = e.SetTrustedProxies([]string{})\n\t}\n'))
 # h2c 原先靠 x/net 的 h2c.NewHandler：连接被劫持，Shutdown 约 100µs 就返回 nil、
 # 在途请求照跑，框架紧接着去关数据库。换回那个写法，这条承诺就没了
@@ -59,7 +59,7 @@ mutate("Mode 在建 engine 之前设", "xgin/xgin.go", "./xgin", "TestBuild_Mode
        swap('\t\tgin.SetMode(c.Mode)\n\t\te := gin.New()\n', '\t\te := gin.New()\n\t\tgin.SetMode(c.Mode)\n'))
 
 section("中间件")
-mutate("代理网段写错要启动失败", "xgin/config.go", "./xgin", "TestValidate", swap('if !isIPOrCIDR(p) {','if false {'))
+mutate("代理网段写错要启动失败", "xgin/config.go", "./xgin", "TestValidate", swap('if p != trustPrivate && !isIPOrCIDR(p) {','if false {'))
 mutate("指标的 method 标签收敛", "xgin/middleware/metric.go", "./xgin", "TestMetric",
        swap('normalizeMethod(c.Request.Method)', 'c.Request.Method'))
 mutate("请求头里的凭证被遮掉", "xgin/middleware/redact.go", "./xgin", "TestRedact",
@@ -147,7 +147,19 @@ mutate("JSON 后面跟着别的东西时整个遮掉", "xgin/middleware/redact.g
 mutate("对端在 TrustedProxies 里才算可信", "xgin/xgin.go", "./xgin", "TestBuild_只有|TestBuild_不配Trusted",
        swap('if trustedAddr(g.trusted, c.RemoteIP()) {', 'if len(g.trusted) > 0 {'))
 mutate("可信网段来自装配时的配置", "xgin/xgin.go", "./xgin", "TestBuild_只有",
-       swap('g.trusted = prefixes(c.TrustedProxies)', 'g.trusted = prefixes(nil)'))
+       swap('g.trusted = prefixes(c.trustedProxies())', 'g.trusted = prefixes(nil)'))
+# 默认只信私有网段：K8s 里 Pod IP 随机，Ingress、负载均衡、sidecar 转发来的默认就认
+mutate("TrustedProxies 默认是 private", "xgin/config.go", "./xgin", "TestBuild_默认只信|TestBuild_不配Trusted",
+       swap('\t\tTrustedProxies:     []string{trustPrivate},\n', ''))
+mutate("private 包含运营商级 NAT 网段", "xgin/config.go", "./xgin", "TestBuild_不配Trusted",
+       swap('"192.168.0.0/16", "100.64.0.0/10",', '"192.168.0.0/16",'))
+mutate("private 包含 IPv6 ULA", "xgin/config.go", "./xgin", "TestBuild_不配Trusted",
+       swap('"::1/128", "fc00::/7",', '"::1/128",'))
+mutate("private 和别的网段一起写时别的网段也算", "xgin/config.go", "./xgin", "TestBuild_TrustedProxies里private",
+       swap('\t\tout = append(out, p)\n\t}\n\treturn out', '\t}\n\treturn out'))
+# 调用点：client_ip 那边（gin）也得拿展开后的网段，直接给 "private" 它解析失败、退回谁都不信
+mutate("gin 拿到的是展开后的网段", "xgin/xgin.go", "./xgin", "TestBuild_默认只信",
+       swap('e.SetTrustedProxies(c.trustedProxies())', 'e.SetTrustedProxies(c.TrustedProxies)'))
 mutate("装配时先判对端再开链路", "xgin/xgin.go", "./xgin", "TestBuild_只有",
        swap('e.Use(g.markTrustedPeer, middleware.Trace())', 'e.Use(middleware.Trace())'))
 # XGin.Trace 只管 Span。原先关掉它连提取一起摘了，上游的链路标识和透传头都不收

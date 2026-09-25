@@ -104,8 +104,7 @@ App:
 XGin:
   Port: 8080
   LogSkipPaths: [/healthz]     # 健康检查不记访问日志
-  # 在负载均衡后面时写上它的网段，否则 client_ip 是负载均衡的地址、透传 Header 一个都不收
-  # TrustedProxies: ["10.0.0.0/8"]
+  # TrustedProxies 默认 [private]：负载均衡、K8s Ingress / Pod 这类私有网段的对端默认就信，不用写
 XGorm:
   DSN: "${DB_DSN}"             # 默认 postgres；表 users 已经建好
 ```
@@ -125,8 +124,9 @@ curl localhost:8080/metrics                                                     
 
 ## 重点
 
-- **默认一个代理都不信**（gin 自己默认全信）：在负载均衡后面要把它的网段写进 `TrustedProxies`，否则 `client_ip` 是负载均衡的地址，
-  透传 Header 和 baggage 也一个都不收。见[「行为与实测」](#行为与实测)。
+- **默认只信私有网段的对端**（gin 自己默认全信）：负载均衡、K8s 的 Ingress 和 Pod、sidecar 都在私有网段里，
+  它们转发来的 `X-Forwarded-For`、透传 Header 和 baggage 默认就收，Pod IP 再随机也不用写；公网直连的一律不信。
+  见[「在负载均衡 / Cloudflare 后面」](#在负载均衡--cloudflare-后面)。
 - **请求体没有上限**：框架不替业务定，要限就像上面那样 `http.MaxBytesReader`。`MaxMultipartMemory`（默认 8MB）是落盘阈值，
   不是上限，堆开销约为它的三倍。见[「行为与实测」](#行为与实测)。
 - **handler 里的慢操作传 `c.Request.Context()`**：停止时框架等在途请求最多到停止预算的 2/3（默认 10s），到点断开连接、
@@ -154,7 +154,7 @@ XGin:
   WriteTimeout: 0s         # 默认不限：限制它会打断 SSE、长轮询、大文件下载
   IdleTimeout: 60s         # 必须 > 0
   MaxMultipartMemory: 8388608  # 字节，默认 8MB；是落盘阈值，不是请求体上限
-  TrustedProxies: []       # 信任哪些代理的 X-Forwarded-For，默认一个都不信；也决定收不收透传 Header
+  TrustedProxies: [private]  # 信任哪些直连对端的 X-Forwarded-For 和透传 Header；private = 回环 + 私有网段，[] = 谁都不信
   Log: true                # 访问日志
   LogSkipPaths: []         # 不记访问日志的路径：以 / 结尾的按前缀，其余精确匹配
   LogRequestBody: false    # 请求体进访问日志（逐字段脱敏），默认关
@@ -167,8 +167,9 @@ XGin:
 
 - **停止没有单独的超时**：`Stop` 等在途请求做完，最多到服务那一段停止预算（`xone.WithStopTimeout` 的 2/3，默认 10s），
   到点断开连接、再等 handler 返回；还有没返回的，错误里写明几个。要调就调 `WithStopTimeout`。
-- **真在负载均衡后面时**把它那一段网段写进 `TrustedProxies`（如 `["10.0.0.0/8"]`），写错的网段启动失败。
-  负载均衡一般原样转发客户端的头，写进来之前先在它那里剥掉 `X-Tenant-Id` 这类头。
+- `private` 展开成 `127.0.0.0/8`、`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、`100.64.0.0/10`、`::1/128`、`fc00::/7`。
+  列表整体替换默认值：要再加网段就连 `private` 一起写（`[private, 203.0.113.0/24]`），写错的网段启动失败。
+- 内网里也有不可信的客户端（办公网、VPN 用户能直连服务）时别用 `private`，写确切的那几段，或者 `[]`。
 - `ClientCAFile` 管整个端口：`/metrics` 同样要客户端证书。handler 里用 `c.Request.TLS.PeerCertificates` 看是谁。
 - 框架不替业务定请求体上限，要限就在中间件里 `http.MaxBytesReader`。开 `LogRequestBody` 之前用
   `middleware.AddSensitiveFields(...)` 补上业务自己的敏感字段，脱敏规则见 [「可观测 · 访问日志」](#访问日志)。
@@ -183,7 +184,27 @@ XGin:
 gin v1.12.0、Go 1.25 net/http。
 
 **`TrustedProxies`**：gin 默认 `0.0.0.0/0`，任何人发 `X-Forwarded-For: 1.2.3.4` 就能决定 `client_ip`。
-这里默认一个都不信。
+这里默认只信私有网段：直接暴露在公网的服务，对端是公网地址，`X-Forwarded-For` 照样改不了 `client_ip`。
+
+### 在负载均衡 / Cloudflare 后面
+
+判断可不可信只看**直连的那一跳**（TCP 对端），不看 `X-Forwarded-For`。K8s 里常见的链路是：
+
+```
+用户 ──▶ Cloudflare ──▶ 云负载均衡 ──▶ Ingress ──▶ 服务 A ──▶ 服务 B
+                          ↑ 只放行 Cloudflare 的网段（安全组）
+```
+
+- **服务里什么都不用配**：A 的对端是 Ingress、B 的对端是 A，都在私有网段里，默认可信；`CF-*` 这类头写进
+  `XTrace.ForwardHeaders` 就一路透传下去。
+- **Cloudflare 的网段只配在集群入口**（负载均衡的安全组 / Ingress 白名单），不进服务的配置。入口不锁死的话，
+  绕过 Cloudflare 直连的人能自己伪造 `CF-Connecting-IP`，而它经过 Ingress 之后就成了「可信对端发来的」。
+- 这样 `client_ip` 是 Cloudflare 边缘节点的地址：它不在私有网段里，gin 从 `X-Forwarded-For` 往回找时停在那一跳。
+  真实用户看透传下去的 `CF-Connecting-IP`，或者让 Ingress 用它作真实 IP（ingress-nginx 有现成的配置）。
+- 源站直接以公网 IP 接 Cloudflare 的回源、中间没有负载均衡时，才要把 Cloudflare 的网段（以
+  <https://www.cloudflare.com/ips/> 为准）连同 `private` 一起写进 `TrustedProxies`。
+- 不要在 `WithRoutes` 里设 `e.TrustedPlatform = gin.PlatformCloudflare`：gin 会无条件相信请求里的
+  `CF-Connecting-IP`，不看是谁发来的。
 
 **`MaxMultipartMemory`** 不是请求体上限，是「超过多少才落盘」，超出的部分写进临时文件、不会被拒绝。
 实际代价约是这个数的三倍：一次 60MB 的上传，配 32MB（gin 默认）时解析这一步让堆多占 96MB，8MB 是 24MB，1MB 是 3MB。

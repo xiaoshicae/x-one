@@ -96,22 +96,21 @@ type Config struct {
 	//	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 10<<20)
 	MaxMultipartMemory int64 `yaml:"MaxMultipartMemory"`
 
-	// TrustedProxies 信任哪些代理发来的 X-Forwarded-For / X-Real-IP。
-	// 默认一个都不信，此时 ClientIP() 就是对端地址本身。
+	// TrustedProxies 信任哪些直连的对端：它们发来的 X-Forwarded-For / X-Real-IP 才用来算 client_ip，
+	// 它们发来的透传 Header（XTrace.ForwardHeaders / ForwardHeaderRules）和 baggage 才会被收下、带给下游。
+	// 「谁是自己人」只在这一处说。
 	//
-	// gin 自己的默认是「全都信」，那意味着任何人发一个
-	// X-Forwarded-For: 1.2.3.4 就能决定访问日志里的 client_ip 是什么——
-	// 日志可以被伪造，建在这个字段上的限流和审计也一起失效。
-	// 这种事不该靠使用者记得去关，所以这里默认关掉。
+	// 默认是 [private]：回环、私有网段、100.64.0.0/10 和 IPv6 的 ::1、fc00::/7（见 privateNetworks）。
+	// 负载均衡、K8s 的 Ingress 和 Pod、sidecar 都落在这些网段里，Pod IP 再随机也不用一个个写；
+	// 直接暴露在公网的服务，对端是公网地址，一个都不信，X-Forwarded-For 照样伪造不了 client_ip。
+	// gin 自己的默认是「全都信」：任何人发一个 X-Forwarded-For: 1.2.3.4 就能决定 client_ip。
 	//
-	// 真的在负载均衡后面时，把它那一段网段写进来：
+	// 在默认之外再加网段时把 private 一起写上（列表整体替换默认值）；要谁都不信就写 []：
 	//
-	//	TrustedProxies: ["10.0.0.0/8"]
+	//	TrustedProxies: [private, 203.0.113.0/24]
+	//	TrustedProxies: []
 	//
-	// 它同时决定收不收透传 Header（XTrace.ForwardHeaders / ForwardHeaderRules）和 baggage：
-	// 只有直连的对端在这张表里，那些值才会被收下、带给下游。「谁是自己人」
-	// 只在这一处说。所以这里只写确实可信的那一跳——负载均衡会原样转发客户端
-	// 发来的头，要先在它那里剥掉 X-Tenant-Id 这类头，再把它写进来。
+	// 内网里也有不可信的客户端（办公网、VPN 用户能直连服务）时，别用 private，写确切的那几段。
 	TrustedProxies []string `yaml:"TrustedProxies"`
 
 	// Mode Gin 的运行模式：release / debug / test。默认 release。
@@ -179,7 +178,31 @@ func DefaultConfig() Config {
 		Metric:             true,
 		MetricPath:         "/metrics",
 		MinVersion:         "1.2",
+		TrustedProxies:     []string{trustPrivate},
 	}
+}
+
+// trustPrivate TrustedProxies 里代表 privateNetworks 的关键字
+const trustPrivate = "private"
+
+// privateNetworks TrustedProxies 里写 private 时展开成的网段：
+// 回环、RFC 1918 私有网段、运营商级 NAT（有的 CNI 和云厂商拿它当 Pod 网段）、IPv6 的回环和 ULA
+var privateNetworks = []string{
+	"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10",
+	"::1/128", "fc00::/7",
+}
+
+// trustedProxies 把 TrustedProxies 里的 private 展开成网段，其余原样保留
+func (c Config) trustedProxies() []string {
+	out := make([]string, 0, len(c.TrustedProxies))
+	for _, p := range c.TrustedProxies {
+		if p == trustPrivate {
+			out = append(out, privateNetworks...)
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // Validate 检查配置本身说不通的地方。
@@ -237,8 +260,8 @@ func (c Config) Validate() error {
 	// 留下，于是前半段代理被信任、后半段被悄悄丢掉——日志里的 client_ip
 	// 一半真一半假，是比起不来难查得多的状态
 	for _, p := range c.TrustedProxies {
-		if !isIPOrCIDR(p) {
-			return fmt.Errorf("TrustedProxies contains an invalid address, want an IP or CIDR, got=%q", p)
+		if p != trustPrivate && !isIPOrCIDR(p) {
+			return fmt.Errorf("TrustedProxies contains an invalid address, want an IP, a CIDR or %q, got=%q", trustPrivate, p)
 		}
 	}
 	// 理由见 MetricPath：gin 不拒绝，而是悄悄改写成另一个路径。

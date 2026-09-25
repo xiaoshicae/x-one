@@ -22,7 +22,7 @@
 
 | 配置 | 库自己的默认 | 这里的默认 | 为什么 |
 |---|---|---|---|
-| [`XGin.TrustedProxies`](../xgin/README.md#行为与实测) | 全都信（`0.0.0.0/0`） | 一个都不信 | 否则谁发 `X-Forwarded-For` 谁就是访问日志里的 `client_ip`，限流和审计跟着失效 |
+| [`XGin.TrustedProxies`](../xgin/README.md#行为与实测) | 全都信（`0.0.0.0/0`） | 只信私有网段（`private`） | 否则谁发 `X-Forwarded-For` 谁就是访问日志里的 `client_ip`，限流和审计跟着失效；私有网段是负载均衡、Ingress、Pod 所在的那一跳 |
 | [`XGin.MaxMultipartMemory`](../xgin/README.md#行为与实测) | 32MB | 8MB | 它是落盘阈值不是请求体上限，堆开销约为它的三倍 |
 | [`XGin.ReadHeaderTimeout: 0`](../xgin/README.md#行为与实测) | 退到 `ReadTimeout`（默认 0），即不限时 | 启动失败 | 发半个请求头就能一直占着连接 |
 | [`XGin.UseH2C`](../xgin/README.md#行为与实测) | x/net 的 `h2c.NewHandler` | 标准库的 `Protocols.SetUnencryptedHTTP2` | 前者劫持连接，`Shutdown` 管不到在途请求 |

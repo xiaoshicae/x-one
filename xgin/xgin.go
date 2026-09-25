@@ -163,7 +163,7 @@ func (g *XGin) build() {
 		e := gin.New()
 		e.HandleMethodNotAllowed = true // 不开的话，方法不对会返回 404 而不是 405
 		applyConfig(e, c)
-		g.trusted = prefixes(c.TrustedProxies)
+		g.trusted = prefixes(c.trustedProxies())
 
 		// 洋葱模型，自外向内：
 		//   LogScope → Trace → Log → Metric → Recover → 用户中间件 → handler
@@ -230,10 +230,10 @@ func serveMetrics(c *gin.Context) { xmetric.Handler().ServeHTTP(c.Writer, c.Requ
 func applyConfig(e *gin.Engine, c Config) {
 	e.MaxMultipartMemory = c.MaxMultipartMemory
 
-	// 默认谁都不信。gin 的默认是全都信，于是任何人发一个
+	// 默认只信私有网段。gin 的默认是全都信，于是任何人发一个
 	// X-Forwarded-For 就能决定访问日志里的 client_ip 是什么。
 	// 网段写错在 Validate 里就拦下了，这里的错误兜底成「谁都不信」
-	if err := e.SetTrustedProxies(c.TrustedProxies); err != nil {
+	if err := e.SetTrustedProxies(c.trustedProxies()); err != nil {
 		slog.Warn("xgin invalid TrustedProxies, trusting none", "error", err)
 		_ = e.SetTrustedProxies([]string{})
 	}
