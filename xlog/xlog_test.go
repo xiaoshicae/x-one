@@ -284,6 +284,57 @@ func TestScope_nil_ctx不崩(t *testing.T) {
 	}
 }
 
+func TestCtxWithKV_只影响派生出来的那个ctx(t *testing.T) {
+	c, path := fileCfg(t)
+	l, closer, _ := New(c)
+
+	req := CtxWithScope(context.Background())
+	AddKV(req, "req_id", "r1")
+	a := CtxWithKV(req, map[string]any{"order_id": 1})
+	b := CtxWithKV(req, map[string]any{"order_id": 2})
+	AddKV(a, "only_a", true) // 写进 a 自己，不回流到 req、不串到 b
+
+	l.InfoContext(a, "a")
+	l.InfoContext(b, "b")
+	l.InfoContext(req, "req")
+	closer.Close()
+
+	got := readLines(t, path)
+	if got[0]["req_id"] != "r1" || got[0]["order_id"] != float64(1) || got[0]["only_a"] != true {
+		t.Errorf("a 该带着父字段、自己的 order_id 和后写的字段，got=%v", got[0])
+	}
+	if got[1]["req_id"] != "r1" || got[1]["order_id"] != float64(2) || got[1]["only_a"] != nil {
+		t.Errorf("b 只带父字段和自己的 order_id，got=%v", got[1])
+	}
+	if got[2]["order_id"] != nil || got[2]["only_a"] != nil {
+		t.Errorf("父 ctx 不该被派生出来的字段污染，got=%v", got[2])
+	}
+}
+
+func TestCtxWithKV_同名以传入的为准_没有作用域也能用(t *testing.T) {
+	c, path := fileCfg(t)
+	l, closer, _ := New(c)
+
+	parent := CtxWithScope(context.Background())
+	AddKV(parent, "k", "old")
+	l.InfoContext(CtxWithKV(parent, map[string]any{"k": "new"}), "覆盖")
+	l.InfoContext(CtxWithKV(context.Background(), map[string]any{"k": "bare"}), "没有作用域")
+	closer.Close()
+
+	got := readLines(t, path)
+	if got[0]["k"] != "new" {
+		t.Errorf("同名 key 该以传入的为准，got=%v", got[0])
+	}
+	if got[1]["k"] != "bare" {
+		t.Errorf("父 ctx 没有作用域时也该带上字段，got=%v", got[1])
+	}
+	var kept any
+	scopeFrom(parent).each(func(_ string, v any) { kept = v })
+	if kept != "old" {
+		t.Errorf("父 ctx 的值不该被改，got=%v", kept)
+	}
+}
+
 // ---- trace 提取器 ----
 
 func TestTraceExtractor(t *testing.T) {

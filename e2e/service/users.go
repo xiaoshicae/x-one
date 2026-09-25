@@ -117,10 +117,8 @@ func getUser(c *gin.Context) {
 
 func readThrough(ctx context.Context, id int64) (store.User, string, error) {
 	key := userKey(id)
-	if v, ok := xcache.Get(key); ok {
-		if u, ok := v.(store.User); ok {
-			return u, "local", nil
-		}
+	if u, ok := xcache.Get[store.User](key); ok {
+		return u, "local", nil
 	}
 
 	b, err := xredis.C().Get(ctx, key).Bytes()

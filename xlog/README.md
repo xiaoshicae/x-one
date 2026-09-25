@@ -42,6 +42,8 @@ XLog:
 - **用 `slog.InfoContext(ctx, …)`**，不带 ctx 的 `slog.Info` 拿不到 `trace_id`。
 - **`xlog.AddKV` 要有作用域**：xgin 在每个请求开头开好；自己的非 Web 入口（消费一条消息、跑一次任务）用 `xlog.CtxWithScope(ctx)` 开。
   见 [observability.md「日志」](../docs/observability.md#日志)。
+- **只给一段调用打标用 `xlog.CtxWithKV`**：`ctx := xlog.CtxWithKV(ctx, map[string]any{"order_id": id})` 派生一个新 ctx，
+  只有用它写的日志带着这些字段；批量处理的每一条、起的每个 goroutine 各派生一个，互相不串，也不回流到访问日志。
 - **`Timezone` 配了却加载不到直接启动失败**；scratch / distroless 镜像要 `import _ "time/tzdata"`。见[「行为与实测」](#行为与实测)。
 - **`Perm` 是按八进制解析的字符串**，`"0644"` / `"644"` / `"0o644"` 都认——yaml 把裸写的 `644` 当成十进制，所以不用整数字段。
 - 文件按 `RotateTime` 轮转（至少 1m）、按 `MaxAge` 清理；只删自己命名的 `app.log.<时间后缀>`。

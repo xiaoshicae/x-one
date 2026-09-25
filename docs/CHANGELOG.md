@@ -24,6 +24,8 @@
   ```
 
   环境文件、被引入的文件里的 `Import` 同样挪到 `XApp.Import`。`xconfig.Unmarshal("App", …)` 改成 `"XApp"`。
+- `xcache.Get` 改成泛型，按类型取值，不用再自己断言；存的类型对不上当作没命中（`XONE_DEBUG` 开着时会说明）。
+  迁移：`v, ok := xcache.Get(k); u := v.(*User)` 改成 `u, ok := xcache.Get[*User](k)`；什么类型都收就写 `xcache.Get[any](k)`。
 
 ### 新增
 
@@ -31,6 +33,8 @@
   （凭证遮成 `***`），以及启动钩子的执行顺序。只在本地排查时开：输出是多行纯文本，不是 JSON。
 - 启动 banner：只在 stderr 是终端时打，带 x-one 的版本；容器里、重定向或接在日志采集器后面时不写。
 - `XApp` 块跟着框架一起来：只用核心、没 import xapp 的程序写了 `XApp.Name` 也能启动。
+- `xlog.CtxWithKV(ctx, kvs)`：派生一个带着额外字段的 ctx，只影响用它写的日志；批量处理的每一条、起的每个 goroutine
+  各带各的字段，不串到兄弟和父 ctx。`AddKV` 照旧是原地写、整个请求可见。
 
 ## [v0.1.0] - 2026-09-25
 

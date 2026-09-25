@@ -28,6 +28,8 @@ xlog 把 `slog.Default()` 换成按 `XLog` 配好的 handler，业务和框架�
 - **请求级字段**：`xlog.AddKV(ctx, "user_id", id)` 在任意调用层级补一个字段，之后同一请求里的每条日志
   （包括访问日志）都带着它。作用域由 xgin 的 `LogScope` 中间件在每个请求开头开好；自己的非 Web 入口用
   `xlog.CtxWithScope(ctx)` 开。
+- **一段调用的字段**：`xlog.CtxWithKV(ctx, map[string]any{"order_id": id})` 派生一个新 ctx，只有用它写的日志带着；
+  父 ctx 已有的字段照样带上。批量处理的每一条、起的每个 goroutine 各派生一个，互相不串。
 
 访问日志的字段和脱敏规则见 [xgin「访问日志」](../xgin/README.md#访问日志)。
 

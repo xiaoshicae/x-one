@@ -192,14 +192,40 @@ func TestGetSetDel(t *testing.T) {
 
 	Set("k", "v")
 	C().Wait()
-	if v, ok := Get("k"); !ok || v != "v" {
+	if v, ok := Get[string]("k"); !ok || v != "v" {
 		t.Errorf("应读到刚写的值，got=%v ok=%v", v, ok)
 	}
 
 	Del("k")
 	C().Wait()
-	if _, ok := Get("k"); ok {
+	if _, ok := Get[string]("k"); ok {
 		t.Error("删掉之后不该还读得到")
+	}
+}
+
+func TestGet_类型对不上当作没命中(t *testing.T) {
+	withInstances(t, map[string]ClientConfig{DefaultName: DefaultClientConfig()})
+	var b bytes.Buffer
+	old := config.DebugOut
+	config.DebugOut = &b
+	t.Cleanup(func() { config.DebugOut = old })
+	t.Setenv(config.DebugEnvKey, "1")
+
+	type user struct{ Name string }
+	Set("u", user{Name: "a"})
+	C().Wait()
+
+	if u, ok := Get[*user]("u"); ok || u != nil {
+		t.Errorf("存的是 user、取的是 *user，该当作没命中，got=%v ok=%v", u, ok)
+	}
+	if !strings.Contains(b.String(), `"u"`) {
+		t.Errorf("XONE_DEBUG 开着时该说明是类型对不上，got=%q", b.String())
+	}
+	if u, ok := Get[user]("u"); !ok || u.Name != "a" {
+		t.Errorf("类型对得上该命中，got=%v ok=%v", u, ok)
+	}
+	if v, ok := Get[any]("u"); !ok || v.(user).Name != "a" {
+		t.Errorf("Get[any] 什么都收，got=%v ok=%v", v, ok)
 	}
 }
 
@@ -571,7 +597,7 @@ func BenchmarkGet_命中(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Get("k")
+		Get[string]("k")
 	}
 }
 
@@ -583,7 +609,7 @@ func BenchmarkGet_命中_并发(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			Get("k")
+			Get[string]("k")
 		}
 	})
 }
