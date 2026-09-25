@@ -1,19 +1,25 @@
-# xmetric —— 指标
+# xmetric
 
 Prometheus 指标：原生的 `*prometheus.Registry` 用 `xmetric.Registry()` 取，日常打点有一组免样板的快捷方法。
-指标端点由 xgin 自动挂在 `/metrics`。
+
+- 指标端点由 xgin 自动挂在 `/metrics`，不用 xgin 的自己挂 `xmetric.Handler()`
+- 快捷方法按名字建指标、按标签复用，不用先声明
+- 耗时指标收 `time.Duration`、自动补 `_seconds` 后缀
+- 自带 `log_errors_total`（Error 级别日志计数）和 `go_*` / `process_*`
+- 名字、标签、桶写错在读配置时就失败，不等到导出时悄悄转义
 
 ## 快速上手
 
+```yaml
+# conf/application.yml（可选）
+XMetric:
+  Namespace: shop          # 所有指标名前加 shop_
+  ConstLabels:
+    env: "${ENV:dev}"      # 附加到所有指标上
+```
+
 ```go
-package order
-
-import (
-	"context"
-	"time"
-
-	"github.com/xiaoshicae/x-one/xmetric"
-)
+import "github.com/xiaoshicae/x-one/xmetric"
 
 func Place(ctx context.Context, o *Order) (err error) {
 	start := time.Now()
@@ -31,23 +37,6 @@ func Place(ctx context.Context, o *Order) (err error) {
 // 标签不随结果变时更短：defer xmetric.Timer("order_query")()
 ```
 
-```yaml
-# conf/application.yml（可选）
-XMetric:
-  Namespace: shop          # 所有指标名前加 shop_
-  ConstLabels:
-    env: "${ENV:dev}"      # 附加到所有指标上
-```
-
-## 重点
-
-- **名字写错读配置时就失败**：`Namespace` 和 `ConstLabels` 的 key 只收字母、数字、下划线，不以数字开头
-  （client_golang 不报错，会悄悄把 `my-app` 导出成 `my_app_…`）。见[「行为与实测」](#行为与实测)。
-- **桶要严格递增**，写了就整体替换默认值；空列表 `[]` 不是「用默认」，直接失败。
-- `ConstLabels` 不能用 `le`、`quantile`、`version` 和框架指标自己的标签名（`method`、`status`、`route`、`name`……）。
-- 耗时指标自动补 `_seconds` 后缀，桶是 `XMetric.HistogramBuckets`。
-- 不用 xgin 的服务自己挂 `xmetric.Handler()`。框架自带的指标见 [observability.md「指标」](../docs/observability.md#指标)。
-
 ## 配置
 
 ```yaml
@@ -62,12 +51,47 @@ XMetric:
   LogErrorMetric: true     # Error 级别日志计入 log_errors_total，默认开（需配合 xlog）
 ```
 
-- 两组桶不写就是默认值，写了就整体替换；空列表 `[]` 不是「用默认」，读配置时失败。桶必须严格递增。
-- `Namespace` 和 `ConstLabels` 的 key 只收「字母、数字、下划线，不以数字开头」；`le`、`quantile`、`version`
-  和框架指标自己的变量标签（`level`、`caller`、`method`、`status`、`route`、`host`、`name`）不能用作 `ConstLabels` 的 key。
-  都在读配置时失败，理由见 [「行为与实测」](#行为与实测)。
-- 指标端点由 xgin 挂（`XGin.MetricPath`）；不用 xgin 的服务自己挂 `xmetric.Handler()`。框架自带的指标见
-  [observability.md「指标」](../docs/observability.md#指标)。
+- 两组桶不写就是默认值，写了就整体替换；桶必须严格递增。
+- 指标端点的路径是 `XGin.MetricPath`。
+
+## API
+
+| 函数 | 说明 |
+|---|---|
+| `CounterInc(name, tags...)` / `CounterAdd(name, v, tags...)` | 计数器 +1 / +v（v 必须 >= 0） |
+| `GaugeSet(name, v, tags...)` / `GaugeInc` / `GaugeDec` | 仪表盘 |
+| `HistogramObserve(name, v, tags...)` | 直方图观测，单位秒，桶是 `XMetric.HistogramBuckets` |
+| `ObserveDuration(name, d, tags...)` | 记一次耗时，`time.Duration` 换算成秒，名字补 `_seconds` |
+| `Timer(name, tags...) func()` | `defer xmetric.Timer("x")()`；标签在开始时就固定，重复调用只有首次生效 |
+| `TrackInFlight(name, tags...) func()` | 进行中的数量，`defer xmetric.TrackInFlight("x")()`，不会漏减 |
+| `T(name, value) Tag` | 构造一个标签 |
+| `Registry() *prometheus.Registry` | 原生 Registry，要完整控制时自己 `NewCounterVec` 再注册 |
+| `MustRegister(cs...)` | 注册自定义 collector，重复注册会 panic |
+| `Register(c)` / `RegisterAs[T](c) (T, error)` | 注册，已注册过同名同标签的复用已有实例；**务必用返回值** |
+| `ConstLabels()` / `Namespace()` / `HTTPDurationBuckets()` | 读生效中的配置，自己建指标时填进 `prometheus.Opts`，和框架指标带同样的标签 |
+| `Handler() http.Handler` | `/metrics` 的 handler，不用 xgin 的服务自己挂 |
+| `New(cfg) (*Metrics, io.Closer, error)` | 纯构造器：不碰全局、不读文件，离开框架也能用 |
+
+## 注意事项
+
+- **名字写错读配置时就失败**：`Namespace` 和 `ConstLabels` 的 key 只收字母、数字、下划线，不以数字开头
+  （client_golang 不报错，会悄悄把 `my-app` 导出成 `my_app_…`）。见[「行为与实测」](#行为与实测)。
+- **`ConstLabels` 的 key 有保留字**：`le`、`quantile`、`version` 和框架指标自己的变量标签
+  （`level`、`caller`、`method`、`status`、`route`、`host`、`name`）不能用，读配置时失败。
+- **桶写成空列表 `[]` 不是「用默认」**，直接失败；要默认值就别写这个字段。
+- **`Register` 同名但类型或标签不同时返回错误**：传进去的那个不在 registry 里，通过它记的值导不出去。
+- 框架自带的指标见 [observability.md「指标」](../docs/observability.md#指标)。
+
+## 可观测
+
+### 指标
+
+| 指标 | 类型 | 标签 | 来源 |
+|---|---|---|---|
+| `log_errors_total` | counter | `level`、`caller` | xmetric，`XMetric.LogErrorMetric`，需要 xlog |
+| `go_*` / `process_*` | —— | —— | `XMetric.GoMetrics` / `ProcessMetrics` |
+
+指标名的前缀、常量标签和几条通用规则见 [`docs/observability.md`「指标」](../docs/observability.md#指标)。
 
 ## 行为与实测
 
@@ -85,18 +109,3 @@ client_golang v1.24.1。
 | `ConstLabels` 的 key 是 `version` | `go_info` 自带常量标签 `version`，client_golang 拒绝注册整组 Go 运行时指标（`attempted wrapping with already existing label name "version"`） |
 
 所以这些在读配置时就失败。
-
-## 可观测
-
-### 指标
-
-| 指标 | 类型 | 标签 | 来源 |
-|---|---|---|---|
-| `log_errors_total` | counter | `level`、`caller` | xmetric，`XMetric.LogErrorMetric`，需要 xlog |
-| `go_*` / `process_*` | —— | —— | `XMetric.GoMetrics` / `ProcessMetrics` |
-
-业务打点：`xmetric.CounterInc("orders_total", xmetric.T("status", "ok"))`、`defer xmetric.Timer("handle_order")()`
-（耗时指标自动补 `_seconds` 后缀，桶是 `XMetric.HistogramBuckets`）；要完整控制就用 `xmetric.Registry()` 拿原生的
-`*prometheus.Registry`。
-
-指标名的前缀、常量标签和几条通用规则见 [`docs/observability.md`「指标」](../docs/observability.md#指标)。

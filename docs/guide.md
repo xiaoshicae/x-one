@@ -1,7 +1,7 @@
 # 使用指南
 
 从「跑起来了」到「上线」要知道的事，按用到的先后排。每个模块怎么用、全部配置字段在它目录下的 README
-（见[模块一览](../README.md#模块一览)）；配置文件放哪、怎么叠查 [`config.md`](config.md)，报错查
+（见[模块](../README.md#模块)）；配置文件放哪、怎么叠查 [`config.md`](config.md)，报错查
 [`troubleshooting.md`](troubleshooting.md)，为什么这样设计看 [`architecture.md`](architecture.md)。
 
 | 术语 | 意思 |

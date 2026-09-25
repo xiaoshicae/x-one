@@ -1,7 +1,12 @@
-# xtls —— 客户端 TLS 块
+# xtls
 
-XGorm / XRedis / XHttp 连出去时的 TLS 写成同一个 `TLS:` 块（核心模块，`xtls.Config`），字段、默认值、校验规则只有这一份。
-服务端（XGin）的 TLS 是另外几个字段，见 [xgin](../xgin/README.md#配置)。
+客户端 TLS 块：XGorm / XRedis / XHttp 连出去时的 TLS 写成同一个 `TLS:` 块（核心模块，`xtls.Config`），字段、默认值、校验规则只有这一份。
+
+- 三个模块里写法完全一样，代码不用改
+- 证书一律校验，没有跳过校验的开关；最低 TLS 1.2
+- 开着 TLS 块就不会退回明文
+- 配错的组合在读配置时就失败，证书文件在建实例时读
+- 服务端（XGin）的 TLS 是另外几个字段，见 [xgin](../xgin/README.md#配置)
 
 ## 快速上手
 
@@ -19,40 +24,45 @@ XGorm:
     ServerName: db.internal           # 按 IP 连、证书上是域名时填
 ```
 
-XRedis、XHttp 块里写法完全一样。代码不用改。
-
-## 重点
-
-- **证书一律校验，没有跳过校验的开关**：自签证书把 CA 填进 `CAFile`。最低 TLS 1.2。
-- **开着 TLS 块就不会退回明文**；DSN 里不能再写 TLS 参数（PG 的 `ssl*`、MySQL 的 `tls=`、ClickHouse 的 `secure` 等），两处都写是配置错误。
-- **不开 TLS 块时 pgx 默认连上了也不校验证书**（`sslmode=prefer`），go-sql-driver 不写 `tls` 就是明文。见[「行为与实测」](#行为与实测)。
-- 没开 `Enable` 却写了别的几项、`CertFile` / `KeyFile` 只配一个，读配置时就失败。
-- 证书被拒不重试：再试还是同一张证书、同一个结论。
+XRedis、XHttp 块里写法完全一样。
 
 ## 配置
 
-XGorm（PostgreSQL / MySQL / ClickHouse）、XRedis、XHttp 连出去时的 TLS 都写成同一个块，
-字段、默认值、校验规则只有一份（`xtls.Config`）：
+以 XRedis 为例，XGorm（PostgreSQL / MySQL / ClickHouse）、XHttp 块里的 `TLS:` 字段一模一样：
 
 ```yaml
-TLS:
-  Enable: true                        # 默认 false；下面几项只在开着时生效
-  CAFile: /etc/ssl/internal-ca.pem    # 校验服务端证书的 CA（PEM，可以多张）。空 = 系统根证书
-  CertFile: /etc/ssl/client.pem       # 客户端证书，服务端要求双向认证时和 KeyFile 成对填
-  KeyFile: /etc/ssl/client-key.pem
-  ServerName: db.internal             # 比对证书的名字。空 = 连接地址的主机部分
+XRedis:
+  TLS:
+    Enable: true                      # 默认 false；下面几项只在开着时生效
+    CAFile: /etc/ssl/internal-ca.pem  # 校验服务端证书的 CA（PEM，可以多张）。空 = 系统根证书
+    CertFile: /etc/ssl/client.pem     # 客户端证书，服务端要求双向认证时和 KeyFile 成对填
+    KeyFile: /etc/ssl/client-key.pem
+    ServerName: redis.internal        # 比对证书的名字。空 = 连接地址的主机部分
 ```
 
-- **没开 `Enable` 却写了别的几项，读配置时就失败**（多半是忘了开）；`CertFile` / `KeyFile` 只配一个同样失败。
 - 填了 `CAFile` 就**只认**这个文件里的 CA，系统根证书不再参与。
-- 最低 TLS 1.2，证书校验一直开着，**没有跳过校验的开关**——自签证书把 CA 填进 `CAFile`。
-  要更细的控制（加密套件、自定义校验）就绕开配置、自己造原生 client。
-- 证书文件在建实例时读，读不出来报 op 为 `config` 的错，一次都不连。
-- 开着 TLS 块时 DSN 里不能再写 TLS 参数（PG 的 `ssl*`、MySQL 的 `tls=`、ClickHouse 的 `secure` / `skip_verify` /
-  `tls_server_name`），两处都说了是配置错误。
-- 各驱动在不同情况下报什么错、要多久，见 [「行为与实测」](#行为与实测)。
+- 要更细的控制（加密套件、自定义校验）就绕开配置、自己造原生 client。
 
 服务端（XGin）那一侧的 TLS 是另外几个字段：`CertFile`、`KeyFile`、`ClientCAFile`、`MinVersion`，见 [XGin](../xgin/README.md#配置)。
+
+## API
+
+使用者只在配置文件里写它；直接调某个模块的 `New` 时才会在代码里写到 `xtls.Config`。
+
+| 函数 | 说明 |
+|---|---|
+| `(Config) Validate() error` | 检查几项之间说不通的组合（各模块的 `Validate` 会调它） |
+| `(Config) Build() (*tls.Config, error)` | 先校验，再读证书文件装出 `*tls.Config`；没开 TLS 时返回 nil |
+
+## 注意事项
+
+- **证书一律校验，没有跳过校验的开关**：自签证书把 CA 填进 `CAFile`。最低 TLS 1.2。
+- **开着 TLS 块就不会退回明文**；DSN 里不能再写 TLS 参数（PG 的 `ssl*`、MySQL 的 `tls=`、ClickHouse 的 `secure` /
+  `skip_verify` / `tls_server_name`），两处都写是配置错误。
+- **不开 TLS 块时 pgx 默认连上了也不校验证书**（`sslmode=prefer`），go-sql-driver 不写 `tls` 就是明文。见[「行为与实测」](#行为与实测)。
+- 没开 `Enable` 却写了别的几项（多半是忘了开）、`CertFile` / `KeyFile` 只配一个，读配置时就失败。
+- 证书文件在建实例时读，读不出来报 op 为 `config` 的错，一次都不连。
+- 证书被拒不重试：再试还是同一张证书、同一个结论。各驱动报什么错、要多久，见[「行为与实测」](#行为与实测)。
 
 ## 行为与实测
 

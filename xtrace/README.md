@@ -1,32 +1,25 @@
-# xtrace —— 链路
+# xtrace
 
-装好 OpenTelemetry 的全局 TracerProvider 和 Propagator，业务代码用原生的 OpenTelemetry API。
-xgin / xgorm / xredis / xhttp 自带它，用了其中任何一个就不用另外 import。
+链路：装好 OpenTelemetry 的全局 TracerProvider 和 Propagator，业务代码用原生的 `otel.Tracer("...")`。
+
+- xgin / xgorm / xredis / xhttp 自带它，用了其中任何一个就不用另外 import
+- 有上游时听上游的采样决定，没有上游时按 `SampleRatio` 采样
+- 按配置透传自定义 Header（如 `X-Request-Id`），可以只发给指定域名
+- 透传的 Header 和 `baggage` 只收可信对端的
+- 不内置 exporter：要上报就自己 `xtrace.AddSpanProcessor(...)`，退出时由框架 Shutdown
 
 ## 快速上手
 
+```yaml
+# conf/application.yml
+XApp:
+  Name: shop.order.api     # 就是 service.name
+XTrace:
+  SampleRatio: 0.1         # 只管根 Span；有上游时听上游的
+  ForwardHeaders: [X-Request-Id]
+```
+
 ```go
-// main.go
-package main
-
-import (
-	"context"
-	"log"
-	"net/http"
-	"os"
-
-	"github.com/gin-gonic/gin"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-
-	"github.com/xiaoshicae/x-one"
-	"github.com/xiaoshicae/x-one/xgin"
-	"github.com/xiaoshicae/x-one/xhttp"
-	"github.com/xiaoshicae/x-one/xtrace"
-)
-
 func main() {
 	// 框架不内置上报：要上报就自己挂一个 exporter，在 xone.Run 之前
 	exp, err := otlptracegrpc.New(context.Background(),
@@ -36,38 +29,49 @@ func main() {
 	}
 	xtrace.AddSpanProcessor(sdktrace.NewBatchSpanProcessor(exp)) // 退出时由框架 Shutdown
 
-	xone.MustRun(xgin.New().WithRoutes(func(e *gin.Engine) {
-		e.POST("/api/v1/orders/:id/pay", pay)
-	}))
+	xone.MustRun(xgin.New().WithRoutes(routes))
 }
 
-func pay(c *gin.Context) {
+func riskCheck(ctx context.Context, orderID string) {
 	// 入站 Span 由 xgin 开好了；要再细分一段，就用原生的 OpenTelemetry API
-	ctx, span := otel.Tracer("order").Start(c.Request.Context(), "risk_check")
-	span.SetAttributes(attribute.String("order.id", c.Param("id")))
-	resp, err := xhttp.R(ctx).Get("http://risk.internal/api/v1/check") // traceparent 自动带给下游
-	span.End()
-
-	if err != nil || resp.IsError() {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "risk check unavailable"})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"status": "paid"})
+	ctx, span := otel.Tracer("order").Start(ctx, "risk_check")
+	defer span.End()
+	span.SetAttributes(attribute.String("order.id", orderID))
+	_, _ = xhttp.R(ctx).Get("http://risk.internal/api/v1/check") // traceparent 自动带给下游
 }
 ```
+
+## 配置
 
 ```yaml
-# conf/application.yml
-XApp:
-  Name: shop.order.api     # 就是 service.name
 XTrace:
-  SampleRatio: 0.1         # 只管根 Span；有上游时听上游的
-  ForwardHeaders: [X-Request-Id]
-XGin:
-  TrustedProxies: ["10.0.0.0/8"]   # 透传 Header 和 baggage 只收这些对端发来的
+  Enable: true             # 默认开。关掉后没有 Span，traceparent / baggage 也不再透传，ForwardHeaders 照常
+  Console: false           # 把 Span 打到标准输出，本地调试用，默认关
+  SampleRatio: 1           # 根 Span 的采样率 [0, 1]，默认 1；有上游时一律听上游的 sampled 位
+  ShutdownTimeout: 5s      # 退出时等导出完成的上限，默认 5s，必须 > 0，同时不超过框架的停止预算
+  ForwardHeaders:          # 向所有下游透传的 Header，默认无
+    - X-Request-Id
+  ForwardHeaderRules:      # 只发给匹配域名的 Header，默认无
+    - Domains: ["api.internal.com", "*.trusted.com"]
+      Headers: ["X-Internal-Token"]
 ```
 
-## 重点
+- `Domains` 只认 `api.internal.com` 和 `*.trusted.com` 两种写法；`*.trusted.com` 匹配任意层级子域、**不匹配裸域**。
+  其余带 `*` 的写法、同一个 header 同时出现在 `ForwardHeaders` 和 `ForwardHeaderRules` 里，都在读配置时失败。
+- `XGin.Trace` / `XHttp.Trace` 只管开不开 Span，关掉之后透传照常。
+- `AddSpanProcessor` 登记的处理器在 `Enable: false` 时收不到 Span，退出时照样被 Shutdown。
+
+## API
+
+| 函数 | 说明 |
+|---|---|
+| `AddSpanProcessor(sp sdktrace.SpanProcessor)` | 挂一个上报用的处理器，在 `xone.Run` 之前调；初始化之后调的立即挂上。传 nil 直接 panic |
+| `ForwardHeaderFromContext(ctx, key) string` | 取一个透传的 Header 值，大小写不敏感 |
+| `ForwardHeadersFromContext(ctx) map[string]string` | 取全部透传的 Header（拷贝） |
+| `Transport{Next}` | `http.RoundTripper`：把目标 Host 写进 ctx，`ForwardHeaderRules` 才能按域名生效。xhttp 已经包好，自己的 `http.Client` 才要用 |
+| `New(ctx, cfg, procs...) (*Tracing, io.Closer, error)` | 纯构造器：不碰全局，`(*Tracing).Install()` 才装成进程级的 |
+
+## 注意事项
 
 - **框架不内置任何 exporter**：不 `AddSpanProcessor` 的话 Span 照样生成、`trace_id` 照样进日志，只是不上报。本地调试开 `Console: true`。
 - **透传 Header 和 `baggage` 只收可信对端的**：直连对端在 `XGin.TrustedProxies` 里才收。`TrustedProxies` 默认只信私有网段
@@ -76,34 +80,16 @@ XGin:
 - **有上游时一律听上游的 sampled 位**，`SampleRatio: 1` 也不例外。`SampleRatio: 0` 是不采样但照常生成、透传 TraceID；
   连 Span 都不要用 `Enable: false`。
 - **`service.name`** 取 `XApp.Name`，环境变量 `OTEL_RESOURCE_ATTRIBUTES` / `OTEL_SERVICE_NAME` 压过它。见[「行为与实测」](#行为与实测)。
-- `ForwardHeaderRules` 的 `Domains` 只认 `api.internal.com` 和 `*.trusted.com` 两种写法，`*.trusted.com` 不匹配裸域。
 
-## 配置
+## 可观测
 
-装好 OpenTelemetry 的全局 TracerProvider 和 Propagator，业务代码用原生的 `otel.Tracer("...")`。
-框架不内置任何上报 exporter，需要上报的服务自己 `xtrace.AddSpanProcessor(...)`。
+### 日志
 
-```yaml
-XTrace:
-  Enable: true             # 默认开。关掉后没有 Span，traceparent / baggage 也不再透传，ForwardHeaders 照常
-  Console: false           # 把 Span 打到标准输出，本地调试用，默认关
-  SampleRatio: 1           # 根 Span 的采样率 [0, 1]；有上游时一律听上游的 sampled 位
-  ShutdownTimeout: 5s      # 退出时等导出完成的上限，必须 > 0，同时不超过框架的停止预算
-  ForwardHeaders:          # 向所有下游透传的 Header，默认无
-    - X-Request-Id
-  ForwardHeaderRules:      # 只发给匹配域名的 Header，默认无
-    - Domains: ["api.internal.com", "*.trusted.com"]
-      Headers: ["X-Internal-Token"]
-```
+| 消息 | 级别 | 字段 |
+|---|---|---|
+| `xtrace ignored forward headers from an untrusted peer, …` | WARN | 整个进程只打一次 |
 
-- **透传的 Header 和 `baggage` 只收可信对端发来的**：直连对端在 `XGin.TrustedProxies` 里才收。`TrustedProxies`
-  默认只信私有网段，公网直连的不收。`traceparent` / `b3` 谁发来的都接。细节见
-  [observability.md「传播与信任边界」](../docs/observability.md#传播与信任边界)。
-- `XGin.Trace` / `XHttp.Trace` 只管开不开 Span，关掉之后透传照常。
-- `SampleRatio: 0` 是「不采样但照常生成、透传 TraceID」；要连 Span 都不产生用 `Enable: false`。
-- `Domains` 只认 `api.internal.com` 和 `*.trusted.com` 两种写法；`*.trusted.com` 匹配任意层级子域、**不匹配裸域**。
-  其余带 `*` 的写法、同一个 header 同时出现在 `ForwardHeaders` 和 `ForwardHeaderRules` 里，都在读配置时失败。
-- `AddSpanProcessor` 登记的处理器在 `Enable: false` 时收不到 Span，退出时照样被 Shutdown。
+日志的全局约定（`trace_id` 注入、`xlog.AddKV`、框架的启停日志）见 [`docs/observability.md`](../docs/observability.md#日志)。
 
 ## 行为与实测
 
@@ -127,13 +113,3 @@ OTel SDK v1.46.0、otelhttp v0.71.0。
 
 **`*trusted.com` 这类通配**：原样照字面后缀匹配的话 `*trusted.com` 会匹配 `eviltrusted.com`，
 一个谁都能注册的域名就拿到了内部令牌。所以 `Domains` 只认 `api.internal.com` 和 `*.trusted.com` 两种写法。
-
-## 可观测
-
-### 日志
-
-| 消息 | 级别 | 字段 |
-|---|---|---|
-| `xtrace ignored forward headers from an untrusted peer, …` | WARN | 整个进程只打一次 |
-
-日志的全局约定（`trace_id` 注入、`xlog.AddKV`、框架的启停日志）见 [`docs/observability.md`](../docs/observability.md#日志)。

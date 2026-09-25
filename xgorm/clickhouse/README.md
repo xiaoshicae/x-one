@@ -1,66 +1,41 @@
-# xgorm/clickhouse —— ClickHouse 驱动
+# xgorm/clickhouse
 
-给 [xgorm](../README.md) 加 ClickHouse 驱动：匿名 import 一行，配置里写 `Driver: clickhouse`，拿到的仍是原生 `*gorm.DB`。
-其余配置项、多实例、日志、指标、Span 都和 xgorm 一样。
+给 [xgorm](../README.md) 加 ClickHouse 驱动：匿名 import 一行、配置里写 `Driver: clickhouse`，拿到的仍是原生 `*gorm.DB`。
+
+- 配置项、多实例、日志、指标、Span 都和 xgorm 一样
+- 独立 module：ClickHouse 驱动多带进 60 多个模块，不用它的应用不必背（见 [architecture.md](../../docs/architecture.md#二每个集成是独立的-go-module)）
+- DSN 认 `clickhouse://` / `tcp://`（native 协议）和 `http://` / `https://`
+- TLS 块对 native 和 `https://` 都生效
+- 解析错误一律不回显 DSN（原始错误里带着明文密码）
 
 ## 快速上手
-
-```go
-package stats
-
-import (
-	"context"
-	"time"
-
-	"github.com/xiaoshicae/x-one/xgorm"
-	_ "github.com/xiaoshicae/x-one/xgorm/clickhouse" // 注册驱动，代码里不直接调它
-)
-
-type PageViews struct {
-	Path  string
-	Views uint64
-}
-
-func TopPages(ctx context.Context) ([]PageViews, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second) // 截止时间要比 read_timeout 短，见「重点」
-	defer cancel()
-
-	var out []PageViews
-	err := xgorm.CWithCtx(ctx, "events").
-		Raw("SELECT path, count() AS views FROM page_views WHERE day = today() GROUP BY path ORDER BY views DESC LIMIT 10").
-		Scan(&out).Error
-	return out, err
-}
-```
 
 ```yaml
 # conf/application.yml
 XGorm:
   Clients:
-    default: {DSN: "${DB_DSN}"}                                 # PostgreSQL
-    events:  {Driver: clickhouse, DSN: "${CH_DSN}"}             # clickhouse://user:pass@ch:9000/analytics
+    default: {DSN: "${DB_DSN}"}                     # PostgreSQL
+    events:  {Driver: clickhouse, DSN: "${CH_DSN}"} # clickhouse://user:pass@ch:9000/analytics
 ```
-
-## 重点
-
-- **`read_timeout` 没写时是 300s，而且管的是一整段读**：健康的长查询也会被它打断；读超时的查询会被 `database/sql` 重发，一共发 3 次。
-  **给查询的截止时间要比 `read_timeout` 短**。见[「行为与实测」](#行为与实测)。
-- **新建连接不听 ctx**：拨号和握手只按 `dial_timeout`（`DialTimeout`，默认 500ms）。
-- 驱动对写入报的影响行数永远是 0。
-- DSN 必须是 `clickhouse://` / `tcp://` / `http://` / `https://` 的 URL；DSN 是 `http://` 时开着 TLS 块启动失败。
-- 驱动名写错或忘了 import 时启动失败：`unknown Driver="clickhouse", registered: [mysql postgres]`。
-
-## 配置
-
-mysql 和 postgres 内置，其余驱动住在自己的 module 里（ClickHouse 驱动多带进 60 多个模块，见 [architecture.md](../../docs/architecture.md#二每个集成是独立的-go-module)）。
-匿名 import 一行就注册好：
 
 ```go
 import (
 	"github.com/xiaoshicae/x-one/xgorm"
-	_ "github.com/xiaoshicae/x-one/xgorm/clickhouse"
+	_ "github.com/xiaoshicae/x-one/xgorm/clickhouse" // 注册驱动，代码里不直接调它
 )
+
+ctx, cancel := context.WithTimeout(ctx, 10*time.Second) // 截止时间要比 read_timeout 短，见「注意事项」
+defer cancel()
+
+var out []PageViews
+err := xgorm.CWithCtx(ctx, "events").
+	Raw("SELECT path, count() AS views FROM page_views WHERE day = today() GROUP BY path ORDER BY views DESC LIMIT 10").
+	Scan(&out).Error
 ```
+
+## 配置
+
+只列 ClickHouse 相关的；其余字段、多实例写法见 [xgorm「配置」](../README.md#配置)。
 
 ```yaml
 XGorm:
@@ -69,12 +44,24 @@ XGorm:
   DialTimeout: 500ms       # 注入 DSN 的 dial_timeout，DSN 里已写的不覆盖
 ```
 
-- 拿到的仍是原生 `*gorm.DB`，配置项和多实例写法都一样。驱动名写错或忘了 import 时启动失败，错误里列出已注册的（`xgorm.Drivers()`）。
-- DSN 必须是上面四种 scheme 之一的 URL；解析错误一律不回显 DSN（原始错误里带着明文密码）。
-- `read_timeout` 没写时是 300s，而且管的是**一整段读**，健康的长查询也会被它打断；读超时的查询会被重发三次。
-  给查询的截止时间要比 `read_timeout` 短。见 [「行为与实测」](#行为与实测)。
-- TLS 块对 native 和 `https://` 都生效（`https://` 不必再写 `secure=true`）；DSN 是 `http://` 时开着 TLS 块启动失败。
-- 自己写驱动：在 `xgorm.RegisterDialect` 注册的 `Dialect` 里提供 `OpenTLS` 才收 TLS 块，否则配了 TLS 块就启动失败。
+- `https://` 不必再写 `secure=true`；TLS 规则见 [xtls](../../xtls/README.md)。
+
+## API
+
+| 名字 | 说明 |
+|---|---|
+| `Driver` | 常量 `"clickhouse"`，即配置里 `Driver` 要写的值。包在 `init` 里自己注册，取实例照样用 `xgorm.C` / `xgorm.CWithCtx` |
+
+自己写驱动：在 `xgorm.RegisterDialect` 注册的 `Dialect` 里提供 `OpenTLS` 才收 TLS 块，否则配了 TLS 块就启动失败。
+
+## 注意事项
+
+- **`read_timeout` 没写时是 300s，而且管的是一整段读**：健康的长查询也会被它打断；读超时的查询会被 `database/sql` 重发，一共发 3 次。
+  **给查询的截止时间要比 `read_timeout` 短**。见[「行为与实测」](#行为与实测)。
+- **新建连接不听 ctx**：拨号和握手只按 `dial_timeout`（`DialTimeout`，默认 500ms）。
+- 驱动对写入报的影响行数永远是 0。
+- DSN 必须是上面四种 scheme 之一的 URL；DSN 是 `http://` 时开着 TLS 块启动失败。
+- 驱动名写错或忘了 import 时启动失败：`unknown Driver="clickhouse", registered: [mysql postgres]`，列出的就是 `xgorm.Drivers()`。
 
 ## 行为与实测
 
