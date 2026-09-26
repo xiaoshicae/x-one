@@ -10,11 +10,11 @@ mutate("关闭时清掉空闲连接", "xhttp/xhttp.go", "./xhttp", "TestNew",
 mutate("重试耗时算整次逻辑请求", "xhttp/metric.go", "./xhttp", "TestMetric",
        swap('elapsed(resp.Request, resp.Time())','resp.Time()'))
 # 调用点：字段在 Config 里、Validate 里都有，没赋给 Transport 就是一句空话
-mutate("MaxConnsPerHost 传给连接池", "xhttp/xhttp.go", "./xhttp", "TestNew_每host连接数上限生效",
+mutate("MaxConnsPerHost 传给连接池", "xhttp/xhttp.go", "./xhttp", "TestNew_MaxConnsPerHostApplied",
        swap('\tt.MaxConnsPerHost = cfg.MaxConnsPerHost\n', ''))
 mutate("MaxConnsPerHost 为负要被拦住", "xhttp/config.go", "./xhttp", "TestValidate",
        swap(' || c.MaxConnsPerHost < 0 {', ' {'))
-mutate("XHttp 校验 TLS 块", "xhttp/config.go", "./xhttp", "TestValidate_TLS块",
+mutate("XHttp 校验 TLS 块", "xhttp/config.go", "./xhttp", "TestValidate_TLSBlock",
        swap('\treturn c.TLS.Validate()\n}', '\treturn nil\n}'))
 mutate("XHttp 的 TLS 块交给连接池", "xhttp/xhttp.go", "./xhttp", "TestNew_TLS",
        swap('\t\tt.TLSClientConfig = tlsCfg\n', ''))
@@ -24,26 +24,26 @@ mutate("负的时长要被拦住", "xhttp/config.go", "./xhttp", "TestInitXHttp|
        swap('\t\tif d.val < 0 {', '\t\tif false {'))
 mutate("XHttp 块在读配置时就校验", "xhttp/xhttp.go", "./xhttp", "TestInitXHttp",
        swap('xconfig.Unmarshal(ConfigKey, &c)', 'func() error { type raw Config; return xconfig.Unmarshal(ConfigKey, (*raw)(&c)) }()'))
-mutate("直接调 xhttp.New 也校验", "xhttp/xhttp.go", "./xhttp", "TestNew_直接调",
+mutate("直接调 xhttp.New 也校验", "xhttp/xhttp.go", "./xhttp", "TestNew_DirectCallAlsoValidatesConfig",
        swap('\tif err := cfg.Validate(); err != nil {', '\tif err := cfg.Validate(); false && err != nil {'))
 # resty 的默认 logger 绕开 slog 直写 stderr，重试失败时连查询串里的令牌一起打
 # XHttp.Trace 只管 Span。原先关掉它连注入一起摘了，透传头和 traceparent 断在这一跳
-mutate("XHttp.Trace 关掉照样注入链路标识和透传头", "xhttp/xhttp.go", "./xhttp", "TestNew_关掉Trace",
+mutate("XHttp.Trace 关掉照样注入链路标识和透传头", "xhttp/xhttp.go", "./xhttp", "TestNew_TraceOff",
        swap('next := http.RoundTripper(propagateOnly{next: pool})', 'next := pool'))
-mutate("XHttp.Trace 关掉照样按域名透传", "xhttp/xhttp.go", "./xhttp", "TestNew_关掉Trace",
+mutate("XHttp.Trace 关掉照样按域名透传", "xhttp/xhttp.go", "./xhttp", "TestNew_TraceOff",
        swap('\treturn &xtrace.Transport{Next: next}\n', '\tif !cfg.Trace {\n\t\treturn next\n\t}\n\treturn &xtrace.Transport{Next: next}\n'))
-mutate("只注入那一层不改调用方的请求", "xhttp/xhttp.go", "./xhttp", "TestNew_关掉Trace",
+mutate("只注入那一层不改调用方的请求", "xhttp/xhttp.go", "./xhttp", "TestNew_TraceOff",
        swap('\tr = r.Clone(r.Context())\n', ''))
-mutate("只注入那一层转发 CloseIdleConnections", "xhttp/xhttp.go", "./xhttp", "TestNew_关掉Trace",
+mutate("只注入那一层转发 CloseIdleConnections", "xhttp/xhttp.go", "./xhttp", "TestNew_TraceOff",
        swap('func (p propagateOnly) CloseIdleConnections() {', 'func (p propagateOnly) closeIdleConnections() {'))
 # 方法是自由 token，照抄进标签的话谁都能把时间序列撑爆。打在两个调用点上
 mutate("出站指标的 method 标签收敛", "xhttp/metric.go", "./xhttp", "TestMetric",
        swap('normalizeMethod(raw.Method)', 'raw.Method', 2))
-mutate("出站指标注册失败不让 New 失败", "xhttp/xhttp.go", "./xhttp", "TestNew_指标注册失败",
+mutate("出站指标注册失败不让 New 失败", "xhttp/xhttp.go", "./xhttp", "TestNew_MetricRegisterFailureOnlyLogs_ClientStillUsable",
        swap('\t\t\tslog.Error("xhttp failed to register the request duration metric', '\t\t\treturn nil, nil, err\n\t\t\tslog.Error("xhttp failed to register the request duration metric'))
-mutate("resty 自己的日志走 slog", "xhttp/xhttp.go", "./xhttp", "TestNew_resty",
+mutate("resty 自己的日志走 slog", "xhttp/xhttp.go", "./xhttp", "TestNew_RestyLogsGoToSlogWithoutQuery",
        swap('return resty.NewWithClient(hc).SetLogger(restyLogger{})', 'return resty.NewWithClient(hc)'))
-mutate("resty 日志去掉查询串", "xhttp/xhttp.go", "./xhttp", "TestNew_resty",
+mutate("resty 日志去掉查询串", "xhttp/xhttp.go", "./xhttp", "TestNew_RestyLogsGoToSlogWithoutQuery",
        swap('"detail", stripQuery(fmt.Sprintf(format, v...))', '"detail", fmt.Sprintf(format, v...)'))
 # otelhttp 只去掉 user:password，查询串原样写进 url.full
 mutate("出站 Span 的 url.full 不带查询串", "xhttp/xhttp.go", "./xhttp", "TestTransport_Span",

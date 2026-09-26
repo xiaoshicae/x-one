@@ -18,7 +18,7 @@ import (
 //	${VAR}               必填，未设置则启动失败
 //
 // 写错的那一项用 Options.Overlay 叠上去（一份 profile），和生产上的写法一样
-func TestFunctional_配置写错时启动失败并点名是哪一项(t *testing.T) {
+func TestFunctional_BadConfigFailsStartupAndNamesTheField(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 

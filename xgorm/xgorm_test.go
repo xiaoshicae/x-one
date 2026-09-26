@@ -47,7 +47,7 @@ func deadAddr(t *testing.T) string {
 	return addr
 }
 
-func TestNew_连不上时不漏协程(t *testing.T) {
+func TestNew_NoGoroutineLeakWhenUnreachable(t *testing.T) {
 	// New 失败之后不该留下活着的连接池：database/sql 的 opener 协程
 	// 只在 Close 时退出，漏一个就是一个再也不会走的常驻协程。
 	//
@@ -79,7 +79,7 @@ func TestNew_连不上时不漏协程(t *testing.T) {
 	}
 }
 
-func TestNew_失败信息里有地址没有密码(t *testing.T) {
+func TestNew_ErrorHasAddrButNoPassword(t *testing.T) {
 	addr := deadAddr(t)
 	c := DefaultClientConfig()
 	c.Driver = DriverMySQL
@@ -99,7 +99,7 @@ func TestNew_失败信息里有地址没有密码(t *testing.T) {
 	}
 }
 
-func TestNew_配置有误时不建连(t *testing.T) {
+func TestNew_NoConnectOnBadConfig(t *testing.T) {
 	c := DefaultClientConfig() // 没有 DSN
 	_, _, err := New(context.Background(), c)
 	if err == nil {
@@ -153,7 +153,7 @@ func resolvedProbeTimeout(t *testing.T, c ClientConfig) time.Duration {
 	return probeTimeout(c, info)
 }
 
-func TestProbeTimeout_DSN里写的超时更长时预算跟着放宽(t *testing.T) {
+func TestProbeTimeout_DSNLongerTimeoutWidensBudget(t *testing.T) {
 	// 配置里的超时只是注入 DSN 的默认值。DSN 里写了更长的，驱动就会等那么久，
 	// 预算还按配置算的话，一次慢但合法的建连会在驱动放弃之前被我们判超时
 	for _, c := range []struct {
@@ -173,7 +173,7 @@ func TestProbeTimeout_DSN里写的超时更长时预算跟着放宽(t *testing.T
 	}
 }
 
-func TestProbe_重试后仍失败(t *testing.T) {
+func TestProbe_FailsAfterRetries(t *testing.T) {
 	// 重试要真的重试，也要在预算内结束——启动期卡死比连不上更难查
 	pool, err := sql.Open("mysql", "u:p@tcp("+deadAddr(t)+")/app?timeout=30ms")
 	if err != nil {
@@ -224,7 +224,7 @@ func publish(t *testing.T, insts map[string]instance) {
 	t.Cleanup(func() { _ = xclient.Build(context.Background(), reg, nil, keep) })
 }
 
-func TestC_取不到就panic(t *testing.T) {
+func TestC_PanicsWhenMissing(t *testing.T) {
 	// 返回 nil 只是把同一个 panic 推迟到调用方第一次用它的时候，
 	// 那里的栈里只剩 invalid memory address，看不出根因是配置没配
 	withClients(t, map[string]*gorm.DB{})
@@ -242,7 +242,7 @@ func TestC_取不到就panic(t *testing.T) {
 	C()
 }
 
-func TestC_panic信息列出已配置的实例(t *testing.T) {
+func TestC_PanicListsConfiguredInstances(t *testing.T) {
 	// 名字写错和整块没配是两个不同的问题，列出实际配了哪些，两者一眼可分
 	withClients(t, map[string]*gorm.DB{"main": {}, "report": {}})
 
@@ -269,7 +269,7 @@ func TestHasNames(t *testing.T) {
 	}
 }
 
-func TestRegister_登记内容与框架对得上(t *testing.T) {
+func TestRegister_MatchesFramework(t *testing.T) {
 	// 这是本包和框架之间唯一的一根线：钩子漏登记、档位挂错，
 	// 表现是「配置不生效」或者「实例比用它的东西晚就绪」，别处都测不出来
 	var got *hook.Entry
@@ -301,7 +301,7 @@ func TestRegister_登记内容与框架对得上(t *testing.T) {
 	}
 }
 
-func TestInitAll_没配就什么都不做(t *testing.T) {
+func TestInitAll_NoopWithoutConfig(t *testing.T) {
 	err := initComponent(t, DefaultConfig())
 	if err != nil {
 		t.Fatalf("没配 XGorm 不该报错：%v", err)
@@ -314,7 +314,7 @@ func TestInitAll_没配就什么都不做(t *testing.T) {
 	}
 }
 
-func TestInitAll_一个失败就全部回滚(t *testing.T) {
+func TestInitAll_OneFailureRollsBackAll(t *testing.T) {
 	// Init 返回错误时框架拿不到 closer，已经建好的必须自己收拾，否则漏连接池
 	bad := DefaultClientConfig()
 	bad.Driver, bad.DSN = DriverMySQL, "u:p@tcp("+deadAddr(t)+")/app"
@@ -334,7 +334,7 @@ func TestInitAll_一个失败就全部回滚(t *testing.T) {
 	}
 }
 
-func TestInstallPoolMetrics_挂多次只注册一次(t *testing.T) {
+func TestInstallPoolMetrics_RegistersOnceWhenCalledTwice(t *testing.T) {
 	// 每个开了指标的实例都会调它一次，而 collector 是进程级的一个：
 	// 第二次注册 Prometheus 会报 duplicate，这套指标从此一个都导不出去
 	m, closer, err := xmetric.New(xmetric.Config{})
@@ -366,7 +366,7 @@ func TestCWithCtx(t *testing.T) {
 	}
 }
 
-func TestSettle_能看见泄漏的连接池(t *testing.T) {
+func TestSettle_DetectsLeakedPool(t *testing.T) {
 	// 先验证这把尺子是准的：上一版读数没等协程退出、阈值又放到 +2，
 	// 于是「不漏协程」那条测试怎么改都通过——一条永远不会失败的测试
 	// 比没有测试更糟，它让人以为查过了。
@@ -399,7 +399,7 @@ func TestSettle_能看见泄漏的连接池(t *testing.T) {
 	}
 }
 
-func TestNew_ctx已取消时首次建连也当场放弃(t *testing.T) {
+func TestNew_CtxCanceledAbortsFirstConnect(t *testing.T) {
 	// GORM 自带的那次 ping 用的是它自己的 context，我们的退出信号管不到。
 	// 开着的话，连一个不可达地址时这里会先干等满 DSN 的 connect_timeout
 	c := DefaultClientConfig()
@@ -419,7 +419,7 @@ func TestNew_ctx已取消时首次建连也当场放弃(t *testing.T) {
 	}
 }
 
-func TestNew_Log关掉时SQL错误不会漏到标准输出(t *testing.T) {
+func TestNew_LogOffKeepsSQLErrorsOffStdout(t *testing.T) {
 	// 不给 gormCfg.Logger 的话，gorm.Open 会补上 logger.Default，
 	// 而那个默认实现是「带 ANSI 颜色地往 os.Stdout 写」：
 	// 慢 SQL 和执行错误照样打，只是绕开了 slog——没有级别、没有 TraceID、
@@ -466,7 +466,7 @@ func (d loggingDialector) BindVarTo(clause.Writer, *gorm.Statement, any) {}
 func (d loggingDialector) QuoteTo(clause.Writer, string)                 {}
 func (d loggingDialector) Explain(sql string, _ ...any) string           { return sql }
 
-func TestResolveDSN_PG密码里的参数名骗不过它(t *testing.T) {
+func TestResolveDSN_PGParamNameInPasswordNotMistaken(t *testing.T) {
 	// 曾经用正则扫 key= 判断写没写过，于是密码里出现 connect_timeout= 就能骗过它，
 	// DialTimeout 这项配置悄悄失效——没有任何迹象
 	cases := []struct {
@@ -503,7 +503,7 @@ func initComponent(t *testing.T, c Config) error {
 	return install(context.Background(), c)
 }
 
-func TestInitXGorm_没写这一块就一个连接都不建(t *testing.T) {
+func TestInitXGorm_NoSectionConnectsNothing(t *testing.T) {
 	// xgorm 是可选依赖：没配不该让服务起不来，更不该去连一个默认地址
 	t.Cleanup(func() { _ = closeXGorm(context.Background()) })
 	xonetest.UseConfigYAML(t, "XApp:\n  Name: demo\n")
@@ -516,7 +516,7 @@ func TestInitXGorm_没写这一块就一个连接都不建(t *testing.T) {
 	}
 }
 
-func TestInitXGorm_写了空块也不建(t *testing.T) {
+func TestInitXGorm_EmptySectionConnectsNothing(t *testing.T) {
 	t.Cleanup(func() { _ = closeXGorm(context.Background()) })
 	xonetest.UseConfigYAML(t, "XGorm:\n")
 
@@ -528,7 +528,7 @@ func TestInitXGorm_写了空块也不建(t *testing.T) {
 	}
 }
 
-func TestInitXGorm_配置写错时启动失败(t *testing.T) {
+func TestInitXGorm_BadConfigFailsStartup(t *testing.T) {
 	t.Cleanup(func() { _ = closeXGorm(context.Background()) })
 	xonetest.UseConfigYAML(t, "XGorm:\n  DS: \"host=127.0.0.1\"\n")
 
@@ -540,7 +540,7 @@ func TestInitXGorm_配置写错时启动失败(t *testing.T) {
 	}
 }
 
-func TestInitXGorm_配置读到了实例上(t *testing.T) {
+func TestInitXGorm_ConfigAppliedToInstance(t *testing.T) {
 	// 连不上是预期的——这里要的是错误里出现配置文件里写的那个实例名和地址，
 	// 证明这一段配置确实走到了建连那一步，而不是在哪里被丢掉了
 	t.Cleanup(func() { _ = closeXGorm(context.Background()) })
@@ -559,13 +559,13 @@ func TestInitXGorm_配置读到了实例上(t *testing.T) {
 	}
 }
 
-func TestCloseXGorm_没建过也能关(t *testing.T) {
+func TestCloseXGorm_SafeWithoutBuild(t *testing.T) {
 	if err := closeXGorm(context.Background()); err != nil {
 		t.Errorf("want nil, got %v", err)
 	}
 }
 
-func TestPoolCloser_关掉的是底层连接池(t *testing.T) {
+func TestPoolCloser_ClosesUnderlyingPool(t *testing.T) {
 	// Closer 直接持有 *sql.DB，不绕回 gorm.DB.DB()：后者在实例已经出问题时
 	// 会返回错误，于是连接池就再也关不掉了
 	pool, err := sql.Open("mysql", "u:p@tcp(127.0.0.1:1)/app")
@@ -582,7 +582,7 @@ func TestPoolCloser_关掉的是底层连接池(t *testing.T) {
 	}
 }
 
-func TestPoolCloser_关失败时错误里有地址没有密码(t *testing.T) {
+func TestPoolCloser_CloseErrorHasAddrButNoPassword(t *testing.T) {
 	// 出错信息会进日志和告警，凭证不能跟着出去
 	pool, err := sql.Open("mysql", "u:p@tcp(127.0.0.1:1)/app")
 	if err != nil {
@@ -621,7 +621,7 @@ func assertOneFrame(t *testing.T, err error, module, op string) {
 	}
 }
 
-func TestNew_错误只包一层且op如实(t *testing.T) {
+func TestNew_ErrorWrappedOnceWithAccurateOp(t *testing.T) {
 	c := DefaultClientConfig()
 	assertOneFrame(t, func() error { _, _, err := New(context.Background(), c); return err }(), "xgorm", "config")
 
@@ -629,7 +629,7 @@ func TestNew_错误只包一层且op如实(t *testing.T) {
 	assertOneFrame(t, func() error { _, _, err := New(context.Background(), c); return err }(), "xgorm", "config")
 }
 
-func TestInstall_错误只包一层且op如实(t *testing.T) {
+func TestInstall_ErrorWrappedOnceWithAccurateOp(t *testing.T) {
 	// 经 Build 出来的错误要点名实例，但不能再套一层 new 把 config / connect 压下去
 	bad := DefaultClientConfig()
 	bad.Driver, bad.DSN = DriverMySQL, "u:p@tcp(127.0.0.1:1/app"
@@ -646,7 +646,7 @@ func TestInstall_错误只包一层且op如实(t *testing.T) {
 	}
 }
 
-func TestInitXGorm_没配时C说的是没配而不是调早了(t *testing.T) {
+func TestInitXGorm_CSaysNotConfiguredRatherThanTooEarly(t *testing.T) {
 	// 没配也要让注册表知道启动钩子跑过了。否则 C() 会把「没配」说成「调早了」，
 	// 使用者会去查调用时机，而真正该查的是配置文件
 	t.Cleanup(func() { _ = closeXGorm(context.Background()) })
@@ -663,7 +663,7 @@ func TestInitXGorm_没配时C说的是没配而不是调早了(t *testing.T) {
 	C()
 }
 
-func TestInstall_建连日志写着是哪个实例(t *testing.T) {
+func TestInstall_ConnectLogNamesInstance(t *testing.T) {
 	// 多实例时 addr / db 分不出是哪一个（report 和 default 可能连的是同一个库）
 	withDialect(t, Dialect{Name: "namedb", Open: func(string) gorm.Dialector { return okDialector{} }})
 	c := DefaultClientConfig()
@@ -704,7 +704,7 @@ func TestInstall_建连日志写着是哪个实例(t *testing.T) {
 	}
 }
 
-func TestNew_认证失败认不认得由方言决定(t *testing.T) {
+func TestNew_DialectDecidesAuthFailureRecognition(t *testing.T) {
 	// 认证失败的识别挪进了各自的方言：没提供 AuthFailed 的方言，
 	// 同一个 28P01 照常重试、报连不上——核心里不再有按驱动名分支的判断
 	rejected := &pgconn.PgError{Severity: "FATAL", Code: "28P01", Message: "password authentication failed"}

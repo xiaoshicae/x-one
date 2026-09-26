@@ -13,7 +13,7 @@ import (
 
 // handler panic：xgin 的 Recover 兜住，记一条 Error 日志（带栈和 trace_id），回 500，
 // 进程照常服务。xgin/middleware/middleware.go：「兜住 panic，把它变成一条错误日志和一个 500」
-func TestFunctional_panic返回500且进程不崩(t *testing.T) {
+func TestFunctional_PanicReturns500AndProcessSurvives(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
@@ -82,7 +82,7 @@ func TestFunctional_panic返回500且进程不崩(t *testing.T) {
 //
 // 「第 1 步真的做过、又真的被回滚了」光看最终 PG 里没有这一行证明不了（也可能根本没插），
 // 所以另看这条链路上的 SQL Span：先有 INSERT，后有 DELETE
-func TestFunctional_xflow强依赖失败时逆序回滚已完成的步骤(t *testing.T) {
+func TestFunctional_XflowStrongDepFailureRollsBackDoneStepsInReverse(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 

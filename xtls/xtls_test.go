@@ -97,7 +97,7 @@ func handshake(t *testing.T, srv, client *tls.Config) (uint16, error) {
 	return conn.ConnectionState().Version, nil
 }
 
-func TestValidate_说不通的组合在读配置时就失败(t *testing.T) {
+func TestValidate_NonsensicalCombosFailAtConfigRead(t *testing.T) {
 	for name, c := range map[string]Config{
 		"没开却写了 CAFile":     {CAFile: "ca.pem"},
 		"没开却写了 ServerName": {ServerName: "db.internal"},
@@ -120,20 +120,20 @@ func TestValidate_说不通的组合在读配置时就失败(t *testing.T) {
 	}
 }
 
-func TestBuild_没开就是nil(t *testing.T) {
+func TestBuild_NilWhenDisabled(t *testing.T) {
 	cfg, err := Config{}.Build()
 	if cfg != nil || err != nil {
 		t.Fatalf("没开 TLS 应返回 nil, nil，got=%v, %v", cfg, err)
 	}
 }
 
-func TestBuild_没开却写了字段照样报错(t *testing.T) {
+func TestBuild_ErrorsOnFieldsSetWhileDisabled(t *testing.T) {
 	if _, err := (Config{CAFile: "ca.pem"}).Build(); err == nil {
 		t.Fatal("Build 也要先查一遍：直接调它的人拿不到一个悄悄走明文的 nil")
 	}
 }
 
-func TestBuild_最低TLS12且不跳过校验(t *testing.T) {
+func TestBuild_MinTLS12AndVerifies(t *testing.T) {
 	p := newPKI(t)
 	cfg, err := Config{Enable: true, CAFile: p.caFile, ServerName: "svc.internal"}.Build()
 	if err != nil {
@@ -156,7 +156,7 @@ func TestBuild_最低TLS12且不跳过校验(t *testing.T) {
 	}
 }
 
-func TestBuild_CAFile认得自签证书(t *testing.T) {
+func TestBuild_CAFileTrustsSelfSignedCert(t *testing.T) {
 	p := newPKI(t)
 	srv := &tls.Config{Certificates: []tls.Certificate{p.server}}
 	cases := []struct {
@@ -182,7 +182,7 @@ func TestBuild_CAFile认得自签证书(t *testing.T) {
 	}
 }
 
-func TestBuild_客户端证书(t *testing.T) {
+func TestBuild_ClientCert(t *testing.T) {
 	p := newPKI(t)
 	srv := &tls.Config{
 		Certificates: []tls.Certificate{p.server},
@@ -200,7 +200,7 @@ func TestBuild_客户端证书(t *testing.T) {
 	}
 }
 
-func TestBuild_文件读不出来就报错(t *testing.T) {
+func TestBuild_ErrorsOnUnreadableFile(t *testing.T) {
 	p := newPKI(t)
 	missing := filepath.Join(t.TempDir(), "nope.pem")
 	junk := filepath.Join(t.TempDir(), "junk.pem")

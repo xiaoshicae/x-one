@@ -36,7 +36,7 @@ func decode(t *testing.T, src string, v any) error {
 	return DecodeStrict(n.Content[0], v)
 }
 
-func TestDecodeStrict_未知字段是错误(t *testing.T) {
+func TestDecodeStrict_UnknownFieldIsError(t *testing.T) {
 	var got item
 	err := decode(t, "A: x\nZZZ: 1\n", &got)
 	if err == nil {
@@ -47,7 +47,7 @@ func TestDecodeStrict_未知字段是错误(t *testing.T) {
 	}
 }
 
-func TestDecodeStrict_集合元素也保留严格检查(t *testing.T) {
+func TestDecodeStrict_CollectionElementsStayStrict(t *testing.T) {
 	// 这是本包存在的理由：元素类型自己写 UnmarshalYAML 铺默认值时，
 	// 如果图省事用 node.Decode，严格检查就在集合里悄悄失效了
 	var got map[string]item
@@ -56,7 +56,7 @@ func TestDecodeStrict_集合元素也保留严格检查(t *testing.T) {
 	}
 }
 
-func TestDecodeStrict_默认值铺得上(t *testing.T) {
+func TestDecodeStrict_DefaultsApplied(t *testing.T) {
 	var got map[string]item
 	if err := decode(t, "a:\n  A: x\n", &got); err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func clients(t *testing.T, src string) (map[string]client, error) {
 	return UnmarshalClients("XMod", defClient)
 }
 
-func TestUnmarshalClients_单实例写法(t *testing.T) {
+func TestUnmarshalClients_SingleInstanceForm(t *testing.T) {
 	got, err := clients(t, "Addr: 10.0.0.1\n")
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ func TestUnmarshalClients_单实例写法(t *testing.T) {
 	}
 }
 
-func TestUnmarshalClients_多实例写法(t *testing.T) {
+func TestUnmarshalClients_MultiInstanceForm(t *testing.T) {
 	got, err := clients(t, "Clients:\n  default: {Addr: a}\n  report: {Addr: b, Max: 5}\n")
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestUnmarshalClients_多实例写法(t *testing.T) {
 	}
 }
 
-func TestUnmarshalClients_多实例只写了名字也拿到默认值(t *testing.T) {
+func TestUnmarshalClients_NameOnlyInstanceGetsDefaults(t *testing.T) {
 	// report: 后面什么都没写，是「这个实例全用默认值」，不是「这个实例全是零值」
 	got, err := clients(t, "Clients:\n  default: {Addr: a}\n  report:\n")
 	if err != nil {
@@ -129,7 +129,7 @@ func TestUnmarshalClients_多实例只写了名字也拿到默认值(t *testing.
 	}
 }
 
-func TestUnmarshalClients_实例里拼错时点名是哪个实例(t *testing.T) {
+func TestUnmarshalClients_TypoInInstanceNamesTheInstance(t *testing.T) {
 	_, err := clients(t, "Clients:\n  a: {Addr: x}\n  b: {Adrr: y}\n")
 	if err == nil {
 		t.Fatal("拼错应当报错")
@@ -139,7 +139,7 @@ func TestUnmarshalClients_实例里拼错时点名是哪个实例(t *testing.T) 
 	}
 }
 
-func TestUnmarshalClients_两种写法不能混用(t *testing.T) {
+func TestUnmarshalClients_FormsCannotBeMixed(t *testing.T) {
 	// 混着写时「default 到底是哪个」没有不让人意外的答案
 	_, err := clients(t, "Addr: a\nClients:\n  x: {Addr: b}\n")
 	if err == nil {
@@ -154,7 +154,7 @@ func TestUnmarshalClients_两种写法不能混用(t *testing.T) {
 	}
 }
 
-func TestUnmarshalClients_实例里拼错不该被报成混用(t *testing.T) {
+func TestUnmarshalClients_TypoInInstanceNotReportedAsMixing(t *testing.T) {
 	// 「不能混用」这句话曾经是套在任何一个解码错误上的：实例里一个字段拼错
 	// （Clients.x.Adrr）报的也是它。那份配置根本没混用，使用者会照着这句话
 	// 去改一个没问题的地方，真正的拼写错误反而被这句提示盖住了。
@@ -173,13 +173,13 @@ func TestUnmarshalClients_实例里拼错不该被报成混用(t *testing.T) {
 	}
 }
 
-func TestUnmarshalClients_空的Clients要报错(t *testing.T) {
+func TestUnmarshalClients_EmptyClientsIsError(t *testing.T) {
 	if _, err := clients(t, "Clients: {}\n"); err == nil {
 		t.Fatal("写了 Clients 却是空的，应当报错")
 	}
 }
 
-func TestUnmarshalClients_拼写错误两种写法都要拦住(t *testing.T) {
+func TestUnmarshalClients_TyposCaughtInBothForms(t *testing.T) {
 	// 集合元素走的是自定义解码器，严格检查很容易在那里悄悄失效
 	if _, err := clients(t, "Adrr: a\n"); err == nil {
 		t.Error("单实例写法里拼错应当报错")
@@ -204,7 +204,7 @@ func (c *modCfg) Validate() error {
 	return nil
 }
 
-func TestUnmarshal_文件里没写的字段保持默认值(t *testing.T) {
+func TestUnmarshal_FieldsNotInFileKeepDefaults(t *testing.T) {
 	// 「默认值预填在结构体里」是整个配置模型的地基：少了它，
 	// 每个字段都得用指针类型来区分「没配」和「配成零值」
 	xonetest.UseConfigYAML(t, "XMod:\n  Retry: 3\n")
@@ -221,7 +221,7 @@ func TestUnmarshal_文件里没写的字段保持默认值(t *testing.T) {
 	}
 }
 
-func TestUnmarshal_整块没配时原样不动(t *testing.T) {
+func TestUnmarshal_AbsentBlockLeavesValueUntouched(t *testing.T) {
 	xonetest.UseConfigYAML(t, "XApp:\n  Name: demo\n")
 
 	c := modCfg{Addr: "127.0.0.1"}
@@ -233,7 +233,7 @@ func TestUnmarshal_整块没配时原样不动(t *testing.T) {
 	}
 }
 
-func TestUnmarshal_未知字段是错误(t *testing.T) {
+func TestUnmarshal_UnknownFieldIsError(t *testing.T) {
 	xonetest.UseConfigYAML(t, "XMod:\n  Adr: 127.0.0.1\n")
 
 	c := modCfg{}
@@ -242,7 +242,7 @@ func TestUnmarshal_未知字段是错误(t *testing.T) {
 	}
 }
 
-func TestUnmarshal_会调一次_Validate(t *testing.T) {
+func TestUnmarshal_CallsValidateOnce(t *testing.T) {
 	// 有些配错不会让初始化失败，只是让某个行为永远走不到，
 	// 那种只能靠 Validate 拦
 	xonetest.UseConfigYAML(t, "XMod:\n  Retry: 1\n")
@@ -269,7 +269,7 @@ func useEnvConf(t *testing.T, yml string) {
 	t.Setenv(config.EnvKey, p)
 }
 
-func TestUnmarshal_还没加载时先加载(t *testing.T) {
+func TestUnmarshal_LoadsFirstIfNotLoaded(t *testing.T) {
 	// 读得早不是错误，也不会静默拿到默认值：第一次读就先加载，
 	// 在 main 里、在 Run 之前读到的都是文件里的最终值
 	useEnvConf(t, "XMod:\n  Retry: 7\n")
@@ -283,7 +283,7 @@ func TestUnmarshal_还没加载时先加载(t *testing.T) {
 	}
 }
 
-func TestHas_区分没配和配了(t *testing.T) {
+func TestHas_DistinguishesUnsetFromSet(t *testing.T) {
 	xonetest.UseConfigYAML(t, "XMod:\n  Retry: 1\nXOther:\n")
 
 	if !Has("XMod") {
@@ -297,14 +297,14 @@ func TestHas_区分没配和配了(t *testing.T) {
 	}
 }
 
-func TestHas_还没加载时先加载(t *testing.T) {
+func TestHas_LoadsFirstIfNotLoaded(t *testing.T) {
 	useEnvConf(t, "XMod:\n  Retry: 1\n")
 	if !Has("XMod") {
 		t.Error("第一次问的时候该先加载，而不是报告没有")
 	}
 }
 
-func TestHas_问过就算认领(t *testing.T) {
+func TestHas_AskingCountsAsClaim(t *testing.T) {
 	// 跳过的那一块不该落在「没人认领」的名单里：可选组件正是靠 Has
 	// 决定跳过的，把它算成没人要会让启动直接失败
 	xonetest.UseConfigYAML(t, "XMod:\n")
@@ -317,7 +317,7 @@ func TestHas_问过就算认领(t *testing.T) {
 	}
 }
 
-func TestUnmarshalClients_实例里拼错时报出配置文件和那一行(t *testing.T) {
+func TestUnmarshalClients_TypoInInstanceReportsFileAndLine(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "application.yml")
 	body := "XMod:\n  Clients:\n    a: {Addr: x}\n    b:\n      Max: 1\n      Adrr: y\n"
 	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
@@ -340,7 +340,7 @@ func TestUnmarshalClients_实例里拼错时报出配置文件和那一行(t *te
 	}
 }
 
-func TestUnmarshalClients_整块没配时返回nil且算认领(t *testing.T) {
+func TestUnmarshalClients_AbsentBlockReturnsNilAndClaims(t *testing.T) {
 	xonetest.UseConfigYAML(t, "XMod:\n")
 	got, err := UnmarshalClients("XMod", defClient)
 	if err != nil || got != nil {
@@ -363,7 +363,7 @@ func (c *checked) Validate() error {
 	return nil
 }
 
-func TestUnmarshalClients_每个实例都调一次Validate(t *testing.T) {
+func TestUnmarshalClients_CallsValidateForEachInstance(t *testing.T) {
 	xonetest.UseConfigYAML(t, "XMod:\n  Clients:\n    a: {Max: 1}\n    b: {Max: 0}\n")
 	_, err := UnmarshalClients("XMod", func() checked { return checked{Max: 1} })
 	// 还要带上这个实例在哪个文件第几行：Validate 自己只说得出字段名

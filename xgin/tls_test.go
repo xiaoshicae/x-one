@@ -141,7 +141,7 @@ func get(p serverPKI, base string, cfg *tls.Config) (string, error) {
 	return string(b), err
 }
 
-func TestValidate_服务端TLS的新字段(t *testing.T) {
+func TestValidate_ServerTLSNewFields(t *testing.T) {
 	bad := map[string]func(*Config){
 		"只配 ClientCAFile 没配证书": func(c *Config) { c.ClientCAFile = "ca.pem" },
 		"MinVersion 写成 1.1":    func(c *Config) { c.MinVersion = "1.1" },
@@ -169,7 +169,7 @@ func TestValidate_服务端TLS的新字段(t *testing.T) {
 	}
 }
 
-func TestStart_ClientCAFile开双向认证(t *testing.T) {
+func TestStart_ClientCAFileEnablesMutualTLS(t *testing.T) {
 	p := newServerPKI(t)
 	base, hits := servingTLS(t, p, func(c *Config) { c.ClientCAFile = p.caFile })
 
@@ -192,7 +192,7 @@ func TestStart_ClientCAFile开双向认证(t *testing.T) {
 	}
 }
 
-func TestStart_没配ClientCAFile就不要客户端证书(t *testing.T) {
+func TestStart_NoClientCertRequiredWithoutClientCAFile(t *testing.T) {
 	p := newServerPKI(t)
 	base, _ := servingTLS(t, p)
 	if cn, err := get(p, base, &tls.Config{}); err != nil || cn != "" {
@@ -222,7 +222,7 @@ func TestStart_MinVersion(t *testing.T) {
 	}
 }
 
-func TestStart_ClientCAFile读不出来时不监听(t *testing.T) {
+func TestStart_ClientCAFileUnreadableDoesNotListen(t *testing.T) {
 	p := newServerPKI(t)
 	junk := filepath.Join(t.TempDir(), "junk.pem")
 	if err := os.WriteFile(junk, []byte("not a certificate"), 0o600); err != nil {
@@ -242,7 +242,7 @@ func TestStart_ClientCAFile读不出来时不监听(t *testing.T) {
 	}
 }
 
-func TestConfig_服务端TLS从文件加载(t *testing.T) {
+func TestConfig_ServerTLSLoadedFromFile(t *testing.T) {
 	c := load(t, "XGin:\n  CertFile: c.pem\n  KeyFile: k.pem\n  ClientCAFile: ca.pem\n  MinVersion: \"1.3\"\n")
 	if c.ClientCAFile != "ca.pem" || c.MinVersion != "1.3" {
 		t.Errorf("没读对：ClientCAFile=%q MinVersion=%q", c.ClientCAFile, c.MinVersion)

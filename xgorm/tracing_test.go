@@ -12,7 +12,7 @@ import (
 
 // 用了 xgorm 就有链路，使用者不用另外 import xtrace：xgorm.go 替他 import 了。
 // 先把全局的 TracerProvider 换回 noop，免得别的测试装过的 provider 让这里白白通过
-func Test用了xgorm不另外import_xtrace也有链路(t *testing.T) {
+func TestTracingWorksWithoutImportingXtrace(t *testing.T) {
 	prev := otel.GetTracerProvider()
 	otel.SetTracerProvider(noop.NewTracerProvider())
 	t.Cleanup(func() { otel.SetTracerProvider(prev) })

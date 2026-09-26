@@ -18,7 +18,7 @@ import (
 // 对照的承诺出自 docs/architecture.md「退出信号：从进程起步的第一毫秒就接管」「停止预算是一份」
 // 两节，和 xgin/README.md 里 XGin 的停止说明、xone.WithStopTimeout 的注释。
 
-// TestShutdown_压力下收到SIGTERM_在途请求全部做完_新连接被拒_以0退出
+// TestShutdown_SIGTERMUnderLoad_FinishesInFlight_RefusesNew_ExitsZero
 //
 // 文档的承诺（docs/architecture.md「停止预算是一份」、xgin/README.md XGin 一节）：
 //   - Stop 等在途请求做完，最多等到服务那一段预算（WithStopTimeout 的 2/3）；
@@ -27,13 +27,13 @@ import (
 //
 // 在途请求是 xgin.Stop 自己等的（Shutdown 之后再等 handler 返回）：xgin 的 Start 在
 // Shutdown 一开始就返回了，所以这个用例测不到 Run 里「等 Start 返回」那一半，
-// 那一半见 TestShutdown_Start返回之前不关数据库和缓存。
+// 那一半见 TestShutdown_StartReturnsBeforeDBAndCacheClose。
 //
 // 流量：/slow?ms=300 ×16（看 ctx 的慢请求）、读 PG 的 GET /users/:id?cache=off ×4、
 // 写 PG 再删 Redis 的 PUT /users/:id ×2、不看 ctx 睡 300ms 再查库和 Redis 的 /stuck ×4。
 // 最后这一路是「资源关早了」最灵敏的探针：它在信号之后 300ms 才去碰 PG / Redis，
 // 框架要是没等 handler 返回就关了它们，它的日志里 db_error / redis_error 就不是 none。
-func TestShutdown_压力下收到SIGTERM_在途请求全部做完_新连接被拒_以0退出(t *testing.T) {
+func TestShutdown_SIGTERMUnderLoad_FinishesInFlight_RefusesNew_ExitsZero(t *testing.T) {
 	harness.Require(t)
 	const budget = 5 * time.Second
 	p := harness.Start(t, harness.Options{Overlay: stopTimeout(budget)})
@@ -232,7 +232,7 @@ func TestShutdown_压力下收到SIGTERM_在途请求全部做完_新连接被�
 	}
 }
 
-// TestShutdown_Start返回之前不关数据库和缓存
+// TestShutdown_StartReturnsBeforeDBAndCacheClose
 //
 // 文档（docs/architecture.md「停止预算是一份」、xone.Runnable 与 Run 的注释）：服务那一段是
 // 「Stop + 等 Start 返回」；Stop 返回不等于服务已经停干净，框架等 Start 真正返回
@@ -242,7 +242,7 @@ func TestShutdown_压力下收到SIGTERM_在途请求全部做完_新连接被�
 // 然后查一次 PG、Ping 一次 Redis，记一条 drain finished（见 service/drain.go）。
 // xgin.Stop 没有在途请求要等，一上来就返回——此后还没关组件，全靠 Run 在等 Start。
 // 框架要是 Stop 一返回就去关组件，收尾要么摸到关掉的连接池，要么进程先退出、它根本没做完
-func TestShutdown_Start返回之前不关数据库和缓存(t *testing.T) {
+func TestShutdown_StartReturnsBeforeDBAndCacheClose(t *testing.T) {
 	harness.Require(t)
 	const (
 		budget = 5 * time.Second
@@ -281,12 +281,12 @@ func TestShutdown_Start返回之前不关数据库和缓存(t *testing.T) {
 	}
 }
 
-// TestShutdown_关闭顺序是启动顺序的逆序_xlog最后关
+// TestShutdown_CloseOrderIsReverseStartOrder_XLogLast
 //
 // 文档：「按阶段初始化、逆序关闭」；docs/architecture.md「停止预算是一份」里「排在最后的 xlog 总还有时间关文件」。
 // xlog 最后关，前面每个组件的关闭日志才写得出去——所以除了 stdout 里的顺序，
 // 还核对日志文件：每一条 stopping（包括 xlog 自己那条）都要落进文件
-func TestShutdown_关闭顺序是启动顺序的逆序_xlog最后关(t *testing.T) {
+func TestShutdown_CloseOrderIsReverseStartOrder_XLogLast(t *testing.T) {
 	harness.Require(t)
 	p := harness.Start(t, harness.Options{LogFile: true})
 	createUser(t, p, "order", "order@example.com")
@@ -340,7 +340,7 @@ func TestShutdown_关闭顺序是启动顺序的逆序_xlog最后关(t *testing.
 	}
 }
 
-// TestShutdown_不看ctx的handler在途时收到SIGTERM_报出仍在运行的个数并在预算内退出
+// TestShutdown_CtxIgnoringHandlerInFlight_ReportsRunningCount_ExitsInBudget
 //
 // 文档（xgin/README.md XGin 一节）：
 //  1. Shutdown 只用到截止时间前的一截（留出剩余时间的 20%，最多 1s），到那时还有请求就 Close() 断开所有连接；
@@ -350,7 +350,7 @@ func TestShutdown_关闭顺序是启动顺序的逆序_xlog最后关(t *testing.
 //
 // WithStopTimeout=3s：服务那一段是 2s，Close 落在约 2s − 0.4s = 1.6s。
 // 两个 /stuck（不看 ctx）加一个 /slow（看 ctx），错误里应当正好是 2 个
-func TestShutdown_不看ctx的handler在途时收到SIGTERM_报出仍在运行的个数并在预算内退出(t *testing.T) {
+func TestShutdown_CtxIgnoringHandlerInFlight_ReportsRunningCount_ExitsInBudget(t *testing.T) {
 	harness.Require(t)
 	const (
 		budget     = 3 * time.Second
@@ -427,13 +427,13 @@ func TestShutdown_不看ctx的handler在途时收到SIGTERM_报出仍在运行�
 	}
 }
 
-// TestShutdown_退出卡住时第二个信号立刻终止进程
+// TestShutdown_SecondSignalKillsStuckShutdown
 //
 // 文档（docs/architecture.md「退出信号」第 3 条）：第一个信号之后把默认处置还回去，框架卡在
 // 不看 ctx 的调用里时，再发一次信号进程立即终止；「第 3 条同样覆盖关闭阶段：Stop 卡住时，第二次 Ctrl+C 有用」。
 //
 // 卡住的办法：WithStopTimeout=60s，一个 /stuck?ms=60000 在途——Stop 要等 40s 才放弃
-func TestShutdown_退出卡住时第二个信号立刻终止进程(t *testing.T) {
+func TestShutdown_SecondSignalKillsStuckShutdown(t *testing.T) {
 	harness.Require(t)
 	cases := []struct {
 		name          string
@@ -482,7 +482,7 @@ func TestShutdown_退出卡住时第二个信号立刻终止进程(t *testing.T)
 	}
 }
 
-// TestShutdown_启动期间收到SIGTERM_不启动服务_已建好的逆序关掉_以0退出
+// TestShutdown_SIGTERMDuringStartup_NoServe_ClosesBuiltInReverse_ExitsZero
 //
 // 文档（docs/architecture.md「退出信号」第 1、2 条）：信号在读配置之前就接管；钩子收 ctx，收到信号后
 // 不再跑剩下的启动钩子，已建好的逆序关干净，服务不再启动，然后以 0 退出——按要求退出
@@ -497,7 +497,7 @@ func TestShutdown_退出卡住时第二个信号立刻终止进程(t *testing.T)
 // 「框架在每个钩子之前再查一次」一次都轮不到（把那次复查删掉，这两例照样全过）。
 // 所以还有第三例：一个不看 ctx 的启动钩子（warmup，Service.StartStall）睡着时收到信号，
 // 睡完照样成功返回；它算建好了，框架得自己在下一个钩子之前停下
-func TestShutdown_启动期间收到SIGTERM_不启动服务_已建好的逆序关掉_以0退出(t *testing.T) {
+func TestShutdown_SIGTERMDuringStartup_NoServe_ClosesBuiltInReverse_ExitsZero(t *testing.T) {
 	harness.Require(t)
 	// immediate「当场放弃」的上限。PG 实测信号之后 2~3ms 退出（pgx 的读在 ctx 取消时立刻返回），
 	// 200ms 是它的几十倍，又远小于 Redis 默认 500ms 的 ReadTimeout
@@ -625,7 +625,7 @@ func TestShutdown_启动期间收到SIGTERM_不启动服务_已建好的逆序�
 	}
 }
 
-// TestShutdown_断连之后_传了请求ctx的PG调用停得下来_Redis调用等到连接池关掉
+// TestShutdown_AfterDisconnect_PGCallWithCtxStops_RedisWaitsForPoolClose
 //
 // 文档（xgin/README.md XGin 一节）：到点还没做完的请求，Close() 断开连接、取消请求的 ctx；
 // 「handler 里的慢操作（查库、调下游）要传 c.Request.Context()，断连之后才停得下来」，
@@ -643,7 +643,7 @@ func TestShutdown_启动期间收到SIGTERM_不启动服务_已建好的逆序�
 //
 // Redis 那一例把 ReadTimeout 配成 10s：默认的 500ms 比断连之后留的那一截（0.4s）还短，
 // 一次读自己就超时了，测不出 ctx 管不管用
-func TestShutdown_断连之后_传了请求ctx的PG调用停得下来_Redis调用等到连接池关掉(t *testing.T) {
+func TestShutdown_AfterDisconnect_PGCallWithCtxStops_RedisWaitsForPoolClose(t *testing.T) {
 	harness.Require(t)
 	const (
 		budget     = 3 * time.Second

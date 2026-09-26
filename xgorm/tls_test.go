@@ -209,7 +209,7 @@ func pgTLSCfg(addr string, t xtls.Config) ClientConfig {
 	return c
 }
 
-func TestNew_PG_TLS块生效(t *testing.T) {
+func TestNew_PG_TLSBlockApplies(t *testing.T) {
 	p := newPKI(t)
 	cases := []struct {
 		name string
@@ -259,7 +259,7 @@ func TestNew_PG_TLS块生效(t *testing.T) {
 	}
 }
 
-func TestNew_PG_TLS块开着时服务端不肯TLS就失败而不是退回明文(t *testing.T) {
+func TestNew_PG_TLSBlockFailsInsteadOfPlaintextFallback(t *testing.T) {
 	// pgx 默认的 sslmode=prefer 在服务端回 'N' 时改走明文；开了 TLS 块就不许
 	p := newPKI(t)
 	addr, s := fakePostgres(t, nil)
@@ -272,7 +272,7 @@ func TestNew_PG_TLS块开着时服务端不肯TLS就失败而不是退回明文(
 	}
 }
 
-func TestNew_PG_没开TLS块时照pgx的默认先试TLS再退明文(t *testing.T) {
+func TestNew_PG_WithoutTLSBlockFollowsPgxPreferDefault(t *testing.T) {
 	// 量的是 pgx 自己的默认（sslmode=prefer）：不开 TLS 块，DSN 里也没写 sslmode 时，
 	// 服务端回 'N' 就改走明文——这是开 TLS 块的理由
 	addr, s := fakePostgres(t, nil)
@@ -286,7 +286,7 @@ func TestNew_PG_没开TLS块时照pgx的默认先试TLS再退明文(t *testing.T
 	}
 }
 
-func TestNew_PG_双向认证带上客户端证书(t *testing.T) {
+func TestNew_PG_MutualAuthSendsClientCert(t *testing.T) {
 	p := newPKI(t)
 	addr, s := fakePostgres(t, &tls.Config{
 		Certificates: []tls.Certificate{p.server},
@@ -305,7 +305,7 @@ func TestNew_PG_双向认证带上客户端证书(t *testing.T) {
 	}
 }
 
-func TestUsePostgresTLS_每个主机一条且都走TLS(t *testing.T) {
+func TestUsePostgresTLS_OnePerHostAllTLS(t *testing.T) {
 	base := &tls.Config{MinVersion: tls.VersionTLS12}
 	for _, dsn := range []string{
 		"host=a.internal,b.internal port=5432,5433 user=u",                 // 默认 prefer：每个主机 TLS + 明文两条
@@ -336,7 +336,7 @@ func TestUsePostgresTLS_每个主机一条且都走TLS(t *testing.T) {
 	}
 }
 
-func TestResolveDSN_PG_TLS块和DSN里的ssl参数不能同时写(t *testing.T) {
+func TestResolveDSN_PG_TLSBlockConflictsWithDSNSSLParams(t *testing.T) {
 	on := xtls.Config{Enable: true}
 	for name, c := range map[string]struct {
 		dsn    string
@@ -381,7 +381,7 @@ func TestResolveDSN_PG_TLS块和DSN里的ssl参数不能同时写(t *testing.T) 
 	}
 }
 
-func TestResolveDSN_PG_TLS块不能配Unix_socket(t *testing.T) {
+func TestResolveDSN_PG_TLSBlockRejectsUnixSocket(t *testing.T) {
 	cfg := pgCfg("host=/var/run/postgresql user=u")
 	cfg.TLS = xtls.Config{Enable: true}
 	if _, _, err := resolveDSN(cfg); err == nil || !strings.Contains(err.Error(), "Unix socket") {
@@ -464,7 +464,7 @@ func mysqlTLSCfg(addr string, t xtls.Config) ClientConfig {
 	return c
 }
 
-func TestNew_MySQL_TLS块生效(t *testing.T) {
+func TestNew_MySQL_TLSBlockApplies(t *testing.T) {
 	p := newPKI(t)
 	cases := []struct {
 		name   string
@@ -499,7 +499,7 @@ func TestNew_MySQL_TLS块生效(t *testing.T) {
 	}
 }
 
-func TestNew_MySQL_TLS块开着时服务端不支持TLS就失败(t *testing.T) {
+func TestNew_MySQL_TLSBlockFailsWhenServerLacksTLS(t *testing.T) {
 	p := newPKI(t)
 	addr, s := fakeMySQL(t, nil)
 	_, _, err := New(context.Background(), mysqlTLSCfg(addr, xtls.Config{Enable: true, CAFile: p.caFile}))
@@ -511,7 +511,7 @@ func TestNew_MySQL_TLS块开着时服务端不支持TLS就失败(t *testing.T) {
 	}
 }
 
-func TestNew_MySQL_双向认证带上客户端证书(t *testing.T) {
+func TestNew_MySQL_MutualAuthSendsClientCert(t *testing.T) {
 	p := newPKI(t)
 	addr, s := fakeMySQL(t, &tls.Config{
 		Certificates: []tls.Certificate{p.server},
@@ -526,7 +526,7 @@ func TestNew_MySQL_双向认证带上客户端证书(t *testing.T) {
 	}
 }
 
-func TestResolveDSN_MySQL_TLS块和DSN里的tls不能同时写(t *testing.T) {
+func TestResolveDSN_MySQL_TLSBlockConflictsWithDSNTLS(t *testing.T) {
 	for _, v := range []string{"true", "false", "skip-verify", "preferred"} {
 		cfg := mysqlCfg("u:" + secret + "@tcp(h:3306)/d?tls=" + v)
 		cfg.TLS = xtls.Config{Enable: true}
@@ -555,7 +555,7 @@ func TestResolveDSN_MySQL_TLS块和DSN里的tls不能同时写(t *testing.T) {
 
 // ---- 配置 ----
 
-func TestValidate_TLS块(t *testing.T) {
+func TestValidate_TLSBlock(t *testing.T) {
 	cfg := pgCfg("host=h")
 	cfg.TLS = xtls.Config{CAFile: "/etc/ca.pem"}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "TLS.Enable") {
@@ -571,7 +571,7 @@ func TestValidate_TLS块(t *testing.T) {
 	}
 }
 
-func TestNew_TLS证书文件读不出来是配置错误(t *testing.T) {
+func TestNew_TLSUnreadableCertIsConfigError(t *testing.T) {
 	cfg := pgTLSCfg(deadAddr(t), xtls.Config{Enable: true, CAFile: filepath.Join(t.TempDir(), "nope.pem")})
 	_, _, err := New(context.Background(), cfg)
 	assertOneFrame(t, err, "xgorm", "config")
@@ -580,7 +580,7 @@ func TestNew_TLS证书文件读不出来是配置错误(t *testing.T) {
 	}
 }
 
-func TestConfig_TLS块从配置文件读(t *testing.T) {
+func TestConfig_TLSBlockFromConfigFile(t *testing.T) {
 	p := newPKI(t)
 	c := load(t, "XGorm:\n  DSN: host=h\n  TLS:\n    Enable: true\n    CAFile: "+strconv.Quote(p.caFile)+"\n    ServerName: db.internal\n")
 	got := c.Clients[DefaultName].TLS

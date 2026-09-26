@@ -30,7 +30,7 @@ func pgCfg(dsn string) ClientConfig {
 	return c
 }
 
-func TestResolveDSN_MySQL注入超时(t *testing.T) {
+func TestResolveDSN_MySQLInjectsTimeouts(t *testing.T) {
 	dsn, info, err := resolveDSN(mysqlCfg("u:" + secret + "@tcp(db.example.com:3306)/app"))
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestResolveDSN_MySQL注入超时(t *testing.T) {
 	}
 }
 
-func TestResolveDSN_MySQL不覆盖已写的超时(t *testing.T) {
+func TestResolveDSN_MySQLKeepsExistingTimeouts(t *testing.T) {
 	// 配置里的值只是默认值，DSN 里显式写了的以 DSN 为准
 	dsn, _, err := resolveDSN(mysqlCfg("u:p@tcp(h:3306)/app?timeout=9s&readTimeout=8s&writeTimeout=7s"))
 	if err != nil {
@@ -58,7 +58,7 @@ func TestResolveDSN_MySQL不覆盖已写的超时(t *testing.T) {
 	}
 }
 
-func TestResolveDSN_MySQL没写parseTime时补成true(t *testing.T) {
+func TestResolveDSN_MySQLDefaultsParseTimeToTrue(t *testing.T) {
 	// 驱动默认 parseTime=false：DATETIME 扫不进 time.Time，带 CreatedAt 的模型
 	// First 一次就报 unsupported Scan（实测 go-sql-driver v1.10.1、MySQL 8.0.46）。
 	// DSN 里写了的，哪怕写的是 false，以 DSN 为准
@@ -93,7 +93,7 @@ func TestResolveDSN_MySQL没写parseTime时补成true(t *testing.T) {
 	}
 }
 
-func TestResolveDSN_连接信息里没有密码(t *testing.T) {
+func TestResolveDSN_ConnInfoHasNoPassword(t *testing.T) {
 	// ConnInfo 是唯一进日志的东西，它必须不含凭证
 	for _, c := range []ClientConfig{
 		mysqlCfg("u:" + secret + "@tcp(h:3306)/app"),
@@ -115,7 +115,7 @@ func TestResolveDSN_连接信息里没有密码(t *testing.T) {
 	}
 }
 
-func TestResolveDSN_解析失败的错误里没有DSN(t *testing.T) {
+func TestResolveDSN_ParseErrorOmitsDSN(t *testing.T) {
 	// 驱动的解析错误会把 DSN 片段带在错误信息里，不能原样往上传
 	_, _, err := resolveDSN(mysqlCfg("u:" + secret + "@这不是个合法的DSN"))
 	if err == nil {
@@ -131,7 +131,7 @@ func TestResolveDSN_解析失败的错误里没有DSN(t *testing.T) {
 	}
 }
 
-func TestResolveDSN_PG_URL形式(t *testing.T) {
+func TestResolveDSN_PG_URLForm(t *testing.T) {
 	c := pgCfg("postgres://u:p@h:5432/app")
 	c.Postgres.StatementTimeout = 2 * time.Second
 	c.Postgres.LockTimeout = 1500 * time.Millisecond
@@ -156,7 +156,7 @@ func TestResolveDSN_PG_URL形式(t *testing.T) {
 	}
 }
 
-func TestResolveDSN_PG_KV形式(t *testing.T) {
+func TestResolveDSN_PG_KVForm(t *testing.T) {
 	c := pgCfg("host=h port=5432 dbname=app user=u")
 	c.Postgres.StatementTimeout = time.Second
 
@@ -172,7 +172,7 @@ func TestResolveDSN_PG_KV形式(t *testing.T) {
 	}
 }
 
-func TestResolveDSN_PG不覆盖已写的key(t *testing.T) {
+func TestResolveDSN_PGKeepsExistingKeys(t *testing.T) {
 	for _, dsn := range []string{
 		"postgres://u:p@h:5432/app?connect_timeout=9",
 		"host=h dbname=app connect_timeout=9",
@@ -193,7 +193,7 @@ func TestResolveDSN_PG不覆盖已写的key(t *testing.T) {
 	}
 }
 
-func TestResolveDSN_PG_Params优先(t *testing.T) {
+func TestResolveDSN_PG_ParamsTakePrecedence(t *testing.T) {
 	// Params 是使用者显式写的，比字段默认值更该作数
 	c := pgCfg("host=h dbname=app")
 	c.Postgres.StatementTimeout = time.Second
@@ -254,7 +254,7 @@ func TestSecondsMillis(t *testing.T) {
 	}
 }
 
-func TestResolveDSN_不认识的驱动(t *testing.T) {
+func TestResolveDSN_UnknownDriver(t *testing.T) {
 	c := DefaultClientConfig()
 	c.Driver, c.DSN = "oracle", "x"
 	if _, _, err := resolveDSN(c); err == nil {
@@ -262,7 +262,7 @@ func TestResolveDSN_不认识的驱动(t *testing.T) {
 	}
 }
 
-func TestResolveDSN_query解析不了时报错而不是悄悄丢参数(t *testing.T) {
+func TestResolveDSN_QueryUnparsableErrorsInsteadOfDroppingParams(t *testing.T) {
 	// 密码里带一个字面 % 就构成非法的百分号转义。u.Query() 会把它吞掉、
 	// 只返回解得出的那部分，回写之后 DSN 里就没有密码了——
 	// 服务报「认证失败」，而配置文件里密码明明写着。
@@ -283,7 +283,7 @@ func TestResolveDSN_query解析不了时报错而不是悄悄丢参数(t *testin
 	}
 }
 
-func TestResolveDSN_合法的百分号转义照常保留(t *testing.T) {
+func TestResolveDSN_ValidPercentEscapesKept(t *testing.T) {
 	c := DefaultClientConfig()
 	c.DSN = "postgres://h:5432/db?password=p%25ssw0rd"
 	c.DialTimeout = time.Second
@@ -304,7 +304,7 @@ func TestResolveDSN_合法的百分号转义照常保留(t *testing.T) {
 	}
 }
 
-func TestResolveDSN_PG密码片段不会被当成连接信息(t *testing.T) {
+func TestResolveDSN_PGPasswordFragmentNotTakenAsConnInfo(t *testing.T) {
 	// 密码里带空格是合法的（password='a b'），按空白切的话引号里的内容
 	// 会被当成独立的 key=value 读出来，然后写进建连日志。
 	// 这个包一开始就决定不打印 DSN，从密码里抠出一段再打出去是同一个洞
@@ -340,7 +340,7 @@ func TestResolveDSN_PG密码片段不会被当成连接信息(t *testing.T) {
 	})
 }
 
-func TestResolveDSN_PG等号两边有空格也不被默认值盖掉(t *testing.T) {
+func TestResolveDSN_PGSpacesAroundEqualsNotOverriddenByDefaults(t *testing.T) {
 	// pgx 接受 connect_timeout = 10。从前自己解 DSN 来判断「写没写过」，
 	// 按空白切 token 时这一项被切成三段、一个 key 都认不出来，默认值被追加在后面
 	// ——pgx 同一个 key 取最后一次，使用者显式写的 10 就这样被 1 盖掉了
@@ -357,7 +357,7 @@ func TestResolveDSN_PG等号两边有空格也不被默认值盖掉(t *testing.T
 	}
 }
 
-func TestResolveDSN_PG值以转义空格结尾也不串(t *testing.T) {
+func TestResolveDSN_PGValueEndingInEscapedSpaceDoesNotBleed(t *testing.T) {
 	// password=a\  的最后那个空格属于密码。补进来的参数要是直接接在它后面，
 	// 就成了密码的一部分
 	got, _, err := resolveDSN(pgCfg(`host=h password=a\ `))
@@ -373,7 +373,7 @@ func TestResolveDSN_PG值以转义空格结尾也不串(t *testing.T) {
 	}
 }
 
-func TestResolveDSN_PG_DSN里写了时区就不垫时区(t *testing.T) {
+func TestResolveDSN_PG_DSNTimezoneSkipsDefaultTimezone(t *testing.T) {
 	// gorm 的 postgres 驱动不走 pgx，自己用正则取 DSN 里第一处时区。
 	// 默认值垫在前面，Params 里的时区就会抢在使用者写的前面被它取走
 	for _, c := range []struct{ name, dsn, want string }{
@@ -396,7 +396,7 @@ func TestResolveDSN_PG_DSN里写了时区就不垫时区(t *testing.T) {
 	}
 }
 
-func TestResolvePostgres_解不开的DSN不把密码带进错误(t *testing.T) {
+func TestResolvePostgres_UnparsableDSNKeepsPasswordOutOfError(t *testing.T) {
 	// pgx 自己的错误原文里就是整串 DSN，它只遮得住 password=x、password='x'
 	// 两种规整写法。下面两种实测都把密码带了出去，那是一条会进日志和告警的错误
 	for _, dsn := range []string{
@@ -415,7 +415,7 @@ func TestResolvePostgres_解不开的DSN不把密码带进错误(t *testing.T) {
 	}
 }
 
-func TestResolvePostgres_证书文件读不到时说清是哪个文件(t *testing.T) {
+func TestResolvePostgres_UnreadableCertNamesFile(t *testing.T) {
 	// 文件路径不是凭证：吞掉它的话，使用者只剩一句「DSN 解析失败」
 	c := DefaultClientConfig()
 	c.Driver = "postgres"
@@ -429,7 +429,7 @@ func TestResolvePostgres_证书文件读不到时说清是哪个文件(t *testin
 	}
 }
 
-func TestNew_PG_pgx多校验的几项写错也不把密码带进错误(t *testing.T) {
+func TestNew_PG_PgxValidationErrorsKeepPasswordOut(t *testing.T) {
 	// gorm 的 postgres 驱动建连时调的是 pgx.ParseConfig，它比 pgconn.ParseConfig
 	// 多校验三项。只拿 pgconn 预检的话这三项写错会一路放行到 gorm.Open，
 	// 那里报出来的错误原文就是整串 DSN——实测 password = hunter2 原样在里面
@@ -453,7 +453,7 @@ func TestNew_PG_pgx多校验的几项写错也不把密码带进错误(t *testin
 	}
 }
 
-func TestResolveDSN_PG_URL形式补参数不改写使用者的query(t *testing.T) {
+func TestResolveDSN_PG_URLAddsParamsWithoutRewritingUserQuery(t *testing.T) {
 	// gorm 的 postgres 驱动拿 gormTimeZone 读原串、不解码。
 	// 整个 query 重新编码的话 Asia/Shanghai 会变成 Asia%2FShanghai，每条连接都设不上时区
 	const user = "postgres://u:p@h:5432/app?TimeZone=Asia/Shanghai&sslmode=disable"

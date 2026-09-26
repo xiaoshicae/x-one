@@ -51,24 +51,24 @@ func withTracer(b *testing.B, s sdktrace.Sampler) {
 	})
 }
 
-func Benchmark出站_链路和指标都关(b *testing.B) {
+func BenchmarkOutbound_TraceAndMetricsOff(b *testing.B) {
 	c := DefaultConfig()
 	c.Trace, c.Metric = false, false
 	benchCall(b, c)
 }
 
-func Benchmark出站_只开指标(b *testing.B) {
+func BenchmarkOutbound_MetricsOnly(b *testing.B) {
 	c := DefaultConfig()
 	c.Trace = false
 	benchCall(b, c)
 }
 
-func Benchmark出站_默认配置_未采样(b *testing.B) {
+func BenchmarkOutbound_Defaults_NotSampled(b *testing.B) {
 	withTracer(b, sdktrace.NeverSample())
 	benchCall(b, DefaultConfig())
 }
 
-func Benchmark出站_默认配置_采样(b *testing.B) {
+func BenchmarkOutbound_Defaults_Sampled(b *testing.B) {
 	withTracer(b, sdktrace.AlwaysSample())
 	benchCall(b, DefaultConfig())
 }

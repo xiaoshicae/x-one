@@ -64,7 +64,7 @@ func chFillPool(t *testing.T, p *harness.Process, n int) {
 //   - 用到 ClickHouse 的操作当场报错（新连接被拒不需要等任何超时），错误里有地址；
 //   - 另两个实例（PG、MySQL）和不碰 ClickHouse 的接口不受影响：多实例各是各的连接池；
 //   - ClickHouse 回来之后不用重启就恢复
-func TestClickHouse_运行中ClickHouse拒绝连接_用到它的操作当场报错_其他实例不受影响_恢复后自动恢复(t *testing.T) {
+func TestClickHouse_RefusedAtRuntime_FailsFast_OthersUnaffected_Recovers(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	chp := harness.NewProxy(t, harness.CHAddr())
@@ -131,7 +131,7 @@ func TestClickHouse_运行中ClickHouse拒绝连接_用到它的操作当场报�
 // 仍没有实现 driver.DriverContext，database/sql 拿不到 ctx 传给它）：拨号是 net.DialTimeout、握手按 dial_timeout
 // 设整条连接的 deadline，都不看调用方的 ctx。所以卡住之后先是几条 200ms 返回的（池里的连接，被取消之后关掉），
 // 池子耗光之后每条都要等满 dial_timeout（默认 500ms）才返回——比调用方给的多出 300ms，但有上界
-func TestClickHouse_卡住或宕机时_池里的连接听调用方的截止时间_新建连接要等满dial_timeout(t *testing.T) {
+func TestClickHouse_HungOrDown_PooledConnsObeyDeadline_NewConnsWaitDialTimeout(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	const (
@@ -183,7 +183,7 @@ func TestClickHouse_卡住或宕机时_池里的连接听调用方的截止时�
 //     300.6s 才返回：300s 读超时之后 database/sql 换新连接重发，握手再等满 dial_timeout=500ms，
 //     错误是握手那次的 i/o timeout；量的时候单独跑了一次）；
 //   - 同一时刻 PG、MySQL 照常，而且快
-func TestClickHouse_运行中ClickHouse不回话_不给截止时间只有read_timeout管_没写时是300s(t *testing.T) {
+func TestClickHouse_SilentAtRuntime_NoDeadlineOnlyReadTimeout_Default300s(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	t.Run("DSN里写了read_timeout", func(t *testing.T) {
@@ -251,7 +251,7 @@ func TestClickHouse_运行中ClickHouse不回话_不给截止时间只有read_ti
 //
 // v2.30.0 时相反：收到表头就把读 deadline 清掉，余下的一直读，流到一半对端不回话、又没给截止时间就一直挂着。
 // xgorm/clickhouse/README.md「行为与实测」按量出来的写了这一条
-func TestClickHouse_表头之后_read_timeout管余下结果的整段读_调用方的截止时间代替它(t *testing.T) {
+func TestClickHouse_AfterHeader_ReadTimeoutCoversRest_CallerDeadlineOverrides(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	const (
@@ -311,7 +311,7 @@ func TestClickHouse_表头之后_read_timeout管余下结果的整段读_调用�
 //	A  1.5s 的标量子查询、read_timeout=1s  3.0s 失败：driver: bad connection（i/o timeout 这个根因丢了）
 //	   system.query_log 里这条查询开始了 3 次
 //	B  SELECT 'B'…                          成功，返回 "B/0"
-func TestClickHouse_读超时之后连接不还回池里_下一条查询拿到自己的结果_读超时的查询被重发三次(t *testing.T) {
+func TestClickHouse_ConnNotReturnedAfterReadTimeout_TimedOutQueryResentThrice(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	const (
@@ -370,7 +370,7 @@ func chQueryStarts(t *testing.T, marker string) int {
 //
 // 「对端不回话」那一种数得到尝试次数，它守的是「其它驱动」那一节：驱动在 Initialize 里查版本那一次
 // 挪进了建连探测、跟着重试——没挪的话它发生在 gorm.Open 里，只试 1 次就失败
-func TestClickHouse_启动时ClickHouse不可达_在文档的预算内失败_错误里有实例名和地址没有密码(t *testing.T) {
+func TestClickHouse_UnreachableAtStartup_FailsInBudget_ErrHasNameAddrNoPassword(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	pw := harness.CHPassword()
@@ -415,7 +415,7 @@ func TestClickHouse_启动时ClickHouse不可达_在文档的预算内失败_错
 // 「Ping 只认截止时间、不认取消」。xgorm 的探测是在当前协程里等的（sql.DB 的 Close 会等在途的查询，丢给别的协程
 // 也关不掉它），所以信号之后要等这一次拨号或握手撞上 dial_timeout 才退出：上界是 dial_timeout（默认 500ms），
 // 不会卡满整轮重试
-func TestClickHouse_启动时ClickHouse不回话期间收到SIGTERM_最多再等一个dial_timeout就退出(t *testing.T) {
+func TestClickHouse_SIGTERMWhileSilentAtStartup_ExitsWithinOneDialTimeout(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	for _, m := range faultSilentModes {

@@ -12,7 +12,7 @@ import (
 	"github.com/xiaoshicae/x-one/xonetest"
 )
 
-func TestNew_配置说不通时启动就失败(t *testing.T) {
+func TestNew_InconsistentConfigFailsAtStartup(t *testing.T) {
 	// 不在这里拦的话：乱序的桶在第一次 Observe 时 panic（在业务请求里）；
 	// 不合规的 Namespace 不报错，而是导出时被悄悄转义（my-app → my_app_），
 	// 看板和告警按配置里写的名字查不到
@@ -57,7 +57,7 @@ func TestNew_配置说不通时启动就失败(t *testing.T) {
 	}
 }
 
-func TestNew_合法的配置照常通过(t *testing.T) {
+func TestNew_ValidConfigPasses(t *testing.T) {
 	c := DefaultConfig()
 	c.GoMetrics, c.ProcessMetrics = false, false
 	c.Namespace = "my_app_2"
@@ -68,7 +68,7 @@ func TestNew_合法的配置照常通过(t *testing.T) {
 	}
 }
 
-func TestNew_没给桶时用本包的默认值(t *testing.T) {
+func TestNew_DefaultBucketsWhenNoneGiven(t *testing.T) {
 	// Config{} 的两个桶都是 nil，原样交给 Prometheus 就是它自己的 DefBuckets，
 	// 而不是这里的默认值——同一个「没配」有两种结果
 	m, closer, err := New(Config{})
@@ -86,7 +86,7 @@ func TestNew_没给桶时用本包的默认值(t *testing.T) {
 	}
 }
 
-func TestInitXMetric_配置里写空列表启动失败(t *testing.T) {
+func TestInitXMetric_EmptyListInConfigFailsStartup(t *testing.T) {
 	// 列表字段整体替换：写 [] 的人多半以为是「用默认」，实际被 Prometheus
 	// 悄悄换成了它自己的 DefBuckets
 	keepGlobals(t)

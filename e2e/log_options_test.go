@@ -28,7 +28,7 @@ func covLogLine(t *testing.T, p *harness.Process, level, msg string) {
 //	Perm        按八进制解析的字符串
 //
 // RotateTime 配到下限 1m，等一次真的跨分钟的轮转，这个用例最多要一分多钟
-func TestCoverage_日志文件按RotateTime轮转_MaxAge清理自己命名的旧文件_Perm生效(t *testing.T) {
+func TestCoverage_LogRotatesByRotateTime_MaxAgePrunesOwnFiles_PermApplied(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
@@ -152,7 +152,7 @@ func TestCoverage_日志文件按RotateTime轮转_MaxAge清理自己命名的旧
 
 // xlog/README.md XLog：Level（debug / info / warn / error，默认 info）、Format（json / text，默认 json）、
 // Timezone（IANA 时区名，配了却加载不到直接启动失败）、AddSource（是否记代码位置，默认关）
-func TestCoverage_日志的Level_Format_Timezone_AddSource(t *testing.T) {
+func TestCoverage_LogLevel_Format_Timezone_AddSource(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 

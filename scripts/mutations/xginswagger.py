@@ -10,7 +10,7 @@ mutate("Swagger 元信息等 XApp 读好再填", "xginswagger/swagger.go", "./xg
 mutate("Swagger 挂在配置的前缀下", "xginswagger/swagger.go", "./xginswagger", "TestRegister",
        swap('e.GET(c.URLPrefix+route, serve)', 'e.GET(route, serve)'))
 # 默认值是预填进结构体的：默认给了 Schemes，没写它也会盖掉注解里的 @schemes
-mutate("Swagger 没写 Schemes 就沿用注解", "xginswagger/swagger.go", "./xginswagger", "TestConfig_没写Schemes",
+mutate("Swagger 没写 Schemes 就沿用注解", "xginswagger/swagger.go", "./xginswagger", "TestConfig_KeepsAnnotationSchemesWhenUnset",
        swap('\treturn Config{}\n', '\treturn Config{Schemes: []string{"https", "http"}}\n'))
 # 校验只剩 Validate 这一处，靠 xconfig.Unmarshal 调到它。变异把 &c 换成一个没有方法的
 # 同构类型：解码照旧，Validate 不再被调——这正是忘了导出、或者方法签名写错时的形状

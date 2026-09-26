@@ -14,7 +14,7 @@ func (p noop) Dependency() Dependency               { return Strong }
 func (p noop) Process(context.Context, *int) error  { return nil }
 func (p noop) Rollback(context.Context, *int) error { return nil }
 
-func BenchmarkExecute_五步全成功_开监控(b *testing.B) {
+func BenchmarkExecute_FiveStepsAllSucceed_MonitorOn(b *testing.B) {
 	testkit.QuietSlog(b)
 	f := New("下单", noop{"1"}, noop{"2"}, noop{"3"}, noop{"4"}, noop{"5"})
 	d := 0
@@ -25,7 +25,7 @@ func BenchmarkExecute_五步全成功_开监控(b *testing.B) {
 	}
 }
 
-func BenchmarkExecute_五步全成功_关监控(b *testing.B) {
+func BenchmarkExecute_FiveStepsAllSucceed_MonitorOff(b *testing.B) {
 	testkit.QuietSlog(b)
 	old := cfg
 	cfg.Monitor = false

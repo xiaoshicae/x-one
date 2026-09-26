@@ -82,7 +82,7 @@ func publish(t testing.TB, insts map[string]instance) {
 	t.Cleanup(func() { _ = xclient.Build(context.Background(), reg, nil, keep) })
 }
 
-func TestConfig_单实例写法(t *testing.T) {
+func TestConfig_SingleInstanceForm(t *testing.T) {
 	c := load(t, "XCache:\n  MaxCost: 500\n")
 	got, ok := c.Clients[DefaultName]
 	if !ok {
@@ -96,7 +96,7 @@ func TestConfig_单实例写法(t *testing.T) {
 	}
 }
 
-func TestConfig_多实例写法(t *testing.T) {
+func TestConfig_MultiInstanceForm(t *testing.T) {
 	c := load(t, "XCache:\n  Clients:\n    default: {MaxCost: 100}\n    session: {MaxCost: 200, DefaultTTL: 30m}\n")
 	if len(c.Clients) != 2 {
 		t.Fatalf("应解出两个实例，got=%v", c.Clients)
@@ -109,7 +109,7 @@ func TestConfig_多实例写法(t *testing.T) {
 	}
 }
 
-func TestConfig_拼写错误要失败(t *testing.T) {
+func TestConfig_TypoFails(t *testing.T) {
 	if err := loadErr(t, "XCache:\n  MaxCoat: 1\n"); err == nil {
 		t.Fatal("字段拼错应当启动失败")
 	}
@@ -118,13 +118,13 @@ func TestConfig_拼写错误要失败(t *testing.T) {
 	}
 }
 
-func TestConfig_两种写法不能混用(t *testing.T) {
+func TestConfig_FormsCannotBeMixed(t *testing.T) {
 	if err := loadErr(t, "XCache:\n  MaxCost: 1\n  Clients:\n    a: {MaxCost: 2}\n"); err == nil {
 		t.Fatal("混用两种写法应当失败")
 	}
 }
 
-func TestConfig_没配就没有实例(t *testing.T) {
+func TestConfig_NoConfigNoInstances(t *testing.T) {
 	if c := load(t, "# 没有 XCache 这一块\n"); len(c.Clients) != 0 {
 		t.Errorf("没配就不该建缓存，got=%v", c.Clients)
 	}
@@ -150,7 +150,7 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-func TestNew_拿到的是原生缓存(t *testing.T) {
+func TestNew_ReturnsNativeCache(t *testing.T) {
 	cache, closer, err := New(DefaultClientConfig())
 	if err != nil {
 		t.Fatal(err)
@@ -164,7 +164,7 @@ func TestNew_拿到的是原生缓存(t *testing.T) {
 	}
 }
 
-func TestSet_用配置里的默认TTL(t *testing.T) {
+func TestSet_UsesConfiguredDefaultTTL(t *testing.T) {
 	// 包级 Set 的全部价值就在这里：不用每次都把 cost 和 TTL 写一遍
 	withInstances(t, map[string]ClientConfig{DefaultName: func() ClientConfig {
 		c := DefaultClientConfig()
@@ -203,7 +203,7 @@ func TestGetSetDel(t *testing.T) {
 	}
 }
 
-func TestGet_类型对不上当作没命中(t *testing.T) {
+func TestGet_TypeMismatchIsMiss(t *testing.T) {
 	withInstances(t, map[string]ClientConfig{DefaultName: DefaultClientConfig()})
 	var b bytes.Buffer
 	old := config.DebugOut
@@ -240,7 +240,7 @@ func TestSetWithTTL(t *testing.T) {
 	}
 }
 
-func TestC_取不到就panic(t *testing.T) {
+func TestC_PanicsWhenMissing(t *testing.T) {
 	withInstances(t, nil)
 	defer func() {
 		msg := fmt.Sprint(recover())
@@ -254,7 +254,7 @@ func TestC_取不到就panic(t *testing.T) {
 	C()
 }
 
-func TestDefaultTTL_名字写错时panic而不是返回永不过期(t *testing.T) {
+func TestDefaultTTL_PanicsOnWrongNameInsteadOfNeverExpire(t *testing.T) {
 	// 0 在 ristretto 里是「永不过期」：名字写错时静默拿到它，
 	// 按这个 TTL 写进去的每一条就都不会过期了
 	withInstances(t, map[string]ClientConfig{"session": DefaultClientConfig()})
@@ -267,7 +267,7 @@ func TestDefaultTTL_名字写错时panic而不是返回永不过期(t *testing.T
 	DefaultTTL("typo")
 }
 
-func TestSet_没配默认实例时panic(t *testing.T) {
+func TestSet_PanicsWithoutDefaultInstance(t *testing.T) {
 	// 包级 Set 走的是另一条取实例的路径，别漏了这层保护
 	withInstances(t, map[string]ClientConfig{"session": DefaultClientConfig()})
 	defer func() {
@@ -289,7 +289,7 @@ func TestHasNames(t *testing.T) {
 	}
 }
 
-func TestRegister_登记内容与框架对得上(t *testing.T) {
+func TestRegister_MatchesFramework(t *testing.T) {
 	// 这是本包和框架之间唯一的一根线：钩子漏登记、档位挂错，
 	// 表现是「配置不生效」或者「实例比用它的东西晚就绪」，别处都测不出来
 	var got *hook.Entry
@@ -321,7 +321,7 @@ func TestRegister_登记内容与框架对得上(t *testing.T) {
 	}
 }
 
-func TestInitAll_建起来又关干净(t *testing.T) {
+func TestInitAll_BuildsAndClosesCleanly(t *testing.T) {
 	c := Config{Clients: map[string]ClientConfig{"a": DefaultClientConfig(), "b": DefaultClientConfig()}}
 
 	err := initComponent(t, c)
@@ -339,7 +339,7 @@ func TestInitAll_建起来又关干净(t *testing.T) {
 	}
 }
 
-func TestInitAll_一个失败就全部回滚(t *testing.T) {
+func TestInitAll_OneFailureRollsBackAll(t *testing.T) {
 	bad := DefaultClientConfig()
 	bad.MaxCost = -1
 	cfg := Config{Clients: map[string]ClientConfig{"a": DefaultClientConfig(), "z": bad}}
@@ -354,7 +354,7 @@ func TestInitAll_一个失败就全部回滚(t *testing.T) {
 	}
 }
 
-func TestInitAll_没配就什么都不做(t *testing.T) {
+func TestInitAll_NoopWithoutConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
 	err := initComponent(t, cfg)
@@ -367,7 +367,7 @@ func TestInitAll_没配就什么都不做(t *testing.T) {
 	}
 }
 
-func TestNew_MaxCost就是能存多少条(t *testing.T) {
+func TestNew_MaxCostIsEntryCount(t *testing.T) {
 	// ristretto 默认把每条 56 字节的内部开销加进 cost，于是 cost=1 的写入
 	// 实际占 57。不关掉的话 MaxCost=2000 只能存下三十几条，
 	// 配置里写的数字和实际容量差着五十多倍，而且没有任何地方会提到
@@ -406,7 +406,7 @@ func initComponent(t *testing.T, c Config) error {
 	return install(context.Background(), c)
 }
 
-func TestInitXCache_没写这一块就一个实例都不建(t *testing.T) {
+func TestInitXCache_NoSectionBuildsNothing(t *testing.T) {
 	// 本地缓存没有「默认给你开一个」的道理：没配就是不用。
 	// 少了这道判断，每个进程都会白白吃下一份内存
 	t.Cleanup(func() { _ = closeXCache(context.Background()) })
@@ -420,7 +420,7 @@ func TestInitXCache_没写这一块就一个实例都不建(t *testing.T) {
 	}
 }
 
-func TestInitXCache_写了空块也不建(t *testing.T) {
+func TestInitXCache_EmptySectionBuildsNothing(t *testing.T) {
 	t.Cleanup(func() { _ = closeXCache(context.Background()) })
 	xonetest.UseConfigYAML(t, "XCache:\n")
 
@@ -432,7 +432,7 @@ func TestInitXCache_写了空块也不建(t *testing.T) {
 	}
 }
 
-func TestInitXCache_配置写错时启动失败(t *testing.T) {
+func TestInitXCache_BadConfigFailsStartup(t *testing.T) {
 	// 拼错的字段被静默忽略的话，使用者会一直以为自己配上了
 	t.Cleanup(func() { _ = closeXCache(context.Background()) })
 	xonetest.UseConfigYAML(t, "XCache:\n  MaxCos: 500\n")
@@ -445,7 +445,7 @@ func TestInitXCache_配置写错时启动失败(t *testing.T) {
 	}
 }
 
-func TestInitXCache_按配置建好再关干净(t *testing.T) {
+func TestInitXCache_BuildsFromConfigAndClosesCleanly(t *testing.T) {
 	t.Cleanup(func() { _ = closeXCache(context.Background()) })
 	xonetest.UseConfigYAML(t, "XCache:\n  Clients:\n    read:\n      MaxCost: 500\n    write:\n      MaxCost: 500\n")
 
@@ -464,14 +464,14 @@ func TestInitXCache_按配置建好再关干净(t *testing.T) {
 	}
 }
 
-func TestCloseXCache_没建过也能关(t *testing.T) {
+func TestCloseXCache_SafeWithoutBuild(t *testing.T) {
 	// 本包压根没配时停止钩子照样会被调到，不能在这里炸
 	if err := closeXCache(context.Background()); err != nil {
 		t.Errorf("want nil, got %v", err)
 	}
 }
 
-func TestClose_关闭时还有人在读写也不崩(t *testing.T) {
+func TestClose_NoCrashWithConcurrentReadWrite(t *testing.T) {
 	// ristretto v2.4.2 的 Close 先 close(setBuf)、最后才置 isClosed，
 	// 于是和它并发的 Set / Del 会 send on closed channel；policy 的 itemsCh
 	// 也是这么关的，并发的 Get 同样会炸。拿着原生 *Cache 的调用方
@@ -525,7 +525,7 @@ func TestClose_关闭时还有人在读写也不崩(t *testing.T) {
 	}
 }
 
-func TestClose_关闭之后条目都释放了(t *testing.T) {
+func TestClose_ReleasesEntries(t *testing.T) {
 	// 关闭不走 ristretto 的 Close（理由见 New），但缓存里的东西必须放掉：
 	// 否则一个停下来的实例还攥着 MaxCost 那么多条目直到进程退出
 	cache, closer, err := New(DefaultClientConfig())
@@ -562,7 +562,7 @@ func assertOneFrame(t *testing.T, err error, module, op string) {
 	}
 }
 
-func TestInstall_错误只包一层且op如实(t *testing.T) {
+func TestInstall_ErrorWrappedOnceWithAccurateOp(t *testing.T) {
 	bad := DefaultClientConfig()
 	bad.MaxCost = -1
 	err := initComponent(t, Config{Clients: map[string]ClientConfig{"a": bad}})
@@ -572,7 +572,7 @@ func TestInstall_错误只包一层且op如实(t *testing.T) {
 	}
 }
 
-func TestInitXCache_没配时C说的是没配而不是调早了(t *testing.T) {
+func TestInitXCache_CSaysNotConfiguredRatherThanTooEarly(t *testing.T) {
 	// 没配也要让注册表知道启动钩子跑过了。否则 C() 会把「没配」说成「调早了」，
 	// 使用者会去查调用时机，而真正该查的是配置文件
 	t.Cleanup(func() { _ = closeXCache(context.Background()) })
@@ -590,7 +590,7 @@ func TestInitXCache_没配时C说的是没配而不是调早了(t *testing.T) {
 }
 
 // 便利写法每次都先经注册表取到默认实例，再交给 ristretto
-func BenchmarkGet_命中(b *testing.B) {
+func BenchmarkGet_Hit(b *testing.B) {
 	withInstances(b, map[string]ClientConfig{DefaultName: DefaultClientConfig()})
 	Set("k", "v")
 	C().Wait()
@@ -601,7 +601,7 @@ func BenchmarkGet_命中(b *testing.B) {
 	}
 }
 
-func BenchmarkGet_命中_并发(b *testing.B) {
+func BenchmarkGet_Hit_Parallel(b *testing.B) {
 	withInstances(b, map[string]ClientConfig{DefaultName: DefaultClientConfig()})
 	Set("k", "v")
 	C().Wait()
@@ -614,7 +614,7 @@ func BenchmarkGet_命中_并发(b *testing.B) {
 	})
 }
 
-func BenchmarkSet_默认TTL(b *testing.B) {
+func BenchmarkSet_DefaultTTL(b *testing.B) {
 	withInstances(b, map[string]ClientConfig{DefaultName: DefaultClientConfig()})
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -623,7 +623,7 @@ func BenchmarkSet_默认TTL(b *testing.B) {
 	}
 }
 
-func TestConfig_不合法的值在读配置时就失败(t *testing.T) {
+func TestConfig_InvalidValuesFailAtLoad(t *testing.T) {
 	// 读配置时就拦下，报错里带着是哪个实例；不等到 New 才发现
 	err := loadErr(t, "XCache:\n  Clients:\n    hot: {MaxCost: -1}\n")
 	if err == nil {
@@ -637,7 +637,7 @@ func TestConfig_不合法的值在读配置时就失败(t *testing.T) {
 	}
 }
 
-func TestNew_Metric开关传给ristretto(t *testing.T) {
+func TestNew_MetricFlagPassedToRistretto(t *testing.T) {
 	// ristretto 默认不计数（Metrics 为 nil），不传下去的话 Metric: true 也什么都导不出来
 	for _, on := range []bool{true, false} {
 		c := DefaultClientConfig()
@@ -653,7 +653,7 @@ func TestNew_Metric开关传给ristretto(t *testing.T) {
 	}
 }
 
-func TestCacheCollector_导出的是ristretto的计数(t *testing.T) {
+func TestCacheCollector_ExportsRistrettoCounters(t *testing.T) {
 	m, closer, err := xmetric.New(xmetric.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -699,7 +699,7 @@ func TestCacheCollector_导出的是ristretto的计数(t *testing.T) {
 	}
 }
 
-func TestCacheCollector_到期被清掉的也算进keys_evicted(t *testing.T) {
+func TestCacheCollector_ExpiredCountsAsKeysEvicted(t *testing.T) {
 	// 文档里写着 keys_evicted 包括 TTL 到期的，这里钉住：ristretto 升级后行为变了先红
 	cache, cc, err := New(DefaultClientConfig())
 	if err != nil {
@@ -718,7 +718,7 @@ func TestCacheCollector_到期被清掉的也算进keys_evicted(t *testing.T) {
 	}
 }
 
-func TestInstall_只导出开了Metric的实例且xmetric重装后照样导出(t *testing.T) {
+func TestInstall_ExportsOnlyMetricEnabled_SurvivesXmetricReinstall(t *testing.T) {
 	// collector 是进程级的一个，抓取时遍历全部实例：不看实例自己的开关，
 	// Metric: false 就是一句空话。第二轮是同一进程里再走一遍生命周期——
 	// xmetric 换了新的 Registry，collector 得跟着挂上去，否则指标全丢
@@ -748,7 +748,7 @@ func TestInstall_只导出开了Metric的实例且xmetric重装后照样导出(t
 	}
 }
 
-func TestInstall_每个实例的日志带着名字(t *testing.T) {
+func TestInstall_LogsCarryInstanceName(t *testing.T) {
 	// 配了好几个缓存时，只写参数分不出是哪一个
 	var buf bytes.Buffer
 	old := slog.Default()

@@ -213,7 +213,7 @@ func faultQuick(t *testing.T, p *harness.Process, what, path string, want int) h
 //   - 不碰 Redis 的接口不受影响：/ping、?cache=off、本地缓存命中
 //   - Redis 回来之后不用重启就恢复
 //   - 全程的输出里没有 Redis 的密码（xredis/README.md XRedis.Password：「本模块不会把它写进任何日志」）
-func TestFault_运行中Redis拒绝连接_用到它的操作在预算内报错_读降级到PG_恢复后自动恢复_不泄露密码(t *testing.T) {
+func TestFault_RedisRefusedAtRuntime_ErrsInBudget_ReadsFallBackToPG_Recovers(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	acl, pw := faultRedisACLUser(t)
@@ -387,7 +387,7 @@ func TestFault_运行中Redis拒绝连接_用到它的操作在预算内报错_�
 //   - 用到 PG 的操作当场报错（新连接被拒不需要等任何超时），错误里有地址、没有密码
 //   - 不碰 PG 的接口不受影响：/ping、Redis、本地缓存命中
 //   - PG 回来之后不用重启就恢复
-func TestFault_运行中PG拒绝连接_用到它的操作当场报错_其他接口不受影响_恢复后自动恢复_不泄露密码(t *testing.T) {
+func TestFault_PGRefusedAtRuntime_FailsFast_OthersUnaffected_Recovers(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	pw := pgPassword(t)

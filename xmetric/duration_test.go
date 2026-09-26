@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestObserveDuration_自动补seconds后缀(t *testing.T) {
+func TestObserveDuration_AppendsSecondsSuffix(t *testing.T) {
 	// Prometheus 约定指标名自带单位，面板和告警靠它推断刻度
 	m := newMetrics(t, nil)
 	ObserveDuration("handle_order", 300*time.Millisecond)
@@ -21,7 +21,7 @@ func TestObserveDuration_自动补seconds后缀(t *testing.T) {
 	}
 }
 
-func TestObserveDuration_单位是秒(t *testing.T) {
+func TestObserveDuration_UnitIsSeconds(t *testing.T) {
 	// 按毫秒传数值的话，所有样本都会落进 +Inf 桶，分位数直接失效
 	m := newMetrics(t, nil)
 	ObserveDuration("op", 300*time.Millisecond)
@@ -55,7 +55,7 @@ func TestTimer(t *testing.T) {
 	}
 }
 
-func TestTimer_重复调用只算一次(t *testing.T) {
+func TestTimer_RepeatedCallsCountOnce(t *testing.T) {
 	// defer 之外再显式调一次（提前返回时想先记一笔）会多打一次观测，
 	// count 和 rate 都随之偏高
 	m := newMetrics(t, nil)
@@ -82,7 +82,7 @@ func TestTrackInFlight(t *testing.T) {
 	}
 }
 
-func TestTrackInFlight_重复调用不减穿(t *testing.T) {
+func TestTrackInFlight_RepeatedCallsDoNotGoNegative(t *testing.T) {
 	// 减穿之后计数会永久偏低，且不会有任何报错
 	m := newMetrics(t, nil)
 	done := TrackInFlight("active")
@@ -95,7 +95,7 @@ func TestTrackInFlight_重复调用不减穿(t *testing.T) {
 	}
 }
 
-func TestTrackInFlight_并发成对(t *testing.T) {
+func TestTrackInFlight_ConcurrentPairs(t *testing.T) {
 	// 真实用法是每个请求一对，并发下必须准确归零
 	m := newMetrics(t, nil)
 	const n = 50

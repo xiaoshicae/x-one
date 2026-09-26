@@ -108,7 +108,7 @@ func withConfig(t *testing.T, mutate func(*Config)) {
 	cfg = c
 }
 
-func TestExecute_全部成功(t *testing.T) {
+func TestExecute_AllSucceed(t *testing.T) {
 	withConfig(t, nil)
 	d := &data{}
 	res := New("下单", ok("扣券"), ok("扣库存"), ok("扣款")).Execute(context.Background(), d)
@@ -127,7 +127,7 @@ func TestExecute_全部成功(t *testing.T) {
 	}
 }
 
-func TestExecute_强依赖失败逆序回滚(t *testing.T) {
+func TestExecute_StrongDependencyFailureRollsBackInReverse(t *testing.T) {
 	// 「谁做的事，谁负责撤销」，而且撤销顺序必须和执行顺序相反
 	withConfig(t, nil)
 	d := &data{}
@@ -154,7 +154,7 @@ func TestExecute_强依赖失败逆序回滚(t *testing.T) {
 	}
 }
 
-func TestExecute_弱依赖失败继续执行(t *testing.T) {
+func TestExecute_WeakDependencyFailureContinues(t *testing.T) {
 	withConfig(t, nil)
 	d := &data{}
 	res := New("下单", ok("扣券"), failing("发通知", Weak), ok("写日志")).Execute(context.Background(), d)
@@ -170,7 +170,7 @@ func TestExecute_弱依赖失败继续执行(t *testing.T) {
 	}
 }
 
-func TestExecute_失败的弱依赖也要回滚(t *testing.T) {
+func TestExecute_FailedWeakDependencyIsAlsoRolledBack(t *testing.T) {
 	// 它可能已经产生了副作用，只是后面没走下去而已
 	withConfig(t, nil)
 	d := &data{}
@@ -183,7 +183,7 @@ func TestExecute_失败的弱依赖也要回滚(t *testing.T) {
 	}
 }
 
-func TestExecute_ctx取消后不再启动新步骤但照常回滚(t *testing.T) {
+func TestExecute_CtxCanceledStartsNoNewStepsButStillRollsBack(t *testing.T) {
 	withConfig(t, nil)
 	d := &data{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -218,7 +218,7 @@ func (c *cancelHook) Process(ctx context.Context, d *data) error {
 	return err
 }
 
-func TestRollback_用剥了取消的ctx(t *testing.T) {
+func TestRollback_UsesCtxWithoutCancellation(t *testing.T) {
 	// 补偿逻辑最需要执行的时机恰恰是请求超时之后。
 	// 沿用已取消的 ctx，每个补偿调用一进去就被拒绝，资源就真的漏掉了
 	withConfig(t, nil)
@@ -248,7 +248,7 @@ func (c *ctxChecker) Rollback(ctx context.Context, d *data) error {
 	return c.step.Rollback(ctx, d)
 }
 
-func TestRollback_ctx里的值保留(t *testing.T) {
+func TestRollback_CtxValuesPreserved(t *testing.T) {
 	// 剥的是取消和超时，不是 value：补偿逻辑常常要用到 ctx 里的租户、链路标识
 	withConfig(t, nil)
 	type key struct{}
@@ -274,7 +274,7 @@ func (c *valueChecker) Rollback(ctx context.Context, d *data) error {
 	return c.step.Rollback(ctx, d)
 }
 
-func TestRollback_预算耗尽时把剩下的记下来(t *testing.T) {
+func TestRollback_RecordsRemainingStepsWhenBudgetExhausted(t *testing.T) {
 	// 调用方得知道还有哪些资源悬着，否则只能人工翻日志猜
 	withConfig(t, func(c *Config) { c.RollbackTimeout = 30 * time.Millisecond })
 	d := &data{}
@@ -298,7 +298,7 @@ func TestRollback_预算耗尽时把剩下的记下来(t *testing.T) {
 	}
 }
 
-func TestWithRollbackTimeout_这个流程的回滚预算压过配置_原来的流程不变(t *testing.T) {
+func TestWithRollbackTimeout_OverridesConfigForThisFlow_OriginalUnchanged(t *testing.T) {
 	// 不跑 xone.Run、单独用 xflow 时，配置文件没人读，改回滚预算只有这一条路
 	withConfig(t, nil) // 配置里是默认的 30s
 	slow := &step{name: "慢补偿", dep: Strong, rbDelay: 60 * time.Millisecond}
@@ -314,7 +314,7 @@ func TestWithRollbackTimeout_这个流程的回滚预算压过配置_原来的�
 	}
 }
 
-func TestWithRollbackTimeout_不是正数就panic(t *testing.T) {
+func TestWithRollbackTimeout_PanicsOnNonPositive(t *testing.T) {
 	// 0 会让回滚一进去就判超时、补偿全被跳过，而流程看起来一切正常
 	for _, d := range []time.Duration{0, -time.Second} {
 		func() {
@@ -328,7 +328,7 @@ func TestWithRollbackTimeout_不是正数就panic(t *testing.T) {
 	}
 }
 
-func TestRollback_不看ctx的补偿也挂不住Execute(t *testing.T) {
+func TestRollback_CompensationIgnoringCtxCannotHangExecute(t *testing.T) {
 	// 预算只在步骤之间查的话，一个不看 ctx 的 Rollback 能把 Execute 挂住：
 	// 实测 50ms 的预算等了 2s，而且挂住的那一步不在 RollbackErrors 里
 	withConfig(t, func(c *Config) { c.RollbackTimeout = 50 * time.Millisecond })
@@ -353,7 +353,7 @@ func TestRollback_不看ctx的补偿也挂不住Execute(t *testing.T) {
 	}
 }
 
-func TestExecute_第一步之前就取消不算回滚过(t *testing.T) {
+func TestExecute_CanceledBeforeFirstStepIsNotRolledBack(t *testing.T) {
 	// 一步都没做就没有可回滚的：报成 rolled back 会让人去查一次并不存在的补偿
 	withConfig(t, nil)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -372,7 +372,7 @@ func TestExecute_第一步之前就取消不算回滚过(t *testing.T) {
 	}
 }
 
-func TestRollback_一步失败不拦住其余步骤(t *testing.T) {
+func TestRollback_OneFailureDoesNotBlockOtherSteps(t *testing.T) {
 	withConfig(t, nil)
 	d := &data{}
 	bad := &step{name: "补偿会失败", dep: Strong, rbErr: errors.New("补偿失败")}
@@ -388,7 +388,7 @@ func TestRollback_一步失败不拦住其余步骤(t *testing.T) {
 	}
 }
 
-func TestExecute_步骤panic变成普通失败(t *testing.T) {
+func TestExecute_StepPanicBecomesOrdinaryFailure(t *testing.T) {
 	// 一步炸了不该把整个进程打穿，前面几步还得有机会回滚
 	withConfig(t, nil)
 	d := &data{}
@@ -416,7 +416,7 @@ func (s errPanicStep) Process(context.Context, *data) error {
 }
 func (errPanicStep) Rollback(context.Context, *data) error { return nil }
 
-func TestExecute_步骤panic只包一层且保住错误链(t *testing.T) {
+func TestExecute_StepPanicWrappedOnceAndKeepsErrorChain(t *testing.T) {
 	// 一个模块边界一个 xerror：panic 在 safeProcess 里包一次、在 Execute 里
 	// 又包一次的话，文本就套成 xone xflow execute failed, err=[... xone xflow execute failed ...]。
 	// panic 出来的是 error 时要用 %w 接住，errors.Is 才问得出根因；
@@ -444,7 +444,7 @@ func TestExecute_步骤panic只包一层且保住错误链(t *testing.T) {
 	}
 }
 
-func TestMonitor_默认实现把panic的调用栈记成单独字段(t *testing.T) {
+func TestMonitor_DefaultRecordsPanicStackAsSeparateField(t *testing.T) {
 	// 栈不进错误消息，就得有个地方看得到它：默认监控把它放进 stack 字段
 	withConfig(t, nil)
 	var buf strings.Builder
@@ -465,7 +465,7 @@ func TestMonitor_默认实现把panic的调用栈记成单独字段(t *testing.T
 	}
 }
 
-func TestRollback_panic不拦住其余补偿(t *testing.T) {
+func TestRollback_PanicDoesNotBlockOtherCompensations(t *testing.T) {
 	withConfig(t, nil)
 	d := &data{}
 	res := New("下单",
@@ -482,7 +482,7 @@ func TestRollback_panic不拦住其余补偿(t *testing.T) {
 	}
 }
 
-func TestNew_nil步骤直接panic(t *testing.T) {
+func TestNew_NilStepPanics(t *testing.T) {
 	// 它只会在执行到那一步时炸成空指针，那时错误早已脱离构建现场
 	defer func() {
 		r := recover()
@@ -496,7 +496,7 @@ func TestNew_nil步骤直接panic(t *testing.T) {
 	New[*data]("下单", ok("第一步"), nil)
 }
 
-func TestFlow_可以并发执行(t *testing.T) {
+func TestFlow_CanExecuteConcurrently(t *testing.T) {
 	// 构建之后字段不再变化
 	withConfig(t, nil)
 	flow := New("下单", ok("扣券"), weak("发通知"), ok("扣款"))
@@ -514,7 +514,7 @@ func TestFlow_可以并发执行(t *testing.T) {
 	wg.Wait()
 }
 
-func TestExecute_nil_ctx不炸(t *testing.T) {
+func TestExecute_nil_CtxDoesNotPanic(t *testing.T) {
 	withConfig(t, nil)
 	//nolint:staticcheck // 故意传 nil
 	if res := New("下单", ok("第一步")).Execute(nil, &data{}); !res.Success() {
@@ -564,7 +564,7 @@ func TestFlowName(t *testing.T) {
 
 // ---- 配置与登记 ----
 
-func TestConfig_从文件加载(t *testing.T) {
+func TestConfig_LoadsFromFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "application.yml")
 	os.WriteFile(path, []byte("XFlow:\n  Monitor: false\n  RollbackTimeout: 5s\n"), 0o644)
 
@@ -577,7 +577,7 @@ func TestConfig_从文件加载(t *testing.T) {
 	}
 }
 
-func TestValidate_回滚预算为零要失败(t *testing.T) {
+func TestValidate_ZeroRollbackBudgetFails(t *testing.T) {
 	// 配成 0 会让每次回滚一进去就判超时、所有补偿被跳过，
 	// 而流程本身看起来一切正常——这种配错必须在启动时拦住
 	c := DefaultConfig()
@@ -590,7 +590,7 @@ func TestValidate_回滚预算为零要失败(t *testing.T) {
 	}
 }
 
-func TestRegister_只读配置不建任何东西(t *testing.T) {
+func TestRegister_OnlyReadsConfigBuildsNothing(t *testing.T) {
 	var got *hook.Entry
 	for _, e := range hook.Start() {
 		if e.Pkg == "github.com/xiaoshicae/x-one/xflow" {
@@ -612,7 +612,7 @@ func TestRegister_只读配置不建任何东西(t *testing.T) {
 	}
 }
 
-func TestLoad_配置非法时启动失败(t *testing.T) {
+func TestLoad_InvalidConfigFailsStartup(t *testing.T) {
 	// RollbackTimeout 配成 0 会让每次回滚一进去就判超时、补偿全被跳过，
 	// 而流程本身看起来一切正常——这种配错只有加载时的 Validate 能拦
 	path := filepath.Join(t.TempDir(), "application.yml")
@@ -634,7 +634,7 @@ type panicMonitor struct{}
 func (panicMonitor) OnStep(context.Context, *StepEvent) { panic("监控的 OnStep 炸了") }
 func (panicMonitor) OnFlow(context.Context, *FlowEvent) { panic("监控的 OnFlow 炸了") }
 
-func TestMonitor_回调panic被隔离(t *testing.T) {
+func TestMonitor_CallbackPanicIsolated(t *testing.T) {
 	// 观测出问题只该丢一次观测，不该把业务流程打断。
 	// 隔离是用 defer recoverNotify() 做的——recover 必须由被 defer 的那个
 	// 函数直接调用才生效，包一层就失效了，所以这条要钉住
@@ -653,7 +653,7 @@ func TestMonitor_回调panic被隔离(t *testing.T) {
 	}
 }
 
-func TestMonitor_回滚时回调panic也被隔离(t *testing.T) {
+func TestMonitor_CallbackPanicIsolatedDuringRollback(t *testing.T) {
 	withConfig(t, nil)
 	SetMonitor(panicMonitor{})
 	t.Cleanup(func() { SetMonitor(slogMonitor{}) })
@@ -669,7 +669,7 @@ func TestMonitor_回滚时回调panic也被隔离(t *testing.T) {
 	}
 }
 
-func TestSlogMonitor_级别调到debug后逐步日志还在(t *testing.T) {
+func TestSlogMonitor_StepLogsPresentAtDebugLevel(t *testing.T) {
 	// 成功的步骤记 debug，而默认级别是 info，所以那一行平时不拼也不写。
 	// 但「需要逐步排查时把级别调到 debug」是这个设计给出的承诺——
 	// 省开销的那个提前返回不能顺手把承诺也省掉
@@ -689,7 +689,7 @@ func TestSlogMonitor_级别调到debug后逐步日志还在(t *testing.T) {
 	}
 }
 
-func TestSlogMonitor_默认级别下不写逐步日志(t *testing.T) {
+func TestSlogMonitor_NoStepLogsAtDefaultLevel(t *testing.T) {
 	// 一个五步的流程每次执行会产出六行，默认级别下全打出来日志里就只剩流程编排了
 	withConfig(t, nil)
 	var buf strings.Builder
@@ -725,7 +725,7 @@ func (s *cancelingStep) Rollback(_ context.Context, d *data) error {
 	return nil
 }
 
-func TestExecute_最后一步被取消不能报成功(t *testing.T) {
+func TestExecute_CanceledLastStepMustNotReportSuccess(t *testing.T) {
 	// 取消只在每步开始前查一次的话，最后一步撞上取消就查不到了：
 	// 它的 context.Canceled 走进「弱依赖跳过」分支，循环随即结束，
 	// 于是一个被取消的流程报成了 Success，还一步都没回滚
@@ -750,7 +750,7 @@ func TestExecute_最后一步被取消不能报成功(t *testing.T) {
 	}
 }
 
-func TestExecute_中间一步弱依赖被取消也中断(t *testing.T) {
+func TestExecute_CanceledMiddleWeakStepAlsoAborts(t *testing.T) {
 	withConfig(t, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &data{}
@@ -769,7 +769,7 @@ func TestExecute_中间一步弱依赖被取消也中断(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_读到的是流程真正会用的那份(t *testing.T) {
+func TestLoadConfig_ReadsConfigFlowActuallyUses(t *testing.T) {
 	// 解进一个局部变量也能让配置「加载成功」，但 Execute 读的是包级的 cfg——
 	// 那样 RollbackTimeout 和 Monitor 配了等于没配，且没有任何迹象
 	old := cfg
@@ -794,7 +794,7 @@ func TestLoadConfig_读到的是流程真正会用的那份(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_配置非法时启动失败(t *testing.T) {
+func TestLoadConfig_InvalidConfigFailsStartup(t *testing.T) {
 	old := cfg
 	t.Cleanup(func() { cfg = old })
 
@@ -817,7 +817,7 @@ func TestLoadConfig_配置非法时启动失败(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_没写的字段回到默认值而不是沿用上一次(t *testing.T) {
+func TestLoadConfig_UnsetFieldsResetToDefaultsNotPreviousValues(t *testing.T) {
 	// 同一进程里跑两次 Run：第二次的配置文件没写 RollbackTimeout，
 	// 就该是默认的 30s，而不是上一次配的 3s
 	old := cfg

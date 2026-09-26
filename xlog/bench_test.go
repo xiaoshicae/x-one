@@ -12,7 +12,7 @@ func benchLogger(b *testing.B) *slog.Logger {
 	return slog.New(newCtxHandler(h))
 }
 
-func BenchmarkHandle_裸(b *testing.B) {
+func BenchmarkHandle_Bare(b *testing.B) {
 	l := benchLogger(b)
 	ctx := context.Background()
 	b.ReportAllocs()
@@ -22,7 +22,7 @@ func BenchmarkHandle_裸(b *testing.B) {
 	}
 }
 
-func BenchmarkHandle_装了链路提取器但ctx里没有span(b *testing.B) {
+func BenchmarkHandle_TraceExtractorButNoSpanInCtx(b *testing.B) {
 	SetTraceExtractor(func(context.Context) (string, string) { return "", "" })
 	b.Cleanup(func() { SetTraceExtractor(nil) })
 	l := benchLogger(b)
@@ -34,7 +34,7 @@ func BenchmarkHandle_装了链路提取器但ctx里没有span(b *testing.B) {
 	}
 }
 
-func BenchmarkHandle_有链路有作用域(b *testing.B) {
+func BenchmarkHandle_WithTraceAndScope(b *testing.B) {
 	SetTraceExtractor(func(context.Context) (string, string) {
 		return "4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7"
 	})
@@ -50,7 +50,7 @@ func BenchmarkHandle_有链路有作用域(b *testing.B) {
 	}
 }
 
-func BenchmarkHandle_开过分组的慢路径(b *testing.B) {
+func BenchmarkHandle_SlowPathWithGroup(b *testing.B) {
 	SetTraceExtractor(func(context.Context) (string, string) {
 		return "4bf92f3577b34da6a3ce929d0e0e4736", "00f067aa0ba902b7"
 	})

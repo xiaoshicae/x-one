@@ -48,7 +48,7 @@ func readLines(t *testing.T, path string) []map[string]any {
 	return out
 }
 
-func TestNew_级别解析(t *testing.T) {
+func TestNew_LevelParsing(t *testing.T) {
 	for _, s := range []string{"debug", "info", "warn", "warning", "error", "INFO", " info ", ""} {
 		c := DefaultConfig()
 		c.Console = false
@@ -59,7 +59,7 @@ func TestNew_级别解析(t *testing.T) {
 	}
 }
 
-func TestNew_级别写错当场报错(t *testing.T) {
+func TestNew_FailsFastOnLevelTypo(t *testing.T) {
 	c := DefaultConfig()
 	c.Level = "verbose"
 	_, _, err := New(c)
@@ -71,7 +71,7 @@ func TestNew_级别写错当场报错(t *testing.T) {
 	}
 }
 
-func TestNew_格式写错当场报错(t *testing.T) {
+func TestNew_FailsFastOnFormatTypo(t *testing.T) {
 	c := DefaultConfig()
 	c.Format = "xml"
 	if _, _, err := New(c); err == nil {
@@ -79,7 +79,7 @@ func TestNew_格式写错当场报错(t *testing.T) {
 	}
 }
 
-func TestNew_失败时不留下已经打开的日志文件(t *testing.T) {
+func TestNew_LeavesNoOpenLogFileOnFailure(t *testing.T) {
 	// 格式校验曾经排在打开文件之后：New 返回错误，可日志文件已经建好、
 	// fd 也开着，而调用方手上没有 Closer 可关 —— 那个 fd 和它的符号链接
 	// 就一直留在那里。配置项应当全部校验完再动文件。
@@ -102,7 +102,7 @@ func TestNew_失败时不留下已经打开的日志文件(t *testing.T) {
 	}
 }
 
-func TestNew_轮转周期短于一分钟当场报错(t *testing.T) {
+func TestNew_FailsFastOnRotationPeriodUnderOneMinute(t *testing.T) {
 	// 文件名的时间后缀最细到分钟。RotateTime 写成 0s 时 truncate 原样返回，
 	// 结果是每分钟一个文件；写成 30s 时两个周期落在同一个文件名上，
 	// 实际还是每分钟轮转——两种都是「配了 A、跑的是 B」，而且一声不吭
@@ -123,7 +123,7 @@ func TestNew_轮转周期短于一分钟当场报错(t *testing.T) {
 	}
 }
 
-func TestNew_MaxAge为负当场报错(t *testing.T) {
+func TestNew_MaxAgeNegativeFailsFast(t *testing.T) {
 	// 0 表示不清理；负数多半是写错了，当成「不清理」会让磁盘慢慢被写满
 	c, _ := fileCfg(t)
 	c.File.MaxAge = -time.Hour
@@ -132,7 +132,7 @@ func TestNew_MaxAge为负当场报错(t *testing.T) {
 	}
 }
 
-func TestParsePerm_八进制的几种写法(t *testing.T) {
+func TestParsePerm_OctalNotations(t *testing.T) {
 	// 实测 yaml.v3：Perm: 0644 不加引号进字符串字段也还是 "0644"；
 	// YAML 1.2 的 0o644 写法同样该认
 	for _, s := range []string{"0644", "644", "0o644"} {
@@ -142,7 +142,7 @@ func TestParsePerm_八进制的几种写法(t *testing.T) {
 	}
 }
 
-func TestNew_权限写错当场报错(t *testing.T) {
+func TestNew_FailsFastOnPermTypo(t *testing.T) {
 	c, _ := fileCfg(t)
 	c.File.Perm = "rw-r--r--"
 	if _, _, err := New(c); err == nil {
@@ -150,7 +150,7 @@ func TestNew_权限写错当场报错(t *testing.T) {
 	}
 }
 
-func TestNew_全部输出都关掉也能正常工作(t *testing.T) {
+func TestNew_WorksWithAllOutputsDisabled(t *testing.T) {
 	c := DefaultConfig()
 	c.Console = false
 	c.File.Enable = false
@@ -165,7 +165,7 @@ func TestNew_全部输出都关掉也能正常工作(t *testing.T) {
 	}
 }
 
-func TestNew_Closer永不为nil(t *testing.T) {
+func TestNew_CloserIsNeverNil(t *testing.T) {
 	c := DefaultConfig()
 	c.Console = true
 	c.File.Enable = false
@@ -179,7 +179,7 @@ func TestNew_Closer永不为nil(t *testing.T) {
 	_ = closer.Close()
 }
 
-func TestNew_写文件并按级别过滤(t *testing.T) {
+func TestNew_WritesFileAndFiltersByLevel(t *testing.T) {
 	c, path := fileCfg(t)
 	c.Level = "warn"
 
@@ -202,7 +202,7 @@ func TestNew_写文件并按级别过滤(t *testing.T) {
 	}
 }
 
-func TestNew_文本格式(t *testing.T) {
+func TestNew_TextFormat(t *testing.T) {
 	c, path := fileCfg(t)
 	c.Format = FormatText
 
@@ -218,7 +218,7 @@ func TestNew_文本格式(t *testing.T) {
 
 // ---- ctx 作用域 ----
 
-func TestScope_字段进日志(t *testing.T) {
+func TestScope_FieldsAppearInLog(t *testing.T) {
 	c, path := fileCfg(t)
 	l, closer, _ := New(c)
 
@@ -234,7 +234,7 @@ func TestScope_字段进日志(t *testing.T) {
 	}
 }
 
-func TestScope_深层调用栈写入对持有者可见(t *testing.T) {
+func TestScope_DeepCallWritesVisibleToOwner(t *testing.T) {
 	// 这是「存指针而不是存值」的意义：业务函数在调用栈深处拿不到 *gin.Context，
 	// 没机会把新 context 回传，但它写的字段必须能被入口处的访问日志看到
 	c, path := fileCfg(t)
@@ -252,7 +252,7 @@ func TestScope_深层调用栈写入对持有者可见(t *testing.T) {
 	}
 }
 
-func TestScope_重复开启不清空已有字段(t *testing.T) {
+func TestScope_ReopeningKeepsExistingFields(t *testing.T) {
 	ctx := CtxWithScope(context.Background())
 	AddKV(ctx, "a", 1)
 
@@ -266,7 +266,7 @@ func TestScope_重复开启不清空已有字段(t *testing.T) {
 	}
 }
 
-func TestScope_没有作用域时丢弃并计数(t *testing.T) {
+func TestScope_DropsAndCountsWithoutScope(t *testing.T) {
 	before := DroppedKVCount()
 	AddKV(context.Background(), "k", "v")
 	AddKVs(context.Background(), map[string]any{"a": 1, "b": 2})
@@ -276,7 +276,7 @@ func TestScope_没有作用域时丢弃并计数(t *testing.T) {
 	}
 }
 
-func TestScope_nil_ctx不崩(t *testing.T) {
+func TestScope_nil_CtxDoesNotCrash(t *testing.T) {
 	//lint:ignore SA1012 故意传 nil 验证不 panic
 	AddKV(nil, "k", "v")
 	if ctx := CtxWithScope(nil); ctx == nil {
@@ -284,7 +284,7 @@ func TestScope_nil_ctx不崩(t *testing.T) {
 	}
 }
 
-func TestCtxWithKV_只影响派生出来的那个ctx(t *testing.T) {
+func TestCtxWithKV_AffectsOnlyDerivedCtx(t *testing.T) {
 	c, path := fileCfg(t)
 	l, closer, _ := New(c)
 
@@ -311,7 +311,7 @@ func TestCtxWithKV_只影响派生出来的那个ctx(t *testing.T) {
 	}
 }
 
-func TestCtxWithKV_同名以传入的为准_没有作用域也能用(t *testing.T) {
+func TestCtxWithKV_PassedValueWinsOnSameKey_WorksWithoutScope(t *testing.T) {
 	c, path := fileCfg(t)
 	l, closer, _ := New(c)
 
@@ -355,7 +355,7 @@ func TestTraceExtractor(t *testing.T) {
 	}
 }
 
-func TestTraceExtractor_未注入时不产生字段(t *testing.T) {
+func TestTraceExtractor_NoFieldsWhenNotInjected(t *testing.T) {
 	SetTraceExtractor(nil)
 
 	c, path := fileCfg(t)
@@ -368,7 +368,7 @@ func TestTraceExtractor_未注入时不产生字段(t *testing.T) {
 	}
 }
 
-func TestTraceExtractor_空traceID不产生字段(t *testing.T) {
+func TestTraceExtractor_NoFieldsForEmptyTraceID(t *testing.T) {
 	t.Cleanup(func() { SetTraceExtractor(nil) })
 	SetTraceExtractor(func(context.Context) (string, string) { return "", "" })
 
@@ -382,7 +382,7 @@ func TestTraceExtractor_空traceID不产生字段(t *testing.T) {
 	}
 }
 
-func TestHandler_分组不吞掉ctx字段(t *testing.T) {
+func TestHandler_GroupKeepsCtxFields(t *testing.T) {
 	// slog 的 With 走 WithAttrs、WithGroup 会给后续属性加前缀。
 	// 用户划的分组是给业务字段用的，trace_id 是整条记录的身份，必须留在顶层。
 	t.Cleanup(func() { SetTraceExtractor(nil) })
@@ -414,7 +414,7 @@ func TestHandler_分组不吞掉ctx字段(t *testing.T) {
 	}
 }
 
-func TestHandler_嵌套分组(t *testing.T) {
+func TestHandler_NestedGroups(t *testing.T) {
 	// 重放调用链要保持原顺序，否则嵌套分组会串位
 	t.Cleanup(func() { SetTraceExtractor(nil) })
 	SetTraceExtractor(func(context.Context) (string, string) { return "t1", "" })
@@ -441,7 +441,7 @@ func TestHandler_嵌套分组(t *testing.T) {
 	}
 }
 
-func TestHandler_无分组时走快路径(t *testing.T) {
+func TestHandler_FastPathWithoutGroup(t *testing.T) {
 	// 没开过分组时属性本来就在顶层，不该退化成每条记录重建 handler
 	h := newCtxHandler(slog.NewJSONHandler(io.Discard, nil))
 	w := h.WithAttrs([]slog.Attr{slog.String("a", "1")}).(*ctxHandler)
@@ -472,7 +472,7 @@ func TestDefaultConfig(t *testing.T) {
 	}
 }
 
-func TestHandler_兄弟派生互不影响(t *testing.T) {
+func TestHandler_SiblingDerivationsIndependent(t *testing.T) {
 	// 两个分支从同一个父 logger 派生，调用链不能共享底层数组，
 	// 否则后派生的会把先派生的最后一节覆盖掉
 	t.Cleanup(func() { SetTraceExtractor(nil) })
@@ -500,7 +500,7 @@ func TestHandler_兄弟派生互不影响(t *testing.T) {
 	}
 }
 
-func TestRegister_登记内容与框架对得上(t *testing.T) {
+func TestRegister_RegistrationMatchesFramework(t *testing.T) {
 	// 这是本包和框架之间唯一的一根线：钩子漏登记、档位挂错，
 	// 表现是「配置不生效」或者「比用它的东西晚就绪」，别处都测不出来
 	var got *hook.Entry
@@ -571,7 +571,7 @@ func TestAddObserver(t *testing.T) {
 	}
 }
 
-func TestAddObserver_panic不打断日志(t *testing.T) {
+func TestAddObserver_PanicDoesNotInterruptLogging(t *testing.T) {
 	old := observers.Load()
 	t.Cleanup(func() { observers.Store(old) })
 	observers.Store(nil)
@@ -593,7 +593,7 @@ func TestAddObserver_panic不打断日志(t *testing.T) {
 	}
 }
 
-func TestNew_日志时间按配置的时区渲染(t *testing.T) {
+func TestNew_RendersTimeInConfiguredTimezone(t *testing.T) {
 	c := DefaultConfig()
 	c.Console, c.Format, c.Timezone = false, FormatJSON, "Asia/Shanghai"
 
@@ -625,7 +625,7 @@ func TestNew_日志时间按配置的时区渲染(t *testing.T) {
 	}
 }
 
-func TestNew_时区加载不到直接失败(t *testing.T) {
+func TestNew_FailsWhenTimezoneCannotLoad(t *testing.T) {
 	// 悄悄退回本地时区意味着你以为在看东八区的时间、实际是 UTC，
 	// 差八小时而毫无提示。scratch 镜像里没有时区库正是这个场景
 	c := DefaultConfig()
@@ -640,7 +640,7 @@ func TestNew_时区加载不到直接失败(t *testing.T) {
 	}
 }
 
-func TestLocation_没配时是本地时区(t *testing.T) {
+func TestLocation_LocalTimezoneWhenUnset(t *testing.T) {
 	location.Store(nil)
 	if got := Location(); got != time.Local {
 		t.Errorf("没配 Timezone 时该返回 time.Local，got=%v", got)
@@ -670,7 +670,7 @@ func keepGlobals(t *testing.T) {
 	})
 }
 
-func TestInitXLog_没配也装好一个能用的默认日志(t *testing.T) {
+func TestInitXLog_InstallsUsableDefaultWhenUnconfigured(t *testing.T) {
 	// 日志是唯一一个「没配也必须有」的东西：配置本身出问题时，
 	// 使用者要能看见那条错误
 	keepGlobals(t)
@@ -684,7 +684,7 @@ func TestInitXLog_没配也装好一个能用的默认日志(t *testing.T) {
 	}
 }
 
-func TestInitXLog_配置写错时启动失败(t *testing.T) {
+func TestInitXLog_ConfigTypoFailsStartup(t *testing.T) {
 	keepGlobals(t)
 	xonetest.UseConfigYAML(t, "XLog:\n  Lvl: debug\n")
 
@@ -693,7 +693,7 @@ func TestInitXLog_配置写错时启动失败(t *testing.T) {
 	}
 }
 
-func TestInitXLog_取值非法时启动失败(t *testing.T) {
+func TestInitXLog_InvalidValueFailsStartup(t *testing.T) {
 	keepGlobals(t)
 	xonetest.UseConfigYAML(t, "XLog:\n  Level: verbose\n")
 
@@ -702,7 +702,7 @@ func TestInitXLog_取值非法时启动失败(t *testing.T) {
 	}
 }
 
-func TestInitXLog_配置装到了全局_logger_上(t *testing.T) {
+func TestInitXLog_ConfigAppliedToGlobalLogger(t *testing.T) {
 	keepGlobals(t)
 	dir := t.TempDir()
 	xonetest.UseConfigYAML(t, "XLog:\n  Level: error\n  Console: false\n  File:\n    Enable: true\n    Path: \""+dir+"\"\n    Name: app.log\n")
@@ -728,7 +728,7 @@ func TestInitXLog_配置装到了全局_logger_上(t *testing.T) {
 	}
 }
 
-func TestInitXLog_时区配置装到全局(t *testing.T) {
+func TestInitXLog_TimezoneAppliedGlobally(t *testing.T) {
 	keepGlobals(t)
 	xonetest.UseConfigYAML(t, "XLog:\n  Timezone: Asia/Tokyo\n")
 
@@ -740,7 +740,7 @@ func TestInitXLog_时区配置装到全局(t *testing.T) {
 	}
 }
 
-func TestCloseXLog_没装过也能关(t *testing.T) {
+func TestCloseXLog_ClosesWithoutInit(t *testing.T) {
 	keepGlobals(t)
 	closer = nil
 	if err := closeXLog(context.Background()); err != nil {
@@ -748,7 +748,7 @@ func TestCloseXLog_没装过也能关(t *testing.T) {
 	}
 }
 
-func TestCloseXLog_关掉文件之后的日志改写到stderr(t *testing.T) {
+func TestCloseXLog_LogsGoToStderrAfterFileClosed(t *testing.T) {
 	// 回归用例。关掉文件之后 slog.Default() 原先还指着它：xone.Run 返回的错误、
 	// 被丢下的停止钩子、在途请求打的日志，Console 关着时一声不响就没了
 	keepGlobals(t)

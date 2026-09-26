@@ -20,7 +20,7 @@ import (
 // 断言和 PG 那组压测一样只守承诺、不卡数字：一个请求都不失败；指标开着时请求计数和直方图
 // 一个不多一个不少；全开时每个请求一条访问日志；压完 SIGTERM 以 0 退出。
 // 压测器、服务、MySQL 挤在同一台 4 核机器上（可能还有别的 e2e 在跑），数字只能互相比
-func TestMySQL_Load_裸gin加MySQL对照xone加MySQL随并发的变化(t *testing.T) {
+func TestMySQL_Load_BareGinVsXOneWithMySQLByConcurrency(t *testing.T) {
 	requireLoad(t)
 	table := "e2e_load_my_" + harness.NewID()
 	ids := seedMySQLUsers(t, table, 1000)

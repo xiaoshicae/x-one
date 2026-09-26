@@ -35,7 +35,7 @@ func clean(t *testing.T) {
 	t.Cleanup(hook.Reset)
 }
 
-func TestBeforeStart_不写档位时落在业务那一档(t *testing.T) {
+func TestBeforeStart_DefaultsToBusinessStage(t *testing.T) {
 	// 默认档是使用者的业务代码。落到 StageClient 的话，业务钩子和 xgorm 同档，
 	// 谁先跑看包的初始化顺序——业务包路径排在前面时，钩子里的 xgorm.C() 当场 panic
 	clean(t)
@@ -49,7 +49,7 @@ func TestBeforeStart_不写档位时落在业务那一档(t *testing.T) {
 	}
 }
 
-func TestAt_指定档位覆盖默认值(t *testing.T) {
+func TestAt_OverridesDefaultStage(t *testing.T) {
 	clean(t)
 	BeforeStart(initFake, At(StageLog))
 	BeforeStop(initFake, At(StageServer))
@@ -61,7 +61,7 @@ func TestAt_指定档位覆盖默认值(t *testing.T) {
 	}
 }
 
-func TestBeforeStop_不写档位时跟着配对的启动钩子(t *testing.T) {
+func TestBeforeStop_WithoutStageFollowsPairedStartHook(t *testing.T) {
 	// 只在启动钩子上写一次 At：关闭也落在同一档，不会掉回 StageBusiness——
 	// 否则客户端会在业务钩子之前被关掉，业务的收尾动作摸到的是关掉的连接
 	clean(t)
@@ -72,7 +72,7 @@ func TestBeforeStop_不写档位时跟着配对的启动钩子(t *testing.T) {
 	}
 }
 
-func TestBeforeStop_没有配对的启动钩子时落在业务那一档(t *testing.T) {
+func TestBeforeStop_UnpairedDefaultsToBusinessStage(t *testing.T) {
 	clean(t)
 	BeforeStop(initFake)
 	if got := only(t, hook.Stop()).Stage; got != StageBusiness {
@@ -80,7 +80,7 @@ func TestBeforeStop_没有配对的启动钩子时落在业务那一档(t *testi
 	}
 }
 
-func TestAt_多次指定以最后一次为准(t *testing.T) {
+func TestAt_LastOneWins(t *testing.T) {
 	clean(t)
 	BeforeStart(initFake, At(StageLog), At(StageServer))
 	if got := only(t, hook.Start()).Stage; got != StageServer {
@@ -88,7 +88,7 @@ func TestAt_多次指定以最后一次为准(t *testing.T) {
 	}
 }
 
-func TestBeforeStart_名字取自传进来的那个函数(t *testing.T) {
+func TestBeforeStart_NameTakenFromPassedFunc(t *testing.T) {
 	// 名字是使用者在日志和启动失败信息里唯一能看到的定位信息。
 	// 取不准的话，「哪个钩子失败了」就得靠猜
 	clean(t)
@@ -98,7 +98,7 @@ func TestBeforeStart_名字取自传进来的那个函数(t *testing.T) {
 	}
 }
 
-func TestBeforeStart_方法值也取得出名字(t *testing.T) {
+func TestBeforeStart_MethodValueHasName(t *testing.T) {
 	clean(t)
 	c := &fakeComp{}
 	BeforeStart(c.start)
@@ -112,7 +112,7 @@ func TestBeforeStart_方法值也取得出名字(t *testing.T) {
 	}
 }
 
-func TestBeforeStart_泛型实例的名字不带路径(t *testing.T) {
+func TestBeforeStart_GenericInstanceNameHasNoPath(t *testing.T) {
 	// 泛型实例化后 runtime 给的名字形如 pkg.initFor[...]，类型实参被折叠成
 	// "..."。要是 runtime 把完整类型实参写进去，里面的 "/" 会让按最后一个
 	// 斜杠切分的做法切在括号内部——这条用例盯着这个前提
@@ -131,12 +131,12 @@ func TestBeforeStart_泛型实例的名字不带路径(t *testing.T) {
 	}
 }
 
-func TestBeforeStart_匿名函数也有名字(t *testing.T) {
+func TestBeforeStart_AnonymousFuncHasName(t *testing.T) {
 	clean(t)
 	BeforeStart(func(context.Context) error { return nil })
 
 	e := only(t, hook.Start())
-	if !strings.HasPrefix(e.Name, "xhook.TestBeforeStart_匿名函数也有名字.func") {
+	if !strings.HasPrefix(e.Name, "xhook.TestBeforeStart_AnonymousFuncHasName.func") {
 		t.Errorf("匿名函数的名字应带上它所在的那个函数，got %s", e.Name)
 	}
 	if e.Pkg != self {
@@ -144,7 +144,7 @@ func TestBeforeStart_匿名函数也有名字(t *testing.T) {
 	}
 }
 
-func TestBeforeStart_传_nil_时退回占位名而不是空串(t *testing.T) {
+func TestBeforeStart_NilFallsBackToPlaceholderName(t *testing.T) {
 	// 登记 nil 是使用者的错，但不该在取名字这一步先炸掉：
 	// 那样错误信息里连「是哪一条」都没有。留到执行时由框架的 panic
 	// 隔离变成一条普通的启动错误
@@ -157,7 +157,7 @@ func TestBeforeStart_传_nil_时退回占位名而不是空串(t *testing.T) {
 	}
 }
 
-func TestBeforeStart_登记的就是传进来的那个函数(t *testing.T) {
+func TestBeforeStart_RegistersThePassedFunc(t *testing.T) {
 	clean(t)
 	want := errors.New("boom")
 	BeforeStart(func(context.Context) error { return want })
@@ -167,7 +167,7 @@ func TestBeforeStart_登记的就是传进来的那个函数(t *testing.T) {
 	}
 }
 
-func TestBeforeStart_启动和停止各进各的板子(t *testing.T) {
+func TestBeforeStart_StartAndStopGoToSeparateBoards(t *testing.T) {
 	clean(t)
 	BeforeStart(initFake)
 	if len(hook.Stop()) != 0 {
@@ -179,7 +179,7 @@ func TestBeforeStart_启动和停止各进各的板子(t *testing.T) {
 	}
 }
 
-func TestPkgOf_取的是完整_import_path(t *testing.T) {
+func TestPkgOf_ReturnsFullImportPath(t *testing.T) {
 	// 配对键取末段包名的话，两个末段同名的包会被当成同一个：
 	// 使用者自己包一层叫 xlog 的包很常见，撞上之后它的启动钩子一失败，
 	// 框架 xlog 的停止钩子就跟着被跳过，日志写入器再也不 flush
@@ -200,7 +200,7 @@ func TestPkgOf_取的是完整_import_path(t *testing.T) {
 	}
 }
 
-func TestPkgOf_末段同名的两个包不会被配成一对(t *testing.T) {
+func TestPkgOf_PackagesWithSameLastSegmentNotPaired(t *testing.T) {
 	mine := pkgOf("github.com/you/app/xlog.initMyLog")
 	theirs := pkgOf("github.com/xiaoshicae/x-one/xlog.initXLog")
 	if mine == theirs {
@@ -208,7 +208,7 @@ func TestPkgOf_末段同名的两个包不会被配成一对(t *testing.T) {
 	}
 }
 
-func TestInitPkg_只认包初始化函数(t *testing.T) {
+func TestInitPkg_OnlyRecognizesPackageInitFuncs(t *testing.T) {
 	// 包级变量的初始化在 pkg.init 里，每个 func init() 是 pkg.init.N。
 	// init 里的闭包、名字恰好叫 init 的方法、initXRedis 这种都不是
 	cases := []struct {
@@ -233,7 +233,7 @@ func TestInitPkg_只认包初始化函数(t *testing.T) {
 	}
 }
 
-func TestBeforeStart_不在init里登记时按钩子函数认包(t *testing.T) {
+func TestBeforeStart_OutsideInitUsesHookFuncPackage(t *testing.T) {
 	// 测试里直接调、或者在 main 里登记：栈上没有包初始化函数，退回钩子函数的包
 	clean(t)
 	BeforeStart(initFake)
@@ -242,7 +242,7 @@ func TestBeforeStart_不在init里登记时按钩子函数认包(t *testing.T) {
 	}
 }
 
-func TestShortName_只去掉路径前缀(t *testing.T) {
+func TestShortName_StripsOnlyPathPrefix(t *testing.T) {
 	cases := []struct{ full, want string }{
 		{"github.com/xiaoshicae/x-one/xredis.initXRedis", "xredis.initXRedis"},
 		{"github.com/xiaoshicae/x-one/xgorm.(*pool).close-fm", "xgorm.(*pool).close-fm"},

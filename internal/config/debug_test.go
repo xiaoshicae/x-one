@@ -12,7 +12,7 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-func TestDebug_只认几种打开的写法(t *testing.T) {
+func TestDebug_OnlyAcceptsKnownEnableValues(t *testing.T) {
 	for v, want := range map[string]bool{
 		"1": true, "true": true, "TRUE": true, " yes ": true, "on": true,
 		"": false, "0": false, "false": false, "off": false, "debug": false,
@@ -24,7 +24,7 @@ func TestDebug_只认几种打开的写法(t *testing.T) {
 	}
 }
 
-func TestRedacted_凭证遮掉_别的原样_原节点不动(t *testing.T) {
+func TestRedacted_MasksCredentials_KeepsRest_LeavesOriginalNode(t *testing.T) {
 	src := `
 DB:
   Password: hunter2
@@ -97,7 +97,7 @@ func debugLoad(t *testing.T, dir string, files map[string]string, base string) s
 	return b.String()
 }
 
-func TestEnsure_XONE_DEBUG时打出文件顺序profile和最终配置(t *testing.T) {
+func TestEnsure_XONE_DEBUGPrintsFileOrderProfilesAndFinalConfig(t *testing.T) {
 	t.Setenv(DebugEnvKey, "1")
 	t.Setenv(ProfileEnvKey, "prod")
 	t.Setenv("ORDER_TOKEN", "tok-s3cret")
@@ -131,7 +131,7 @@ func TestEnsure_XONE_DEBUG时打出文件顺序profile和最终配置(t *testing
 	}
 }
 
-func TestEnsure_不开XONE_DEBUG时什么都不打(t *testing.T) {
+func TestEnsure_PrintsNothingWithoutXONE_DEBUG(t *testing.T) {
 	t.Setenv(DebugEnvKey, "")
 	out := debugLoad(t, t.TempDir(), map[string]string{"application.yml": "XLog:\n  Level: info\n"}, "application.yml")
 	if out != "" {

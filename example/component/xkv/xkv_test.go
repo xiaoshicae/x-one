@@ -13,7 +13,7 @@ import (
 // 这个文件也是样例的一部分：纯构造器 New 的回报就是测试里不需要任何 mock，
 // 也不需要把框架拉起来——直接造一个干净实例，用完关掉。
 
-func TestStore_写了能读回来(t *testing.T) {
+func TestStore_ReadsBackWhatWasWritten(t *testing.T) {
 	s, closer, err := New(Config{Path: filepath.Join(t.TempDir(), "kv.json"), FlushInterval: time.Hour})
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +29,7 @@ func TestStore_写了能读回来(t *testing.T) {
 	}
 }
 
-func TestStore_关闭时落盘下次能读回来(t *testing.T) {
+func TestStore_FlushesOnCloseAndReadsBackNextTime(t *testing.T) {
 	// 后台刷盘间隔调得很长，确保这次落盘只可能来自 Close
 	path := filepath.Join(t.TempDir(), "kv.json")
 	c := Config{Path: path, FlushInterval: time.Hour}
@@ -53,7 +53,7 @@ func TestStore_关闭时落盘下次能读回来(t *testing.T) {
 	}
 }
 
-func TestStore_数据文件坏掉时建不起来(t *testing.T) {
+func TestStore_FailsToBuildOnCorruptDataFile(t *testing.T) {
 	// 建不起来就该报错，让启动当场失败——而不是静默地从一个空 store 开始，
 	// 那会让线上看起来一切正常，只是数据没了
 	path := filepath.Join(t.TempDir(), "kv.json")
@@ -65,7 +65,7 @@ func TestStore_数据文件坏掉时建不起来(t *testing.T) {
 	}
 }
 
-func TestRegister_登记了启停钩子(t *testing.T) {
+func TestRegister_RegistersStartAndStopHooks(t *testing.T) {
 	// 这是本包和框架之间唯一的一根线：钩子漏登记的话，表现是「C() 取不到」
 	// 或者「退出时数据没刷下去」，别处都测不出来。所以按框架的方式跑一遍钩子，
 	// 而不是直接调 initXKV / closeXKV
@@ -90,7 +90,7 @@ func TestRegister_登记了启停钩子(t *testing.T) {
 	}
 }
 
-func TestInitXKV_走一遍框架真正会走的路(t *testing.T) {
+func TestInitXKV_WalksTheRealFrameworkPath(t *testing.T) {
 	// 这是本例子存在的意义：读配置 → 建实例 → 存起来 → 退出时关掉。
 	// 使用者照抄的就是这几行，它们必须真的串得起来
 	dir := t.TempDir()
@@ -123,14 +123,14 @@ func TestInitXKV_走一遍框架真正会走的路(t *testing.T) {
 	}
 }
 
-func TestInitXKV_配置写错时启动失败(t *testing.T) {
+func TestInitXKV_BadConfigFailsStartup(t *testing.T) {
 	xonetest.UseConfigYAML(t, "XKV:\n  Paht: /tmp/kv.json\n")
 	if err := initXKV(context.Background()); err == nil {
 		t.Fatal("字段拼错应当让启动失败")
 	}
 }
 
-func TestNew_刷盘间隔不大于0时建不起来(t *testing.T) {
+func TestNew_FailsWhenFlushIntervalNotPositive(t *testing.T) {
 	// 放过去的话 time.NewTicker 在后台协程里 panic，进程直接死掉
 	for _, every := range []time.Duration{0, -time.Second} {
 		if _, _, err := New(Config{Path: filepath.Join(t.TempDir(), "kv.json"), FlushInterval: every}); err == nil {
@@ -139,14 +139,14 @@ func TestNew_刷盘间隔不大于0时建不起来(t *testing.T) {
 	}
 }
 
-func TestInitXKV_刷盘间隔配成0时启动失败(t *testing.T) {
+func TestInitXKV_ZeroFlushIntervalFailsStartup(t *testing.T) {
 	xonetest.UseConfigYAML(t, "XKV:\n  FlushInterval: 0s\n")
 	if err := initXKV(context.Background()); err == nil {
 		t.Fatal("FlushInterval 为 0 应当让启动失败")
 	}
 }
 
-func TestStore_一次刷盘失败不丢数据(t *testing.T) {
+func TestStore_FailedFlushLosesNoData(t *testing.T) {
 	// 从前刷盘先清掉脏标记再写，写失败了也不还回去：这批改动再也没人刷，
 	// 连 Close 时最后那一次也当成「没有改动」跳过
 	dir := filepath.Join(t.TempDir(), "还不存在的目录")

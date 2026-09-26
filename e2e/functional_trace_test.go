@@ -19,7 +19,7 @@ import (
 //	出站    xhttp     名字只用方法；url.full 去掉查询串（xhttp/README.md「行为与实测」那张表）
 //
 // 客户端 Span 的父都是这次请求的服务端 Span，同一条链路
-func TestFunctional_Span的名字属性和父子关系(t *testing.T) {
+func TestFunctional_SpanNamesAttributesAndParentage(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
@@ -210,7 +210,7 @@ func TestFunctional_Span的名字属性和父子关系(t *testing.T) {
 
 // xtrace/README.md XTrace.SampleRatio：「0 是『不采样但照常生成透传 TraceID』」。
 // 于是 X-Trace-Id、日志里的 trace_id、给下游的 traceparent 都还在，只是一个 Span 都不导出
-func TestFunctional_采样率为0时不导出Span但照常生成并透传TraceID(t *testing.T) {
+func TestFunctional_ZeroSampleRatioExportsNoSpans_StillPropagatesTraceID(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
@@ -242,7 +242,7 @@ func TestFunctional_采样率为0时不导出Span但照常生成并透传TraceID
 // XTrace.ForwardHeaders 只收可信对端（XGin.TrustedProxies）发来的值；traceparent 不受这条影响。
 // xtrace/README.md XTrace：默认只信私有网段；不可信的对端带着这些头来时打一条告警，整个进程只打一次。
 // e2e 的请求都从本机发出，「不可信的对端」用 TrustedProxies: [] 造——和公网对端走的是同一条路
-func TestFunctional_下游收到traceparent且透传头只收可信对端的(t *testing.T) {
+func TestFunctional_DownstreamGetsTraceparent_ForwardHeadersOnlyFromTrusted(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 

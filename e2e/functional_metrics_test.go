@@ -15,7 +15,7 @@ import (
 //   - 桶是 xmetric/README.md XMetric 写的默认值
 //   - 业务的自定义指标（namespace e2e）、log_errors_total、xhttp 出站直方图、
 //     xgorm / xredis 连接池指标、Go 运行时与进程指标都在
-func TestFunctional_指标按路由模板打标签并带上自定义和连接池指标(t *testing.T) {
+func TestFunctional_MetricsLabeledByRouteTemplate_WithCustomAndPoolMetrics(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 

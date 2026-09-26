@@ -50,7 +50,7 @@ func traceOnce(l logger.Interface, err error, elapsed time.Duration) {
 	}, err)
 }
 
-func TestLogger_SQL走结构化字段(t *testing.T) {
+func TestLogger_SQLAsStructuredFields(t *testing.T) {
 	// SQL 里带引号和换行，塞进消息文本会把一行日志撑成好几行，也没法按耗时筛
 	lines := capture(t)
 	c := DefaultClientConfig()
@@ -68,7 +68,7 @@ func TestLogger_SQL走结构化字段(t *testing.T) {
 	}
 }
 
-func TestLogger_慢查询记warn(t *testing.T) {
+func TestLogger_SlowQueryLogsWarn(t *testing.T) {
 	lines := capture(t)
 	c := DefaultClientConfig()
 	c.SlowThreshold = 10 * time.Millisecond
@@ -83,7 +83,7 @@ func TestLogger_慢查询记warn(t *testing.T) {
 	}
 }
 
-func TestLogger_出错记error(t *testing.T) {
+func TestLogger_ErrorLogsError(t *testing.T) {
 	lines := capture(t)
 	traceOnce(newGormLogger(DefaultClientConfig(), pgDialect(), postgres.Dialector{}), errors.New("连接断了"), time.Millisecond)
 
@@ -96,7 +96,7 @@ func TestLogger_出错记error(t *testing.T) {
 	}
 }
 
-func TestLogger_服务端报错时只记错误码不记原文(t *testing.T) {
+func TestLogger_ServerErrorLogsCodeNotMessage(t *testing.T) {
 	// 服务端的错误原文会把参数值带出来：实测 MySQL 8.0 的 1062 是
 	// Duplicate entry 'a@b.com' for key …，PG 16 的 22P02 是
 	// invalid input syntax for type integer: "notanint"。
@@ -127,7 +127,7 @@ func TestLogger_服务端报错时只记错误码不记原文(t *testing.T) {
 	}
 }
 
-func TestLogger_没查到记录可以不当错误(t *testing.T) {
+func TestLogger_RecordNotFoundCanBeNonError(t *testing.T) {
 	// 「没查到」通常是正常的业务分支，默认还是记下来，配了才忽略
 	for _, c := range []struct {
 		ignore    bool
@@ -148,7 +148,7 @@ func TestLogger_没查到记录可以不当错误(t *testing.T) {
 	}
 }
 
-func TestLogger_行数未知时不写字段(t *testing.T) {
+func TestLogger_OmitsRowsWhenUnknown(t *testing.T) {
 	// GORM 用 -1 表示「行数未知」，写成 -1 会被误读成真有 -1 行
 	lines := capture(t)
 	l := newGormLogger(DefaultClientConfig(), pgDialect(), postgres.Dialector{})
@@ -163,7 +163,7 @@ func TestLogger_行数未知时不写字段(t *testing.T) {
 	}
 }
 
-func TestLogger_Silent时什么都不记(t *testing.T) {
+func TestLogger_SilentLogsNothing(t *testing.T) {
 	lines := capture(t)
 	l := newGormLogger(DefaultClientConfig(), pgDialect(), postgres.Dialector{}).LogMode(logger.Silent)
 	traceOnce(l, errors.New("出错了"), time.Second)
@@ -173,7 +173,7 @@ func TestLogger_Silent时什么都不记(t *testing.T) {
 	}
 }
 
-func TestLogger_LogMode返回副本(t *testing.T) {
+func TestLogger_LogModeReturnsCopy(t *testing.T) {
 	// GORM 的约定：LogMode 返回新实例，不能改共享的那个
 	l := newGormLogger(DefaultClientConfig(), pgDialect(), postgres.Dialector{})
 	other := l.LogMode(logger.Silent).(*gormLogger)
@@ -201,7 +201,7 @@ func TestLogger_InfoWarnError(t *testing.T) {
 	}
 }
 
-func TestMessage_没参数时不当格式串(t *testing.T) {
+func TestMessage_NotFormatStringWithoutArgs(t *testing.T) {
 	// GORM 也会传不带参数的纯文本，消息里的 % 不该被当成占位符
 	if got := message("100% 命中", nil); got != "100% 命中" {
 		t.Errorf("没有参数时应原样返回，got=%q", got)
@@ -211,7 +211,7 @@ func TestMessage_没参数时不当格式串(t *testing.T) {
 	}
 }
 
-func TestLogger_SQL日志里没有参数值且就是发出去的那条(t *testing.T) {
+func TestLogger_SQLLogHasNoParamValuesAndMatchesSent(t *testing.T) {
 	// GORM 只在 Logger 实现了 ParamsFilter 时才不把参数代进 SQL
 	// （v1.31.2 callbacks.go:142）。没实现的话 Log: true 时每条
 	// WHERE password = ? 都带着真实的值进了日志。
@@ -265,7 +265,7 @@ func TestLogger_SQL日志里没有参数值且就是发出去的那条(t *testin
 	}
 }
 
-func TestLogger_Scan的SQL日志里也没有参数值(t *testing.T) {
+func TestLogger_ScanSQLLogHasNoParamValues(t *testing.T) {
 	// Scan 执行期间 GORM 把 Logger 换成 logger.Recorder（v1.31.2 finisher_api.go:539），
 	// Recorder 不问实例 Logger 的 ParamsFilter，只认进程级的 logger.RecorderParamsFilter，
 	// 它的默认值把参数代进 SQL。xgorm 的 init 把它换成 withoutParams，这里验的是换上了：
@@ -317,7 +317,7 @@ func TestLogger_Scan的SQL日志里也没有参数值(t *testing.T) {
 	}
 }
 
-func TestLogger_PG占位符还原是Explain的精确逆运算(t *testing.T) {
+func TestLogger_PGPlaceholderRestoreIsExactInverseOfExplain(t *testing.T) {
 	// 原文里本来就有 $1$ 这种写法（字符串字面量里）也要原样还原，
 	// 不能只是「把 $N$ 都换成 $N」碰巧对上了常见的语句
 	l := newGormLogger(DefaultClientConfig(), pgDialect(), postgres.Dialector{})
@@ -362,6 +362,6 @@ func benchTrace(b *testing.B, level slog.Level) {
 	}
 }
 
-func BenchmarkTrace_记一条SQL(b *testing.B) { benchTrace(b, slog.LevelInfo) }
+func BenchmarkTrace_OneSQL(b *testing.B) { benchTrace(b, slog.LevelInfo) }
 
-func BenchmarkTrace_slog级别高于info时SQL被丢掉(b *testing.B) { benchTrace(b, slog.LevelWarn) }
+func BenchmarkTrace_SlogLevelAboveInfoDropsSQL(b *testing.B) { benchTrace(b, slog.LevelWarn) }

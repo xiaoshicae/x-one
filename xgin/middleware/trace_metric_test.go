@@ -39,7 +39,7 @@ func recording(t *testing.T) func() tracetest.SpanStubs {
 	return exp.GetSpans
 }
 
-func TestTrace_开Span并回带TraceID(t *testing.T) {
+func TestTrace_StartsSpanAndReturnsTraceID(t *testing.T) {
 	spans := recording(t)
 	w := serve(t, get("/hello/42"), []gin.HandlerFunc{Trace()}, func(c *gin.Context) {
 		c.String(200, "ok")
@@ -68,7 +68,7 @@ func TestTrace_开Span并回带TraceID(t *testing.T) {
 	}
 }
 
-func TestTrace_接上上游链路(t *testing.T) {
+func TestTrace_ContinuesUpstreamTrace(t *testing.T) {
 	spans := recording(t)
 	req := get("/hello")
 	// 一条合法的 W3C traceparent
@@ -85,7 +85,7 @@ func TestTrace_接上上游链路(t *testing.T) {
 	}
 }
 
-func TestTrace_只有5xx算错(t *testing.T) {
+func TestTrace_OnlyServerErrorsMarkedAsError(t *testing.T) {
 	// 4xx 是客户端传错了，标成错误会让链路里满屏是错，真故障反而看不出来
 	for status, wantErr := range map[int]bool{200: false, 404: false, 400: false, 500: true, 503: true} {
 		spans := recording(t)
@@ -103,7 +103,7 @@ func TestTrace_只有5xx算错(t *testing.T) {
 	}
 }
 
-func TestTrace_未匹配路由用固定值(t *testing.T) {
+func TestTrace_UnmatchedRouteUsesFixedValue(t *testing.T) {
 	// 用真实路径的话，扫描器随便打几个 URL 就能把链路和指标的基数撑爆
 	spans := recording(t)
 	e := gin.New()
@@ -119,7 +119,7 @@ func TestTrace_未匹配路由用固定值(t *testing.T) {
 	}
 }
 
-func TestTrace_自定义方法收敛成OTHER(t *testing.T) {
+func TestTrace_CustomMethodNormalizedToOTHER(t *testing.T) {
 	// 与指标同一个道理：Span 名是链路后端建索引的那一维，方法是个自由 token，
 	// 谁都能发 CUSTOM1、CUSTOM2。照抄的话每来一个新值就多一个 Span 名。
 	// 原始方法留在 http.request.method_original 里，排查时看得到
@@ -154,7 +154,7 @@ func (p trustProbe) Extract(ctx context.Context, c propagation.TextMapCarrier) c
 func (trustProbe) Inject(context.Context, propagation.TextMapCarrier) {}
 func (trustProbe) Fields() []string                                   { return nil }
 
-func TestTrace_对端可信与否按xgin留的记号(t *testing.T) {
+func TestTrace_PeerTrustFollowsXginMarker(t *testing.T) {
 	// 透传 Header 只收可信对端发来的值。可不可信由 xgin 按 TrustedProxies 判，
 	// 这里只负责把判断结果交给 xtrace：没有记号（单独用本中间件）就是不可信
 	old := otel.GetTextMapPropagator()
@@ -180,7 +180,7 @@ func TestTrace_对端可信与否按xgin留的记号(t *testing.T) {
 	}
 }
 
-func TestPropagate_接上上游链路但不开Span(t *testing.T) {
+func TestPropagate_ContinuesUpstreamTraceWithoutSpan(t *testing.T) {
 	spans := recording(t)
 	req := get("/hello")
 	req.Header.Set("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
@@ -215,7 +215,7 @@ func withMetrics(t *testing.T) *xmetric.Metrics {
 	return m
 }
 
-func TestMetric_记请求数与耗时(t *testing.T) {
+func TestMetric_RecordsCountAndDuration(t *testing.T) {
 	m := withMetrics(t)
 	serve(t, get("/hello/42"), []gin.HandlerFunc{Metric()}, func(c *gin.Context) {
 		c.Status(201)
@@ -230,7 +230,7 @@ func TestMetric_记请求数与耗时(t *testing.T) {
 	}
 }
 
-func TestMetric_路由用模板(t *testing.T) {
+func TestMetric_RouteUsesTemplate(t *testing.T) {
 	// 按真实路径打标签会让时间序列随 URL 里的 id 无限增长，Prometheus 会被撑垮
 	m := withMetrics(t)
 	for _, p := range []string{"/hello/1", "/hello/2", "/hello/3"} {
@@ -246,7 +246,7 @@ func TestMetric_路由用模板(t *testing.T) {
 	}
 }
 
-func TestMetric_未匹配路由用固定值(t *testing.T) {
+func TestMetric_UnmatchedRouteUsesFixedValue(t *testing.T) {
 	m := withMetrics(t)
 	e := gin.New()
 	e.Use(Metric())
@@ -258,7 +258,7 @@ func TestMetric_未匹配路由用固定值(t *testing.T) {
 	}
 }
 
-func TestMetric_panic穿过时仍计入(t *testing.T) {
+func TestMetric_PanicStillCounted(t *testing.T) {
 	// 不计入的话，出问题的请求会在错误率指标里凭空消失
 	m := withMetrics(t)
 	func() {
@@ -273,7 +273,7 @@ func TestMetric_panic穿过时仍计入(t *testing.T) {
 
 var _ = http.StatusOK
 
-func TestMetric_自定义方法收敛成OTHER(t *testing.T) {
+func TestMetric_CustomMethodNormalizedToOTHER(t *testing.T) {
 	// 路由已经用模板挡住了 URL 里的 id，方法这一维却是照抄请求的——
 	// 而 HTTP 方法是个自由 token，谁都能发 CUSTOM1、CUSTOM2，
 	// 每来一个新值就多一组时间序列，没有淘汰机制。
@@ -308,7 +308,7 @@ func TestMetric_自定义方法收敛成OTHER(t *testing.T) {
 	}
 }
 
-func TestTrace_ErrAbortHandler中止的请求记成错误(t *testing.T) {
+func TestTrace_ErrAbortHandlerAbortRecordedAsError(t *testing.T) {
 	// 中止的请求带着 panic 穿过 Trace，写在 c.Next() 后面的收尾走不到；
 	// 读到的状态码又是已经发出去的 200——Span 上看是一次成功
 	spans := recording(t)
@@ -335,7 +335,7 @@ func TestTrace_ErrAbortHandler中止的请求记成错误(t *testing.T) {
 	}
 }
 
-func TestMetric_ErrAbortHandler中止的请求记成499(t *testing.T) {
+func TestMetric_ErrAbortHandlerAbortRecordedAs499(t *testing.T) {
 	// 记成 200 的话，被截断的响应在错误率里凭空消失
 	m := withMetrics(t)
 	serveAborted(t, Metric())

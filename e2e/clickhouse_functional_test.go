@@ -16,7 +16,7 @@ import (
 // 写入和查询走的是第三个实例：xgorm/clickhouse/README.md「配置」——匿名 import xgorm/clickhouse、配置里 Driver: clickhouse，
 // 「拿到的仍然是原生的 *gorm.DB，配置项和多实例写法都一样」。
 // 数据直连 ClickHouse 核对：一条 INSERT 写进去的一批行都在，按主键点查、按 name 聚合都对
-func TestClickHouse_写入和查询走第三个实例且数据真的落在ClickHouse上(t *testing.T) {
+func TestClickHouse_WritesAndReadsViaThirdInstance_DataLandsInClickHouse(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	p := chStart(t, harness.Options{})
@@ -72,7 +72,7 @@ func TestClickHouse_写入和查询走第三个实例且数据真的落在ClickH
 // xgorm/clickhouse 包文档与 xgorm/clickhouse/README.md「配置」：驱动在初始化时查的那次 SELECT version() 挪进了建连探测，
 // 「版本号照样设进 Dialector，驱动靠它判断老版本不支持的改列名（< 20.4）和列精度（< 21.11）」。
 // 24.8 上：Dialector.Version 就是服务端的 version()，两个开关都是 false（新版本全都支持）
-func TestClickHouse_建连探测查到的版本号设进了Dialector_24点8上两个老版本开关都关着(t *testing.T) {
+func TestClickHouse_ProbedVersionSetOnDialector_BothLegacyFlagsOffOn24_8(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	p := chStart(t, harness.Options{})
@@ -103,7 +103,7 @@ func TestClickHouse_建连探测查到的版本号设进了Dialector_24点8上�
 // 日志里的语句就是 Span 的 db.query.text。Log 按实例生效：只给 ch 开，PG、MySQL 的 SQL 一条都不该记。
 //
 // 聚合那一条走的是 GORM 的 Scan：见子测试「Scan」
-func TestClickHouse_SQL日志只记问号占位符不记参数值_和Span的db_query_text一致(t *testing.T) {
+func TestClickHouse_SQLLogHasPlaceholdersNotArgs_MatchesSpanDbQueryText(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	p := chStart(t, harness.Options{Spans: true, Overlay: sqlLog("ch")})
@@ -189,7 +189,7 @@ func TestClickHouse_SQL日志只记问号占位符不记参数值_和Span的db_q
 // db.system.name=clickhouse、db.namespace 是库名、server.address / server.port 从 DSN 解出来分开记、
 // db.query.text 带占位符、db.operation.name 是语句的第一个关键字。父是服务端 Span。
 // 同一个请求里三个实例各报各的连接信息
-func TestClickHouse_SQL的Span带上这个实例自己的连接信息(t *testing.T) {
+func TestClickHouse_SQLSpanCarriesThisInstanceConnInfo(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	p := chStart(t, harness.Options{Spans: true})
@@ -258,7 +258,7 @@ func TestClickHouse_SQL的Span带上这个实例自己的连接信息(t *testing
 // 实测 24.8 把 value 转 Int64 失败是 code: 6, message: Cannot parse string '<值>' as Int64 …。
 // native 协议下驱动返回 *clickhouse.Exception，方言认得出错误码（xgorm/clickhouse errorCode）：
 // SQL failed 的 error 字段、Span 的状态和属性里只有 6；返回给业务的错误原样不变
-func TestClickHouse_服务端错误原文里的参数值不进SQL日志和Span(t *testing.T) {
+func TestClickHouse_ArgsInServerErrorKeptOutOfSQLLogAndSpan(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	p := chStart(t, harness.Options{Spans: true, Overlay: sqlLog("ch")})
@@ -295,7 +295,7 @@ func TestClickHouse_服务端错误原文里的参数值不进SQL日志和Span(t
 
 // xgorm/README.md：「Metric: true # 连接池指标 db_pool_*，按实例生效：Metric: false 的实例不出现在 /metrics 里」。
 // ch 实例的池子按 name="ch" 报：配 MaxOpenConns: 7 就是 7，别的实例仍是默认的 50
-func TestClickHouse_连接池指标按实例名打标签_Metric按实例关得掉(t *testing.T) {
+func TestClickHouse_PoolMetricsLabeledByInstance_MetricTogglePerInstance(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	pool := []string{
@@ -344,7 +344,7 @@ func TestClickHouse_连接池指标按实例名打标签_Metric按实例关得�
 // ClickHouse 的密码不出现在任何输出里：docs/observability.md「框架自己的日志」、xgorm/clickhouse/README.md「配置」
 // 「这些错误一律不回显 DSN」。SQL 日志、debug、请求体日志、Span 全开，走一圈写入、点查、聚合、报错，
 // 中途断一次 ClickHouse（这时的错误最可能把连接串带出来），再核对 stdout / stderr、Span 文件、/metrics、响应体
-func TestClickHouse_密码不出现在任何日志Span指标和响应里(t *testing.T) {
+func TestClickHouse_PasswordNeverInLogsSpansMetricsOrResponses(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	pw := harness.CHPassword()
@@ -414,7 +414,7 @@ func TestClickHouse_密码不出现在任何日志Span指标和响应里(t *test
 //
 // 每种错法各起一个进程：非 0 退出、从没开始监听、错误说得清是哪一条，输出里没有密码和 DSN；
 // 一次连接都不该发出去（代理数得到）
-func TestClickHouse_DSN写错时启动失败_错误说清是哪一条_不回显DSN和密码(t *testing.T) {
+func TestClickHouse_DSNTypoFailsStartup_NamesTheItem_NoDSNOrPasswordEcho(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	secret := "dsn-secret-" + harness.NewID()
@@ -461,7 +461,7 @@ func TestClickHouse_DSN写错时启动失败_错误说清是哪一条_不回显D
 //	DSN 里写了        dial_timeout=1500ms，配置里同时写着 DialTimeout: 1s，以 DSN 为准
 //
 // 池里的连接先用短截止时间耗掉：它们卡在读上，dial_timeout 管不到
-func TestClickHouse_建连超时按DSN里写的dial_timeout_没写按这个实例的DialTimeout(t *testing.T) {
+func TestClickHouse_DialTimeoutFromDSN_ElseInstanceDialTimeout(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	for _, c := range []struct {
@@ -505,7 +505,7 @@ func TestClickHouse_建连超时按DSN里写的dial_timeout_没写按这个实�
 //
 // 这条原先是 bug：resolve 把 URL 的整个 Host（"h1:9000,h2:9000"）当成地址，net.SplitHostPort 解不开，
 // Span 里 server.address 是整串、没有 server.port，建连日志和错误里的 addr 也是整串
-func TestClickHouse_多主机DSN_连第一个_连不上换下一个_Span和日志里记第一个主机(t *testing.T) {
+func TestClickHouse_MultiHostDSN_FirstThenNext_SpanAndLogRecordFirstHost(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	first, second := harness.NewProxy(t, harness.CHAddr()), harness.NewProxy(t, harness.CHAddr())

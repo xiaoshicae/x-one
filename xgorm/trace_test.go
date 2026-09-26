@@ -61,7 +61,7 @@ func stmtDB(ctx context.Context) *gorm.DB {
 	return &gorm.DB{Statement: &gorm.Statement{Context: ctx}}
 }
 
-func TestInstallTracing_六种操作都挂上(t *testing.T) {
+func TestInstallTracing_HooksAllSixOperations(t *testing.T) {
 	// 官方插件会把 ClickHouse 驱动编进来，所以回调是自己注册的；
 	// 那就得自己保证一种都没漏——漏了的那种操作从此在链路里是隐形的
 	db := openLazy(t)
@@ -83,7 +83,7 @@ func TestInstallTracing_六种操作都挂上(t *testing.T) {
 	}
 }
 
-func TestSpan_带上连接信息与SQL(t *testing.T) {
+func TestSpan_IncludesConnInfoAndSQL(t *testing.T) {
 	spans := recording(t)
 	info := ConnInfo{Driver: "mysql", Addr: "h:3306", DB: "app"}
 
@@ -124,7 +124,7 @@ func TestSpan_带上连接信息与SQL(t *testing.T) {
 	}
 }
 
-func TestSpan_不记参数值(t *testing.T) {
+func TestSpan_OmitsParamValues(t *testing.T) {
 	// 参数里可能有手机号、身份证、令牌，记进链路就跟着采样一路送出去了
 	spans := recording(t)
 	db := stmtDB(context.Background())
@@ -140,7 +140,7 @@ func TestSpan_不记参数值(t *testing.T) {
 	}
 }
 
-func TestSpan_出错时标红(t *testing.T) {
+func TestSpan_MarksErrorStatus(t *testing.T) {
 	spans := recording(t)
 	db := stmtDB(context.Background())
 	startSpan(ConnInfo{})("query")(db)
@@ -156,7 +156,7 @@ func TestSpan_出错时标红(t *testing.T) {
 	}
 }
 
-func TestSpan_服务端报错时只记错误码不记原文(t *testing.T) {
+func TestSpan_ServerErrorRecordsCodeNotMessage(t *testing.T) {
 	// 实测 MySQL 8.0 的 1062 原文是 Duplicate entry 'a@b.com' for key …，
 	// PG 16 的 22P02 原文是 invalid input syntax for type integer: "notanint"：
 	// 参数值换一条路进了链路。db.query.text 特意只记占位符，这里不能再漏出去
@@ -203,7 +203,7 @@ func TestSpan_服务端报错时只记错误码不记原文(t *testing.T) {
 	}
 }
 
-func TestOperationName_取语句的第一个关键字(t *testing.T) {
+func TestOperationName_FirstKeyword(t *testing.T) {
 	for sql, want := range map[string]string{
 		"SELECT * FROM t":           "SELECT",
 		"  insert into t values(1)": "insert",
@@ -220,7 +220,7 @@ func TestOperationName_取语句的第一个关键字(t *testing.T) {
 	}
 }
 
-func TestConnAttrs_地址拆成主机和端口(t *testing.T) {
+func TestConnAttrs_SplitsAddrIntoHostAndPort(t *testing.T) {
 	for _, c := range []struct {
 		info ConnInfo
 		want map[string]string
@@ -241,7 +241,7 @@ func TestConnAttrs_地址拆成主机和端口(t *testing.T) {
 	}
 }
 
-func TestSpan_没查到记录不算错(t *testing.T) {
+func TestSpan_RecordNotFoundIsNotError(t *testing.T) {
 	// 「没查到」是正常的业务分支，标成错误会让链路里满屏红色
 	spans := recording(t)
 	db := stmtDB(context.Background())
@@ -254,12 +254,12 @@ func TestSpan_没查到记录不算错(t *testing.T) {
 	}
 }
 
-func TestSpan_Statement为空时不炸(t *testing.T) {
+func TestSpan_StatementNilDoesNotPanic(t *testing.T) {
 	startSpan(ConnInfo{})("query")(&gorm.DB{})
 	endSpan(pgDialect())(&gorm.DB{})
 }
 
-func TestLogConn_不打印凭证(t *testing.T) {
+func TestLogConn_OmitsCredentials(t *testing.T) {
 	// 建连日志是这个模块唯一会写出连接信息的地方
 	lines := capture(t)
 	c := DefaultClientConfig()
@@ -308,12 +308,12 @@ func benchSpan(b *testing.B, tp trace.TracerProvider) {
 	}
 }
 
-func BenchmarkSpan_一条查询_没装链路(b *testing.B) { benchSpan(b, noop.NewTracerProvider()) }
+func BenchmarkSpan_OneQuery_NoTracing(b *testing.B) { benchSpan(b, noop.NewTracerProvider()) }
 
-func BenchmarkSpan_一条查询_不采样(b *testing.B) {
+func BenchmarkSpan_OneQuery_NotSampled(b *testing.B) {
 	benchSpan(b, sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.NeverSample())))
 }
 
-func BenchmarkSpan_一条查询_全采样(b *testing.B) {
+func BenchmarkSpan_OneQuery_AlwaysSampled(b *testing.B) {
 	benchSpan(b, sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample())))
 }

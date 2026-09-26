@@ -23,7 +23,7 @@ func validateForm(t *testing.T, f form) error {
 	return binding.Validator.ValidateStruct(&f)
 }
 
-func TestToZH_翻译校验错误(t *testing.T) {
+func TestToZH_TranslatesValidationErrors(t *testing.T) {
 	if err := RegisterZH(); err != nil {
 		t.Fatalf("注册失败：%v", err)
 	}
@@ -42,7 +42,7 @@ func TestToZH_翻译校验错误(t *testing.T) {
 	}
 }
 
-func TestToZH_字段顺序稳定(t *testing.T) {
+func TestToZH_StableFieldOrder(t *testing.T) {
 	// 同一组校验错误每次都要得到同样的消息，否则接口的错误文案会随
 	// map 遍历顺序变化，测试和告警都对不上
 	if err := RegisterZH(); err != nil {
@@ -58,7 +58,7 @@ func TestToZH_字段顺序稳定(t *testing.T) {
 	}
 }
 
-func TestToZH_不是校验错误就原样返回(t *testing.T) {
+func TestToZH_NonValidationErrorReturnedAsIs(t *testing.T) {
 	// 调用方不必先判断这是不是校验错误
 	if err := RegisterZH(); err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func TestToZH_不是校验错误就原样返回(t *testing.T) {
 	}
 }
 
-func TestToZH_没注册时原样返回(t *testing.T) {
+func TestToZH_ReturnedAsIsWhenNotRegistered(t *testing.T) {
 	// 没启用翻译的服务照样能调用，不会拿到空文案
 	mu.Lock()
 	old := translator
@@ -102,7 +102,7 @@ type otherValidator struct{}
 func (otherValidator) ValidateStruct(any) error { return nil }
 func (otherValidator) Engine() any              { return "not a validator" }
 
-func TestRegisterZH_失败时报的是xgin的register(t *testing.T) {
+func TestRegisterZH_FailureReportsXginRegister(t *testing.T) {
 	// 调用方靠 xerror.Is / Module 判断「这是谁报的」，op 是固定词表里的 register：
 	// 注册翻译器跟注册指标、注册方言是同一类动作，原先写的 new 对不上
 	mu.Lock()
@@ -125,7 +125,7 @@ func TestRegisterZH_失败时报的是xgin的register(t *testing.T) {
 	}
 }
 
-func TestRegisterZH_重复注册是空操作(t *testing.T) {
+func TestRegisterZH_RepeatedRegisterIsNoOp(t *testing.T) {
 	if err := RegisterZH(); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestRegisterZH_重复注册是空操作(t *testing.T) {
 	}
 }
 
-func TestError_保留原始错误(t *testing.T) {
+func TestError_KeepsOriginalError(t *testing.T) {
 	// 翻译之后仍然要能 errors.As 出原始的校验错误，
 	// 否则调用方没法按字段做更细的处理
 	if err := RegisterZH(); err != nil {
@@ -153,7 +153,7 @@ func TestError_保留原始错误(t *testing.T) {
 	}
 }
 
-func TestToZH_并发安全(t *testing.T) {
+func TestToZH_ConcurrencySafe(t *testing.T) {
 	// ToZH 在请求期读 translator，RegisterZH 是公开 API、调用时机由使用者决定
 	err := validateForm(t, form{Age: 10})
 	done := make(chan struct{})

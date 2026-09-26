@@ -33,7 +33,7 @@ import (
 //   - 指标开着时，xgin 的请求计数和耗时直方图一个不多一个不少（xgin/README.md「指标」）
 //   - 全开时每个请求一条访问日志，写进文件的每一行都是完整的 JSON（并发写不串行）
 //   - 压完之后 SIGTERM 照样以 0 退出
-func TestLoad_框架相对裸gin的开销随并发的变化(t *testing.T) {
+func TestLoad_FrameworkOverheadVsBareGinByConcurrency(t *testing.T) {
 	requireLoad(t)
 	table := "e2e_load_" + harness.NewID()
 	ids := seedUsers(t, table, 1000)
@@ -146,7 +146,7 @@ func overheadTable(cells []cell, base string) string {
 //
 // 「只开访问日志（级别 warn）」对的是 xgin/middleware/log.go 的承诺：级别关掉时直接放行，
 // 缓存请求体、截响应、脱敏、序列化一样都不做——那它的开销应当接近零，远小于级别 info 时
-func TestLoad_逐个打开中间件看谁占大头(t *testing.T) {
+func TestLoad_EnableMiddlewaresOneByOneToFindCost(t *testing.T) {
 	requireLoad(t)
 	table := "e2e_load_" + harness.NewID()
 	ids := seedUsers(t, table, 1000)
@@ -223,7 +223,7 @@ func TestLoad_逐个打开中间件看谁占大头(t *testing.T) {
 //
 // 泄漏的样子是「随请求数单调涨」：每请求漏一个 goroutine 的话几分钟就是上百万个，
 // 每连接漏一个的话压测的连接数固定，所以还要看压完之后能不能回落到压测前的水平
-func TestLoad_默认配置64并发浸泡不泄漏(t *testing.T) {
+func TestLoad_DefaultConfig64ConcurrencySoakNoLeak(t *testing.T) {
 	requireLoad(t)
 	soak := loadKnob(t, "XONE_E2E_SOAK", 3*time.Minute)
 	const (

@@ -17,7 +17,7 @@ import (
 // plain 去掉颜色码，只看文字
 func plain(s string) string { return regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(s, "") }
 
-func TestPrintBanner_终端里打出字符画和版本(t *testing.T) {
+func TestPrintBanner_PrintsArtAndVersionOnTerminal(t *testing.T) {
 	var b bytes.Buffer
 	printBanner(&b, true)
 	out := plain(b.String())
@@ -28,7 +28,7 @@ func TestPrintBanner_终端里打出字符画和版本(t *testing.T) {
 	}
 }
 
-func TestPrintBanner_不是终端时一个字都不写(t *testing.T) {
+func TestPrintBanner_WritesNothingWhenNotTerminal(t *testing.T) {
 	// 容器、重定向、日志采集器后面：多行字符画就是日志平台里解析失败的垃圾
 	var b bytes.Buffer
 	printBanner(&b, false)
@@ -37,7 +37,7 @@ func TestPrintBanner_不是终端时一个字都不写(t *testing.T) {
 	}
 }
 
-func TestIsTerminal_管道和文件不是终端(t *testing.T) {
+func TestIsTerminal_PipesAndFilesAreNotTerminals(t *testing.T) {
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +57,7 @@ func TestIsTerminal_管道和文件不是终端(t *testing.T) {
 	}
 }
 
-func TestRun_stderr不是终端时不打banner(t *testing.T) {
+func TestRun_StderrNotTerminal_NoBanner(t *testing.T) {
 	// 调用点：Run 得真的拿 stderr 去判断，而不是不管三七二十一都打
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -78,7 +78,7 @@ func TestRun_stderr不是终端时不打banner(t *testing.T) {
 	}
 }
 
-func TestModuleVersion_取自构建信息(t *testing.T) {
+func TestModuleVersion_ComesFromBuildInfo(t *testing.T) {
 	for name, c := range map[string]struct {
 		bi   debug.BuildInfo
 		want string
@@ -94,7 +94,7 @@ func TestModuleVersion_取自构建信息(t *testing.T) {
 	}
 }
 
-func TestRun_XONE_DEBUG时列出启动钩子的顺序(t *testing.T) {
+func TestRun_XONE_DEBUGListsStartHookOrder(t *testing.T) {
 	var b bytes.Buffer
 	old := config.DebugOut
 	config.DebugOut = &b
@@ -113,7 +113,7 @@ func TestRun_XONE_DEBUG时列出启动钩子的顺序(t *testing.T) {
 	}
 }
 
-func TestRun_不开XONE_DEBUG时不写调试输出(t *testing.T) {
+func TestRun_NoDebugOutputWithoutXONE_DEBUG(t *testing.T) {
 	var b bytes.Buffer
 	old := config.DebugOut
 	config.DebugOut = &b

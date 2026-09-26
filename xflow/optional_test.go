@@ -26,7 +26,7 @@ func (*发通知) Dependency() Dependency                    { return Weak }
 func (*发通知) Process(context.Context, *struct{}) error  { return errors.New("sms gateway timeout") }
 func (*发通知) Rollback(context.Context, *struct{}) error { return nil }
 
-func TestNew_没写Name时用类型名(t *testing.T) {
+func TestNew_UsesTypeNameWhenNameUnset(t *testing.T) {
 	// 名字就写在类型上，再让使用者写一个返回同一个字符串的方法是纯粹的重复
 	res := New[*struct{}]("下单", &扣券{err: errors.New("coupon used up")}).Execute(context.Background(), &struct{}{})
 
@@ -39,7 +39,7 @@ func TestNew_没写Name时用类型名(t *testing.T) {
 	}
 }
 
-func TestNew_没写Dependency时是强依赖(t *testing.T) {
+func TestNew_StrongDependencyWhenDependencyUnset(t *testing.T) {
 	// 默认要偏安全的那一侧：失败就中断并回滚，而不是悄悄跳过继续往下扣钱
 	stock := &扣库存{}
 	res := New[*struct{}]("下单", stock, &扣券{err: errors.New("coupon used up")}).
@@ -53,7 +53,7 @@ func TestNew_没写Dependency时是强依赖(t *testing.T) {
 	}
 }
 
-func TestNew_写了Name和Dependency就用写的(t *testing.T) {
+func TestNew_UsesNameAndDependencyWhenSet(t *testing.T) {
 	res := New[*struct{}]("下单", &发通知{}).Execute(context.Background(), &struct{}{})
 
 	if !res.Success() {

@@ -23,7 +23,7 @@ const redacted = "***REDACTED***"
 // 访问日志一条请求一行 JSON，字段以 xgin/middleware/log.go 为准：
 // method、route、path、status、elapsed、client_ip、request_headers，外加 xtrace 注入的 trace_id / span_id。
 // 业务日志（slog.InfoContext）和访问日志在同一条链路上，trace_id 相同、且就是 Span 的 trace_id
-func TestFunctional_访问日志字段齐全并和业务日志与Span共用trace_id(t *testing.T) {
+func TestFunctional_AccessLogFieldsComplete_TraceIDSharedWithAppLogAndSpan(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
@@ -134,7 +134,7 @@ func TestFunctional_访问日志字段齐全并和业务日志与Span共用trace
 // 打开 LogRequestBody / LogResponseBody 之后，xgin/README.md「访问日志」那一节承诺的每一条脱敏：
 // 按敏感词「含」匹配、任意嵌套、Unicode 折叠、表单、纯文本整段遮、请求头名单与词表、
 // 值是 URL 的头去掉查询串、multipart / octet-stream 不读
-func TestFunctional_打开请求体日志后敏感信息全部被遮掉(t *testing.T) {
+func TestFunctional_RequestBodyLogMasksAllSecrets(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
@@ -349,7 +349,7 @@ func TestFunctional_打开请求体日志后敏感信息全部被遮掉(t *testi
 //
 // xgorm/README.md XGorm：DSN 预检失败「不回传」pgx 的原始错误（那里面是整串 DSN）；
 // Log: true 记的是带占位符的 SQL
-func TestFunctional_PG密码不出现在任何日志和错误里(t *testing.T) {
+func TestFunctional_PGPasswordNeverInLogsOrErrors(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	pw := pgPassword(t)
@@ -502,7 +502,7 @@ func TestFunctional_PG密码不出现在任何日志和错误里(t *testing.T) {
 }
 
 // xgorm/README.md XGorm.Log：「记的是带占位符的 SQL，不含参数值」
-func TestFunctional_SQL日志只记占位符不记参数值(t *testing.T) {
+func TestFunctional_SQLLogHasPlaceholdersNotArgs(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 

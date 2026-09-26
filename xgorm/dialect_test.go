@@ -26,7 +26,7 @@ func withDialect(t *testing.T, d Dialect) {
 	})
 }
 
-func TestDrivers_内置两个(t *testing.T) {
+func TestDrivers_TwoBuiltIn(t *testing.T) {
 	got := Drivers()
 	if !slices.Contains(got, DriverMySQL) || !slices.Contains(got, DriverPostgres) {
 		t.Errorf("mysql 和 postgres 应当内置，got=%v", got)
@@ -36,7 +36,7 @@ func TestDrivers_内置两个(t *testing.T) {
 	}
 }
 
-func TestRegisterDialect_注册之后驱动就能用了(t *testing.T) {
+func TestRegisterDialect_DriverUsableAfterRegister(t *testing.T) {
 	withDialect(t, Dialect{
 		Name: "demo",
 		Open: func(string) gorm.Dialector { return nil },
@@ -63,7 +63,7 @@ func TestRegisterDialect_注册之后驱动就能用了(t *testing.T) {
 	}
 }
 
-func TestRegisterDialect_没有Resolve时DSN原样用(t *testing.T) {
+func TestRegisterDialect_DSNUsedAsIsWithoutResolve(t *testing.T) {
 	// 对一个只想先跑起来的驱动，超时写进 DSN 里一样有效
 	withDialect(t, Dialect{Name: "bare", Open: func(string) gorm.Dialector { return nil }})
 
@@ -81,7 +81,7 @@ func TestRegisterDialect_没有Resolve时DSN原样用(t *testing.T) {
 	}
 }
 
-func TestRegisterDialect_重名直接panic(t *testing.T) {
+func TestRegisterDialect_PanicsOnDuplicateName(t *testing.T) {
 	// 两个 Dialect 抢同一个名字时，选哪个都可能让服务连到一个
 	// 它以为自己没在连的地方。这是 import 期的问题，不该留到运行时
 	defer func() {
@@ -92,7 +92,7 @@ func TestRegisterDialect_重名直接panic(t *testing.T) {
 	RegisterDialect(Dialect{Name: DriverMySQL, Open: func(string) gorm.Dialector { return nil }})
 }
 
-func TestRegisterDialect_缺字段直接panic(t *testing.T) {
+func TestRegisterDialect_PanicsOnMissingField(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		d    Dialect
@@ -111,7 +111,7 @@ func TestRegisterDialect_缺字段直接panic(t *testing.T) {
 	}
 }
 
-func TestValidate_没注册的驱动报错时列出已注册的(t *testing.T) {
+func TestValidate_UnknownDriverListsRegistered(t *testing.T) {
 	// 只说「不认识」帮助有限：名字拼错和忘了 import 对应的 module
 	// 是两个不同的问题，把实际注册了哪些列出来，两者一眼可分
 	c := DefaultClientConfig()
@@ -142,7 +142,7 @@ func (d stubDialector) BindVarTo(clause.Writer, *gorm.Statement, any) {}
 func (d stubDialector) QuoteTo(clause.Writer, string)                 {}
 func (d stubDialector) Explain(sql string, _ ...any) string           { return sql }
 
-func TestNew_用的是注册进来的那个Open(t *testing.T) {
+func TestNew_UsesRegisteredOpen(t *testing.T) {
 	// 回归用例。曾经 New 里还留着一个写死 mysql / postgres 的旧函数，
 	// 于是注册表看着是对的（Drivers() 里有它、校验也过了），
 	// 建连却悄悄走了 postgres —— 连到了一个使用者以为自己没在连的地方
@@ -160,7 +160,7 @@ func TestNew_用的是注册进来的那个Open(t *testing.T) {
 	}
 }
 
-func TestNew_Ready在建连验证里执行并跟着重试(t *testing.T) {
+func TestNew_ReadyRunsInProbeAndRetries(t *testing.T) {
 	// 有的驱动在 Initialize 里用 context.Background() 查版本：退出信号管不到，
 	// 失败了也轮不到重试。Ready 是给它们挪过来的地方，所以必须真的被调到、
 	// 失败时跟 Ping 一起重试，并且报成 connect
@@ -190,7 +190,7 @@ func TestNew_Ready在建连验证里执行并跟着重试(t *testing.T) {
 	}
 }
 
-func TestNew_认证失败时不重试且说清是认证失败(t *testing.T) {
+func TestNew_NoRetryOnAuthFailureAndSaysSo(t *testing.T) {
 	// 密码错了重试也是错：再试两次只是多等两轮退避才报出来。
 	// 报成 cannot reach 的话，排查的人会先去查网络。
 	// 错误的形状照 pgx 的来：*pgconn.PgError 包在建连错误里（实测 PG 16 密码错是 28P01）
@@ -235,7 +235,7 @@ func TestNew_认证失败时不重试且说清是认证失败(t *testing.T) {
 	}
 }
 
-func TestNew_MySQL认证失败时不重试且说清是认证失败(t *testing.T) {
+func TestNew_MySQLNoRetryOnAuthFailureAndSaysSo(t *testing.T) {
 	// 错误的形状照 go-sql-driver 的来：*mysql.MySQLError 原样返回。实测 MySQL 8.0.46：
 	// 密码错、用户不存在是 1045；没有这个库的权限（包括没有全局权限的账号连一个不存在的库）是 1044。
 	// 1049（库不存在，有全局权限的账号才看得到）不算认证失败。
@@ -303,7 +303,7 @@ func mysqlDialect() Dialect {
 	return d
 }
 
-func TestDialect_内置方言认得出认证失败和错误码(t *testing.T) {
+func TestDialect_BuiltInsRecognizeAuthFailureAndErrorCode(t *testing.T) {
 	// 实测 PG 16 密码错是 28P01、MySQL 8.0.46 密码错是 1045、没有库权限是 1044。
 	// 库不存在（3D000 / 1049）不算认证失败
 	pgErr := func(code string) error {

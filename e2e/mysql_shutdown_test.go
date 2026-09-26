@@ -24,7 +24,7 @@ func mysqlLogTime(l harness.Log) time.Time {
 // 然后才轮到客户端类组件。所以在途的 SELECT SLEEP 要在服务端睡完、拿到 200，
 // 不看 ctx 的 handler 睡完再查一次 MySQL 也要查得到（mysql_error=none），
 // 这些都发生在 xgorm 的停止钩子关掉连接池之前
-func TestMySQL_SIGTERM时在途的MySQL查询做完才关连接池(t *testing.T) {
+func TestMySQL_SIGTERMFinishesInFlightQueriesBeforeClosingPool(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	const (
@@ -124,7 +124,7 @@ func TestMySQL_SIGTERM时在途的MySQL查询做完才关连接池(t *testing.T)
 // xgorm/README.md「MySQL」，这里照它断言。
 //
 // ReadTimeout 配成 10s：默认 3s 的话，断连之后留的那一截里读超时可能自己先到，测不出取消管不管用
-func TestMySQL_卡住的MySQL查询_请求ctx被取消时当场返回_不等ReadTimeout(t *testing.T) {
+func TestMySQL_StuckQuery_ReturnsOnRequestCtxCancel_NoReadTimeoutWait(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	const readTimeout = 10 * time.Second
@@ -206,7 +206,7 @@ func TestMySQL_卡住的MySQL查询_请求ctx被取消时当场返回_不等Read
 // 这条原先是 KNOWN BUG：信号之后约 2.95s 才退出（= 握手那一读等满 ReadTimeout 3s，减去发信号前已经等掉的那一截）。
 // 那一读发生在 gorm.Open 里 Dialector.Initialize 查版本时，用的是 context.Background()；
 // 文档还把它的上限写成了 DialTimeout，而对端 TCP 秒连、握手不回话时管这一读的是 readTimeout
-func TestMySQL_启动时MySQL不回话期间收到SIGTERM_当场退出(t *testing.T) {
+func TestMySQL_SIGTERMWhileSilentAtStartup_ExitsImmediately(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	const immediate = 200 * time.Millisecond // 同 TestShutdown_启动期间收到SIGTERM 的「当场放弃」

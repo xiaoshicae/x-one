@@ -18,7 +18,7 @@ import (
 //	db     这条链路上有 gorm.query 的 Span，读完之后 Redis 里有了这个 key
 //	redis  Redis 里被直接塞了一份和 PG 不一样的值，读到的正是它；链路上只有 get、没有 SQL
 //	local  链路上一个客户端 Span 都没有：既没问 Redis 也没问 PG
-func TestFunctional_三级读逐级命中本地缓存Redis和PG(t *testing.T) {
+func TestFunctional_ThreeTierReadHitsLocalCacheRedisAndPG(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 

@@ -11,7 +11,7 @@ import (
 	"github.com/xiaoshicae/x-one/xonetest"
 )
 
-func TestRegister_只读配置不建任何东西(t *testing.T) {
+func TestRegister_OnlyReadsConfigBuildsNothing(t *testing.T) {
 	var got *hook.Entry
 	for _, e := range hook.Start() {
 		if e.Pkg == "github.com/xiaoshicae/x-one/xapp" {
@@ -51,7 +51,7 @@ func keepCfg(t *testing.T) {
 	t.Cleanup(func() { cfg = old })
 }
 
-func TestLoadConfig_读的是_App_这一块(t *testing.T) {
+func TestLoadConfig_ReadsAppBlock(t *testing.T) {
 	// 服务名和版本号会被链路和指标当成 service.name / service.version，
 	// 这一块没读到的话，面板上整个服务就是匿名的
 	keepCfg(t)
@@ -66,7 +66,7 @@ func TestLoadConfig_读的是_App_这一块(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_没配就保持空值(t *testing.T) {
+func TestLoadConfig_StaysEmptyWhenUnset(t *testing.T) {
 	keepCfg(t)
 	cfg = DefaultConfig()
 	xonetest.UseConfigYAML(t, "XLog:\n  Level: info\n")
@@ -79,7 +79,7 @@ func TestLoadConfig_没配就保持空值(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_配置写错时启动失败(t *testing.T) {
+func TestLoadConfig_BadConfigFailsStartup(t *testing.T) {
 	keepCfg(t)
 	xonetest.UseConfigYAML(t, "XApp:\n  Nmae: demo\n")
 
@@ -88,7 +88,7 @@ func TestLoadConfig_配置写错时启动失败(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_不带上前一次的值(t *testing.T) {
+func TestLoadConfig_DoesNotCarryPreviousValue(t *testing.T) {
 	// 同一进程里跑第二次 Run（测试里常见）：这次没写的字段该回到默认值，
 	// 而不是沿用上一次的服务名
 	keepCfg(t)
@@ -103,7 +103,7 @@ func TestLoadConfig_不带上前一次的值(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_解码失败时不动现有的值(t *testing.T) {
+func TestLoadConfig_DecodeFailureKeepsCurrentValue(t *testing.T) {
 	keepCfg(t)
 	cfg = Config{Name: "kept"}
 	xonetest.UseConfigYAML(t, "XApp:\n  Name: half\n  Version: [1, 2]\n")
@@ -116,7 +116,7 @@ func TestLoadConfig_解码失败时不动现有的值(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_还没加载时先加载再读(t *testing.T) {
+func TestLoadConfig_LoadsBeforeReadingIfNotLoaded(t *testing.T) {
 	// 读得早拿到的也是文件里的值，不是一份静默的默认值
 	keepCfg(t)
 	p := filepath.Join(t.TempDir(), "application.yml")

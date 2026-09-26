@@ -55,7 +55,7 @@ func dump(t *testing.T, m *Metrics) string {
 	return w.Body.String()
 }
 
-func TestShortcut_计数器(t *testing.T) {
+func TestShortcut_Counter(t *testing.T) {
 	m := newMetrics(t, nil)
 	CounterInc("orders", T("status", "ok"))
 	CounterInc("orders", T("status", "ok"))
@@ -69,7 +69,7 @@ func TestShortcut_计数器(t *testing.T) {
 	}
 }
 
-func TestShortcut_仪表盘(t *testing.T) {
+func TestShortcut_Gauge(t *testing.T) {
 	m := newMetrics(t, nil)
 	GaugeSet("queue_depth", 10)
 	GaugeInc("queue_depth")
@@ -81,7 +81,7 @@ func TestShortcut_仪表盘(t *testing.T) {
 	}
 }
 
-func TestShortcut_直方图(t *testing.T) {
+func TestShortcut_Histogram(t *testing.T) {
 	m := newMetrics(t, nil)
 	HistogramObserve("payload_bytes", 0.3)
 
@@ -95,7 +95,7 @@ func TestShortcut_直方图(t *testing.T) {
 	}
 }
 
-func TestShortcut_标签顺序不影响复用(t *testing.T) {
+func TestShortcut_LabelOrderDoesNotAffectReuse(t *testing.T) {
 	// 同一个指标写两种标签顺序，不该建出两个 collector——
 	// prometheus 会因「同名不同标签」拒掉第二个，数据就丢了
 	m := newMetrics(t, nil)
@@ -107,7 +107,7 @@ func TestShortcut_标签顺序不影响复用(t *testing.T) {
 	}
 }
 
-func TestShortcut_排序不动调用方的切片(t *testing.T) {
+func TestShortcut_SortingLeavesCallerSliceIntact(t *testing.T) {
 	// 调用方可能拿同一个切片反复展开，排序改了它的顺序就是改了别人的数据
 	newMetrics(t, nil)
 	tags := []Tag{T("b", "2"), T("a", "1")}
@@ -118,7 +118,7 @@ func TestShortcut_排序不动调用方的切片(t *testing.T) {
 	}
 }
 
-func TestRegister_同名不同类型返回错误(t *testing.T) {
+func TestRegister_SameNameDifferentTypeReturnsError(t *testing.T) {
 	// 这种情况下传进来的 collector 不在 registry 里，记的值永远导不出去。
 	// 以前只记一条日志，调用方没法知道，于是启动照样成功、指标永远是空的
 	newMetrics(t, nil)
@@ -133,7 +133,7 @@ func TestRegister_同名不同类型返回错误(t *testing.T) {
 	}
 }
 
-func TestShortcut_同名不同类型不静默(t *testing.T) {
+func TestShortcut_SameNameDifferentTypeNotSilent(t *testing.T) {
 	// 先 Counter 后 Gauge：第二个注册不进 registry，通过它记的值永远导不出去。
 	// 必须说出来，否则是一次完全静默的数据丢失
 	m := newMetrics(t, nil)
@@ -151,7 +151,7 @@ func TestShortcut_同名不同类型不静默(t *testing.T) {
 	}
 }
 
-func TestConfig_Namespace与常量标签(t *testing.T) {
+func TestConfig_NamespaceAndConstLabels(t *testing.T) {
 	m := newMetrics(t, func(c *Config) {
 		c.Namespace = "myapp"
 		c.ConstLabels = map[string]string{"env": "prod"}
@@ -163,7 +163,7 @@ func TestConfig_Namespace与常量标签(t *testing.T) {
 	}
 }
 
-func TestConfig_自定义直方图桶(t *testing.T) {
+func TestConfig_CustomHistogramBuckets(t *testing.T) {
 	m := newMetrics(t, func(c *Config) { c.HistogramBuckets = []float64{0.1, 0.2} })
 	HistogramObserve("latency", 0.15)
 
@@ -173,7 +173,7 @@ func TestConfig_自定义直方图桶(t *testing.T) {
 	}
 }
 
-func TestConstLabels_返回拷贝(t *testing.T) {
+func TestConstLabels_ReturnsCopy(t *testing.T) {
 	newMetrics(t, func(c *Config) { c.ConstLabels = map[string]string{"env": "prod"} })
 	l := ConstLabels()
 	l["env"] = "改掉了"
@@ -182,7 +182,7 @@ func TestConstLabels_返回拷贝(t *testing.T) {
 	}
 }
 
-func TestHTTPDurationBuckets_返回拷贝(t *testing.T) {
+func TestHTTPDurationBuckets_ReturnsCopy(t *testing.T) {
 	newMetrics(t, nil)
 	b := HTTPDurationBuckets()
 	if len(b) == 0 {
@@ -194,7 +194,7 @@ func TestHTTPDurationBuckets_返回拷贝(t *testing.T) {
 	}
 }
 
-func TestRegister_重复注册复用已有实例(t *testing.T) {
+func TestRegister_DuplicateReusesExisting(t *testing.T) {
 	newMetrics(t, nil)
 	opts := prometheus.CounterOpts{Name: "custom_total", Help: "h"}
 	first := prometheus.NewCounter(opts)
@@ -223,7 +223,7 @@ func resetFallback(t *testing.T) {
 	t.Cleanup(func() { fallback = old })
 }
 
-func TestInstall_初始化前的点不会串到新实例(t *testing.T) {
+func TestInstall_PreInitPointsDoNotLeakToNewInstance(t *testing.T) {
 	// 初始化前打的点记在兜底 registry 上。缓存要是跟实例分家，
 	// 初始化之后的打点会继续走那个不会被导出的 collector
 	old := current.Swap(nil)
@@ -239,7 +239,7 @@ func TestInstall_初始化前的点不会串到新实例(t *testing.T) {
 	}
 }
 
-func TestActive_未初始化时不丢不炸(t *testing.T) {
+func TestActive_NoLossOrPanicBeforeInit(t *testing.T) {
 	old := current.Swap(nil)
 	t.Cleanup(func() { current.Store(old) })
 	resetFallback(t)
@@ -250,7 +250,7 @@ func TestActive_未初始化时不丢不炸(t *testing.T) {
 	}
 }
 
-func TestRegister_登记内容与框架对得上(t *testing.T) {
+func TestRegister_RegistrationMatchesFramework(t *testing.T) {
 	// 这是本包和框架之间唯一的一根线：钩子漏登记、档位挂错，
 	// 表现是「配置不生效」或者「比用它的东西晚就绪」，别处都测不出来
 	var got *hook.Entry
@@ -278,7 +278,7 @@ func TestRegister_登记内容与框架对得上(t *testing.T) {
 	}
 }
 
-func TestNew_运行时与进程指标(t *testing.T) {
+func TestNew_RuntimeAndProcessMetrics(t *testing.T) {
 	c := DefaultConfig()
 	c.LogErrorMetric = false
 	m, closer, err := New(c)
@@ -295,7 +295,7 @@ func TestNew_运行时与进程指标(t *testing.T) {
 	}
 }
 
-func TestNew_运行时与进程指标也带常量标签(t *testing.T) {
+func TestNew_RuntimeAndProcessMetricsHaveConstLabels(t *testing.T) {
 	// 文档说常量标签「附加到所有指标上」。这两组是 client_golang 现成的 collector，
 	// 从前直接注册在 Registry 上，实测 go_* / process_* 一个都不带，
 	// 按 env 过滤的看板查 go_goroutines{env="prod"} 什么都查不到
@@ -324,7 +324,7 @@ func TestNew_运行时与进程指标也带常量标签(t *testing.T) {
 	}
 }
 
-func TestNew_可以关掉运行时与进程指标(t *testing.T) {
+func TestNew_RuntimeAndProcessMetricsCanBeDisabled(t *testing.T) {
 	m := newMetrics(t, nil) // install 默认关掉这两项
 	out := dump(t, m)
 	if strings.Contains(out, "go_goroutines") || strings.Contains(out, "process_cpu") {
@@ -348,7 +348,7 @@ func logThrough(t *testing.T) *slog.Logger {
 	return l
 }
 
-func TestLogCounter_数错误日志(t *testing.T) {
+func TestLogCounter_CountsErrorLogs(t *testing.T) {
 	// 「错误率」是最常用的告警，不该等业务先埋点
 	m := newMetrics(t, func(c *Config) { c.LogErrorMetric = true })
 	l := logThrough(t)
@@ -369,7 +369,7 @@ func TestLogCounter_数错误日志(t *testing.T) {
 	}
 }
 
-func TestInstall_并发打日志时不该有数据竞争(t *testing.T) {
+func TestInstall_NoDataRaceWithConcurrentLogging(t *testing.T) {
 	// Install 曾经先把设施发布成 current，再往它身上写 logCounter。
 	// 中间那一段里，任何一条经 xlog 写出的错误日志都会走观察者去读
 	// active().logCounter —— 读的正是一个还在被写的字段。
@@ -400,7 +400,7 @@ func TestInstall_并发打日志时不该有数据竞争(t *testing.T) {
 	<-done
 }
 
-func TestLogCounter_不动全局logger(t *testing.T) {
+func TestLogCounter_LeavesGlobalLoggerAlone(t *testing.T) {
 	// 回归用例。曾经的实现是「把 slog.Default() 包一层再设回去」，
 	// 而 slog.SetDefault 顺带把标准库 log 包的输出也接到新 handler 上：
 	// 链条最终落回 slog 自带的 handler 时，记录经 log.Output 又流回来，
@@ -424,7 +424,7 @@ func TestLogCounter_不动全局logger(t *testing.T) {
 	}
 }
 
-func TestLogCounter_带上链路做exemplar(t *testing.T) {
+func TestLogCounter_AttachesTraceAsExemplar(t *testing.T) {
 	// 面板上从指标点能跳到对应的链路
 	t.Cleanup(func() { xlog.SetTraceExtractor(nil) })
 	xlog.SetTraceExtractor(func(context.Context) (string, string) {
@@ -445,7 +445,7 @@ func TestLogCounter_带上链路做exemplar(t *testing.T) {
 	}
 }
 
-func TestLogCounter_没有链路时不带exemplar(t *testing.T) {
+func TestLogCounter_NoExemplarWithoutTrace(t *testing.T) {
 	m := newMetrics(t, func(c *Config) { c.LogErrorMetric = true })
 	logThrough(t).Error("出事了")
 
@@ -454,7 +454,7 @@ func TestLogCounter_没有链路时不带exemplar(t *testing.T) {
 	}
 }
 
-func TestLogCounter_关掉之后不计数(t *testing.T) {
+func TestLogCounter_StopsCountingWhenDisabled(t *testing.T) {
 	m := newMetrics(t, func(c *Config) { c.LogErrorMetric = false })
 	logThrough(t).Error("出事了")
 
@@ -463,7 +463,7 @@ func TestLogCounter_关掉之后不计数(t *testing.T) {
 	}
 }
 
-func TestLogCounter_Caller只留两段路径(t *testing.T) {
+func TestLogCounter_CallerKeepsTwoPathSegments(t *testing.T) {
 	// 完整路径带着构建机的目录，同一份代码在不同机器上会产生不同的标签值
 	m := newMetrics(t, func(c *Config) { c.LogErrorMetric = true })
 	logThrough(t).Error("出事了")
@@ -474,7 +474,7 @@ func TestLogCounter_Caller只留两段路径(t *testing.T) {
 	}
 }
 
-func TestObserver_panic不打断日志(t *testing.T) {
+func TestObserver_PanicDoesNotInterruptLogging(t *testing.T) {
 	// 观测出问题不该把日志本身打断
 	newMetrics(t, func(c *Config) { c.LogErrorMetric = true })
 	xlog.AddObserver(func(context.Context, slog.Record) { panic("观察者炸了") })
@@ -513,7 +513,7 @@ func TestTrimPath(t *testing.T) {
 	}
 }
 
-func TestCallerOf_没有PC时不为空(t *testing.T) {
+func TestCallerOf_NotEmptyWithoutPC(t *testing.T) {
 	if got := callerOf(slog.Record{}); got != "unknown" {
 		t.Errorf("取不到调用点时应返回 unknown，got=%q", got)
 	}
@@ -530,7 +530,7 @@ func TestMustRegister(t *testing.T) {
 	}
 }
 
-func TestNew_重复采集器直接报错(t *testing.T) {
+func TestNew_DuplicateCollectorFails(t *testing.T) {
 	// New 是纯构造器，registry 是新建的，正常路径不该冲突；
 	// 真冲突了要返回错误而不是 panic，好让框架把它当成普通启动失败处理
 	c := DefaultConfig()
@@ -545,7 +545,7 @@ func TestNew_重复采集器直接报错(t *testing.T) {
 	}
 }
 
-func TestInstall_初始化前记的点会被报出来(t *testing.T) {
+func TestInstall_PreInitPointsAreReported(t *testing.T) {
 	// 缓存跟着实例走之后，Install 不再需要去清另一处全局状态。
 	// 但「换实例之前记的点留在上一个 registry 里、导不出去」这件事
 	// 仍然要说出来，否则就是一次完全静默的数据丢失
@@ -576,7 +576,7 @@ func TestInstall_初始化前记的点会被报出来(t *testing.T) {
 	}
 }
 
-func TestInstall_换实例之后缓存跟着换(t *testing.T) {
+func TestInstall_CacheFollowsInstanceSwap(t *testing.T) {
 	// 缓存曾经是包级的，而 Registry 属于实例：换实例时必须记得
 	// 手动清另一处全局状态，忘了就是静默的数据丢失
 	m1 := newMetrics(t, nil)
@@ -613,7 +613,7 @@ func keepGlobals(t *testing.T) {
 	})
 }
 
-func TestInitXMetric_没配也装好一套默认指标(t *testing.T) {
+func TestInitXMetric_InstallsDefaultMetricsWhenUnconfigured(t *testing.T) {
 	// 指标没配就不装的话，框架内置的那些打点全落到兜底实例上，
 	// /metrics 导出来是空的——而使用者没配指标本来就该是「用默认的」
 	keepGlobals(t)
@@ -628,7 +628,7 @@ func TestInitXMetric_没配也装好一套默认指标(t *testing.T) {
 	}
 }
 
-func TestInitXMetric_配置写错时启动失败(t *testing.T) {
+func TestInitXMetric_ConfigTypoFailsStartup(t *testing.T) {
 	keepGlobals(t)
 	xonetest.UseConfigYAML(t, "XMetric:\n  NameSpace: app\n")
 
@@ -637,7 +637,7 @@ func TestInitXMetric_配置写错时启动失败(t *testing.T) {
 	}
 }
 
-func TestInitXMetric_配置装到了全局实例上(t *testing.T) {
+func TestInitXMetric_ConfigAppliedToGlobalInstance(t *testing.T) {
 	keepGlobals(t)
 	xonetest.UseConfigYAML(t, "XMetric:\n  Namespace: demoapp\n  GoMetrics: false\n  ProcessMetrics: false\n  ConstLabels:\n    env: test\n")
 
@@ -652,7 +652,7 @@ func TestInitXMetric_配置装到了全局实例上(t *testing.T) {
 	}
 }
 
-func TestRegisterAs_注册成功时拿到的就是传进去的那个(t *testing.T) {
+func TestRegisterAs_ReturnsPassedCollectorOnSuccess(t *testing.T) {
 	newMetrics(t, nil)
 	c := prometheus.NewCounter(prometheus.CounterOpts{Name: "registeras_ok"})
 	got, err := RegisterAs(c)
@@ -664,7 +664,7 @@ func TestRegisterAs_注册成功时拿到的就是传进去的那个(t *testing.
 	}
 }
 
-func TestRegisterAs_重复注册时复用先到的那个(t *testing.T) {
+func TestRegisterAs_DuplicateReusesFirst(t *testing.T) {
 	// 两处代码各建一个同名 collector 时，两边必须打到同一个上，
 	// 否则后到的那份永远导不出去
 	newMetrics(t, nil)
@@ -682,7 +682,7 @@ func TestRegisterAs_重复注册时复用先到的那个(t *testing.T) {
 	}
 }
 
-func TestRegisterAs_同名但类型不同时报错而不是悄悄换掉(t *testing.T) {
+func TestRegisterAs_SameNameDifferentTypeFailsInsteadOfReplacing(t *testing.T) {
 	// 断言失败时还回传进来的那个：调用方照常打点（只是导不出去），
 	// 而不是拿到一个零值去空指针
 	newMetrics(t, nil)
@@ -702,7 +702,7 @@ func TestRegisterAs_同名但类型不同时报错而不是悄悄换掉(t *testi
 	}
 }
 
-func TestCollectorOf_同名不同类型时说出来而不是静默丢数据(t *testing.T) {
+func TestCollectorOf_SameNameDifferentTypeReportsInsteadOfDropping(t *testing.T) {
 	// 先 Counter 后 Gauge：后者不在 registry 里，通过它记的值永远导不出去。
 	// 不喊一声的话，面板上那条线一直是空的，而代码里明明在打点
 	var buf bytes.Buffer
@@ -719,7 +719,7 @@ func TestCollectorOf_同名不同类型时说出来而不是静默丢数据(t *t
 	}
 }
 
-func TestCollectorOf_同名同类型复用同一个实例(t *testing.T) {
+func TestCollectorOf_SameNameSameTypeReusesInstance(t *testing.T) {
 	// 不复用的话每次打点都新建一个 collector，注册被拒之后值全丢
 	m := newMetrics(t, nil)
 	before := m.cachedCount()

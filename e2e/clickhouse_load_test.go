@@ -19,7 +19,7 @@ import (
 // 断言和 PG / MySQL 那两组一样只守承诺、不卡数字：一个请求都不失败；指标开着时请求计数和直方图
 // 一个不多一个不少；全开时每个请求一条访问日志；压完 SIGTERM 以 0 退出。
 // 压测器、服务、ClickHouse（Docker，host 网络）挤在同一台 4 核机器上，数字只能互相比
-func TestClickHouse_Load_裸gin加ClickHouse对照xone加ClickHouse随并发的变化(t *testing.T) {
+func TestClickHouse_Load_BareGinVsXOneWithClickHouseByConcurrency(t *testing.T) {
 	requireLoad(t)
 	harness.RequireCH(t)
 	table := "e2e_load_ch_" + harness.NewID()

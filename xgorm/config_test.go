@@ -42,7 +42,7 @@ func loadErr(t *testing.T, yml string) error {
 	return err
 }
 
-func TestConfig_单实例写法(t *testing.T) {
+func TestConfig_SingleInstanceForm(t *testing.T) {
 	c := load(t, "XGorm:\n  Driver: mysql\n  DSN: u:p@tcp(h:3306)/app\n")
 	if len(c.Clients) != 1 {
 		t.Fatalf("应解出一个实例，got=%v", c.Clients)
@@ -60,7 +60,7 @@ func TestConfig_单实例写法(t *testing.T) {
 	}
 }
 
-func TestConfig_多实例写法(t *testing.T) {
+func TestConfig_MultiInstanceForm(t *testing.T) {
 	c := load(t, `
 XGorm:
   Clients:
@@ -87,7 +87,7 @@ XGorm:
 	}
 }
 
-func TestConfig_集合元素里的拼写错误也要失败(t *testing.T) {
+func TestConfig_TypoInCollectionElementFails(t *testing.T) {
 	// 集合元素走的是自定义解码器，严格检查很容易在那里悄悄失效
 	err := loadErr(t, "XGorm:\n  Clients:\n    default:\n      DSN: x\n      MaxOpenConn: 5\n")
 	if err == nil {
@@ -98,14 +98,14 @@ func TestConfig_集合元素里的拼写错误也要失败(t *testing.T) {
 	}
 }
 
-func TestConfig_顶层拼写错误也要失败(t *testing.T) {
+func TestConfig_TopLevelTypoFails(t *testing.T) {
 	err := loadErr(t, "XGorm:\n  DSN: x\n  MaxOpenConn: 5\n")
 	if err == nil {
 		t.Fatal("字段拼错应当启动失败")
 	}
 }
 
-func TestConfig_两种写法不能混用(t *testing.T) {
+func TestConfig_FormsCannotBeMixed(t *testing.T) {
 	// 混着写时「default 到底是哪个」没有不让人意外的答案，所以直接失败
 	err := loadErr(t, "XGorm:\n  DSN: x\n  Clients:\n    a:\n      DSN: y\n")
 	if err == nil {
@@ -116,20 +116,20 @@ func TestConfig_两种写法不能混用(t *testing.T) {
 	}
 }
 
-func TestConfig_空的Clients要失败(t *testing.T) {
+func TestConfig_EmptyClientsFails(t *testing.T) {
 	if err := loadErr(t, "XGorm:\n  Clients: {}\n"); err == nil {
 		t.Fatal("写了 Clients 却是空的，应当失败")
 	}
 }
 
-func TestConfig_没配就没有实例(t *testing.T) {
+func TestConfig_NoConfigNoInstances(t *testing.T) {
 	c := load(t, "# 整个文件里没有 XGorm 这一块\n")
 	if len(c.Clients) != 0 {
 		t.Errorf("没配 XGorm 就不该连任何数据库，got=%v", c.Clients)
 	}
 }
 
-func TestConfig_时长与环境变量(t *testing.T) {
+func TestConfig_DurationsAndEnvVars(t *testing.T) {
 	t.Setenv("TEST_DB_DSN", "host=h dbname=app")
 	c := load(t, "XGorm:\n  DSN: \"${TEST_DB_DSN}\"\n  DialTimeout: 2s\n  SlowThreshold: 100ms\n")
 	got := c.Clients[DefaultName]
@@ -141,7 +141,7 @@ func TestConfig_时长与环境变量(t *testing.T) {
 	}
 }
 
-func TestConfig_MaxIdleConns配零就是零(t *testing.T) {
+func TestConfig_MaxIdleConnsZeroMeansZero(t *testing.T) {
 	// 预填默认值的全部意义就在这里：显式写的零值不会被「没配」的逻辑吃掉
 	c := load(t, "XGorm:\n  DSN: x\n  MaxIdleConns: 0\n")
 	if got := c.Clients[DefaultName].MaxIdleConns; got != 0 {
@@ -149,7 +149,7 @@ func TestConfig_MaxIdleConns配零就是零(t *testing.T) {
 	}
 }
 
-func TestConfig_布尔开关配false就是false(t *testing.T) {
+func TestConfig_BoolFalseMeansFalse(t *testing.T) {
 	c := load(t, "XGorm:\n  DSN: x\n  Trace: false\n  Metric: false\n")
 	got := c.Clients[DefaultName]
 	if got.Trace || got.Metric {
@@ -189,7 +189,7 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-func TestValidate_零值的时长是合法的(t *testing.T) {
+func TestValidate_ZeroDurationIsValid(t *testing.T) {
 	// 0 各有写明的含义：DialTimeout 等不注入、用驱动自己的；存活时间不限；SlowThreshold 不记慢日志
 	c := DefaultClientConfig()
 	c.DSN = "host=h"
@@ -200,7 +200,7 @@ func TestValidate_零值的时长是合法的(t *testing.T) {
 	}
 }
 
-func TestValidate_负的MySQL超时注进DSN就消失了(t *testing.T) {
+func TestValidate_NegativeMySQLTimeoutVanishesInDSN(t *testing.T) {
 	// 这是 Validate 拦负数的理由：go-sql-driver v1.10.1 的 FormatDSN 只写 > 0 的超时，
 	// 负数注进去，DSN 里就没有这个超时了。驱动升级后这里不再成立的话，注释要跟着改
 	c := mysqlCfg("u:p@tcp(h:3306)/d")
@@ -214,7 +214,7 @@ func TestValidate_负的MySQL超时注进DSN就消失了(t *testing.T) {
 	}
 }
 
-func TestConfig_Validate报出是哪个实例(t *testing.T) {
+func TestConfig_ValidateNamesInstance(t *testing.T) {
 	c := Config{Clients: map[string]ClientConfig{"ok": DefaultClientConfig(), "bad": DefaultClientConfig()}}
 	for name, cc := range c.Clients {
 		cc.DSN = "host=h"
@@ -229,7 +229,7 @@ func TestConfig_Validate报出是哪个实例(t *testing.T) {
 	}
 }
 
-func TestConfig_读配置时就拦下非法值并带着文件和行号(t *testing.T) {
+func TestConfig_RejectsInvalidAtLoadWithFileAndLine(t *testing.T) {
 	// 拦在读配置这一步：一个实例都还没连，报错里有文件和行号，
 	// 而不是等到按名字挨个建连、建到它才失败
 	err := loadErr(t, "XGorm:\n  Clients:\n    a:\n      DSN: x\n    b:\n      DSN: y\n      MySQL:\n        ReadTimeout: -3s\n")

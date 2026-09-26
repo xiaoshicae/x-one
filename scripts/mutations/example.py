@@ -12,7 +12,7 @@ mutate("退出时生产者还在投递也不崩", "example/consumer/queue.go", "
 section("中间件")
 # 两个模块靠 TrustedPeer() 这个方法名接头，各自的单元测试只看得见自己那一半。
 # 只改一边的名字，另一边的测试照样全绿——只有 example 里那条端到端的看得见
-mutate("xgin 与 xtrace 的可信记号对得上", "xtrace/propagator.go", "./example", "TestXGin与XTrace",
+mutate("xgin 与 xtrace 的可信记号对得上", "xtrace/propagator.go", "./example", "TestXGinAndXTrace_ForwardHeadersOnlyFromTrustedPeers",
        swap('\tt, ok := c.(interface{ TrustedPeer() bool })\n\treturn ok && t.TrustedPeer()', '\tt, ok := c.(interface{ TrustedUpstream() bool })\n\treturn ok && t.TrustedUpstream()'))
 
 section("示例")

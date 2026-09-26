@@ -67,7 +67,7 @@ func faultMustContain(t *testing.T, where, text string, parts ...string) {
 //
 // 都要在预算（faultPGStartBudget，7.5s）内失败；错误由 MustRun 打在 stderr 上，
 // 要说清连不上的是哪个地址（docs/observability.md「框架自己的日志」），不能有密码和 DSN
-func TestFault_启动时PG不可达_在文档的预算内失败_错误里有地址没有密码(t *testing.T) {
+func TestFault_PGUnreachableAtStartup_FailsInBudget_ErrHasAddrNoPassword(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	pw := pgPassword(t)
@@ -110,7 +110,7 @@ func TestFault_启动时PG不可达_在文档的预算内失败_错误里有地�
 
 // 启动时 PG 密码错误：docs/behavior.md「启动期建连探测」——认证失败不重试，错误说清是认证失败、不说连不上；
 // 对的密码、错的密码都不能出现在输出里
-func TestFault_启动时PG密码错误_错误说清是认证失败_没有密码(t *testing.T) {
+func TestFault_PGBadPasswordAtStartup_ErrSaysAuthFailed_NoPassword(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	pw := pgPassword(t)
@@ -138,7 +138,7 @@ func TestFault_启动时PG密码错误_错误说清是认证失败_没有密码(
 // 启动时 Redis 不可达。配了密码（随机串，反正连不上，服务端不会校验）：错误里要有地址、没有它。
 // xredis/README.md XRedis.Password：「本模块不会把它写进任何日志」。
 // 预算 faultRedisStartBudget（6s）：3 次 × (DialTimeout + ReadTimeout) + 两次退避的上界
-func TestFault_启动时Redis不可达_在文档的预算内失败_错误里有地址没有密码(t *testing.T) {
+func TestFault_RedisUnreachableAtStartup_FailsInBudget_ErrHasAddrNoPassword(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	for _, c := range []struct {
@@ -181,7 +181,7 @@ func TestFault_启动时Redis不可达_在文档的预算内失败_错误里有�
 //
 // 「不重试」数连接：经代理连 Redis、不预热（MinIdleConns: 0），建连验证每试一次是一条新连接
 // （认证失败的连接 go-redis 当场关掉），所以代理只该收到 1 条；重试的话是 3 条
-func TestFault_启动时Redis密码错误_错误说清是认证失败_不重试_没有密码(t *testing.T) {
+func TestFault_RedisBadPasswordAtStartup_ErrSaysAuthFailed_NoRetry_NoPassword(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	acl, pw := faultRedisACLUser(t)
@@ -215,7 +215,7 @@ func TestFault_启动时Redis密码错误_错误说清是认证失败_不重试_
 //
 // 预检失败是配置错，不该去建连、也不该重试：应当立刻退出（本机实测 16–20ms）。
 // 另外两例 DSN 解得开、但建连失败（密码错、端口没人听），走的是 pgx 建连的错误，同样不能带出密码
-func TestFault_DSN里password等号带空格且另一个参数写错_启动失败且错误里没有密码(t *testing.T) {
+func TestFault_DSNPasswordWithSpacedEqualsAndBadParam_FailsWithoutPassword(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	secret := "hunter2-" + harness.NewID()

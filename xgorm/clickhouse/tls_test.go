@@ -240,7 +240,7 @@ func tlsCfg(dsn string, tc xtls.Config) xgorm.ClientConfig {
 	return c
 }
 
-func TestNew_TLS块生效_native和https都只走TLS(t *testing.T) {
+func TestNew_TLSBlockApplies_NativeAndHTTPSOnlyUseTLS(t *testing.T) {
 	p := newTestPKI(t)
 	srv := &tls.Config{Certificates: []tls.Certificate{p.server}}
 	for _, proto := range []struct {
@@ -302,7 +302,7 @@ func TestNew_TLS块生效_native和https都只走TLS(t *testing.T) {
 	}
 }
 
-func TestNew_TLS块_HTTPS凭证走请求头不进URL(t *testing.T) {
+func TestNew_TLSBlock_HTTPSCredentialsInHeaderNotURL(t *testing.T) {
 	// 驱动在有 TLS 时把用户名、密码放进 X-ClickHouse-User / X-ClickHouse-Key 请求头，
 	// 没有 TLS 时放进 URL 的 user:password（v2.48.0 conn_http.go applyOptionsToRequest）
 	p := newTestPKI(t)
@@ -321,7 +321,7 @@ func TestNew_TLS块_HTTPS凭证走请求头不进URL(t *testing.T) {
 	}
 }
 
-func TestNew_TLS块_双向认证带上客户端证书(t *testing.T) {
+func TestNew_TLSBlock_MutualAuthSendsClientCert(t *testing.T) {
 	p := newTestPKI(t)
 	srv := &tls.Config{Certificates: []tls.Certificate{p.server}, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: p.pool}
 	addr, h := fakeNativeTLS(t, srv)
@@ -343,7 +343,7 @@ func TestNew_TLS块_双向认证带上客户端证书(t *testing.T) {
 	}
 }
 
-func TestNew_TLS块_多主机时按实际连的那台比对证书(t *testing.T) {
+func TestNew_TLSBlock_MultiHostVerifiesCertOfConnectedHost(t *testing.T) {
 	// 第一台连不上，驱动按 in_order 去连第二台：ServerName 没配时要按第二台的名字比对，
 	// 而不是钉死成第一台的。第一台写成 127.0.0.1，证书上没有这个 IP，钉死的话握手必败
 	p := newTestPKI(t)
@@ -365,7 +365,7 @@ func TestNew_TLS块_多主机时按实际连的那台比对证书(t *testing.T) 
 	}
 }
 
-func TestNew_TLS块开着时连明文端口就失败(t *testing.T) {
+func TestNew_TLSBlockFailsOnPlaintextPort(t *testing.T) {
 	// 服务端只说明文：TLS 握手失败，不会退回明文
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -394,7 +394,7 @@ func TestNew_TLS块开着时连明文端口就失败(t *testing.T) {
 	t.Logf("错误：%v", err)
 }
 
-func TestResolve_TLS块和DSN里的TLS参数不能同时写(t *testing.T) {
+func TestResolve_TLSBlockConflictsWithDSNTLSParams(t *testing.T) {
 	on := xtls.Config{Enable: true}
 	for _, dsn := range []string{
 		"clickhouse://u:" + tlsSecret + "@h:9440/db?secure=true",
@@ -419,7 +419,7 @@ func TestResolve_TLS块和DSN里的TLS参数不能同时写(t *testing.T) {
 	}
 }
 
-func TestResolve_TLS块不收http(t *testing.T) {
+func TestResolve_TLSBlockRejectsHTTP(t *testing.T) {
 	_, _, err := resolve(tlsCfg("http://u:"+tlsSecret+"@h:8123/db", xtls.Config{Enable: true}))
 	if err == nil || !strings.Contains(err.Error(), "http:// never runs TLS") {
 		t.Fatalf("http:// 配 TLS 块会悄悄走明文，该报配置错误，got=%v", err)
@@ -429,7 +429,7 @@ func TestResolve_TLS块不收http(t *testing.T) {
 	}
 }
 
-func TestResolve_TLS块开着时https不必写secure且DSN不动(t *testing.T) {
+func TestResolve_TLSBlockHTTPSNeedsNoSecureAndDSNUnchanged(t *testing.T) {
 	const in = "https://u:p@h:8443/db?max_execution_time=5"
 	dsn, info, err := resolve(tlsCfg(in, xtls.Config{Enable: true}))
 	if err != nil {
@@ -447,7 +447,7 @@ func TestResolve_TLS块开着时https不必写secure且DSN不动(t *testing.T) {
 	}
 }
 
-func TestParseDSN_https补上secure才记得住scheme(t *testing.T) {
+func TestParseDSN_HttpsNeedsSecureToKeepScheme(t *testing.T) {
 	// 驱动建 HTTP 连接时按解析时记下的 scheme 拼地址；按 http:// 解的话手里有 TLS 也发明文
 	opts, err := parseDSN("https://u:p@h:8443/db", true)
 	if err != nil || opts.Protocol != chgo.HTTP {
@@ -458,7 +458,7 @@ func TestParseDSN_https补上secure才记得住scheme(t *testing.T) {
 	}
 }
 
-func TestOpenTLS_不把DSN交给GORM的驱动(t *testing.T) {
+func TestOpenTLS_DoesNotPassDSNToGORMDriver(t *testing.T) {
 	// gorm 的 clickhouse 驱动拿到 DSN 会自己解一份 Options，UpdateLocalTable 按它直连每台主机、不带 TLS 块
 	d, err := openTLS("clickhouse://u:p@h:9440/db", &tls.Config{})
 	if err != nil {
@@ -469,14 +469,14 @@ func TestOpenTLS_不把DSN交给GORM的驱动(t *testing.T) {
 	if cd.DSN != "" || cd.Conn == nil || !cd.SkipInitializeWithVersion {
 		t.Errorf("该只给连接池、关掉 Initialize 里的查版本，got DSN=%q Conn=%v Skip=%v", cd.DSN, cd.Conn, cd.SkipInitializeWithVersion)
 	}
-	// 驱动解析 http_proxy 失败时回显整个代理地址（见 TestResolve_驱动自己解析不了的也在这里拦下且不回显）
+	// 驱动解析 http_proxy 失败时回显整个代理地址（见 TestResolve_RejectsDriverUnparsableDSNWithoutEcho）
 	bad := "clickhouse://h:9440/db?http_proxy=" + url.QueryEscape("http://u:"+tlsSecret+"@proxy:3128/%zz")
 	if _, err := openTLS(bad, &tls.Config{}); err == nil || strings.Contains(err.Error(), tlsSecret) {
 		t.Errorf("解析失败该报错且不回显 DSN，got=%v", err)
 	}
 }
 
-func TestRegister_OpenTLS接的是openTLS(t *testing.T) {
+func TestRegister_OpenTLSIsOpenTLS(t *testing.T) {
 	// 打在注册的方言上：没接的话配了 TLS 块会被 xgorm 以「不支持」拒掉
 	c := tlsCfg("clickhouse://u:p@h:9440/db", xtls.Config{Enable: true})
 	if err := c.Validate(); err != nil {

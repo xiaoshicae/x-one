@@ -134,7 +134,7 @@ func captureLog(t *testing.T) *bytes.Buffer {
 
 // ---- 配置 ----
 
-func TestConfig_默认值(t *testing.T) {
+func TestConfig_Defaults(t *testing.T) {
 	c := DefaultConfig()
 	if c.Host != "0.0.0.0" || c.Port != 8080 {
 		t.Errorf("监听默认值不对，got=%+v", c)
@@ -161,7 +161,7 @@ func TestConfig_默认值(t *testing.T) {
 	}
 }
 
-func TestConfig_从文件加载(t *testing.T) {
+func TestConfig_LoadFromFile(t *testing.T) {
 	c := load(t, "XGin:\n  Port: 9090\n  ReadTimeout: 30s\n  UseH2C: true\n  Log: false\n  LogSkipPaths: [/healthz, /static/]\n")
 	if c.Port != 9090 || c.ReadTimeout != 30*time.Second || !c.UseH2C {
 		t.Errorf("配置没生效，got=%+v", c)
@@ -174,7 +174,7 @@ func TestConfig_从文件加载(t *testing.T) {
 	}
 }
 
-func TestConfig_拼写错误要失败(t *testing.T) {
+func TestConfig_FailsOnTypo(t *testing.T) {
 	if err := loadErr(t, "XGin:\n  Prot: 9090\n"); err == nil {
 		t.Fatal("字段拼错应当启动失败")
 	}
@@ -209,7 +209,7 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-func TestValidate_超时写零或负数要拦住(t *testing.T) {
+func TestValidate_RejectsZeroOrNegativeTimeouts(t *testing.T) {
 	// net/http 对这几项的零值和负值都是「不设防」而不是「用个默认值」：
 	// ReadHeaderTimeout 为 0 时退到 ReadTimeout，而后者默认也是 0，
 	// 于是慢连接攻击的主要防线整个消失，配置文件看上去只是写了个 0
@@ -236,7 +236,7 @@ func TestValidate_超时写零或负数要拦住(t *testing.T) {
 	}
 }
 
-func TestNetHTTP_ReadHeaderTimeout为零时慢客户端一直占着连接(t *testing.T) {
+func TestNetHTTP_ReadHeaderTimeoutZeroLetsSlowClientHoldConn(t *testing.T) {
 	// 钉住上面那条校验的前提：标准库对 0 的处理是「不限时」。
 	// 哪天升级后它变成了「用个默认值」，这条会先红，校验可以跟着放宽
 	for _, rht := range []time.Duration{0, -time.Second} {
@@ -260,7 +260,7 @@ func TestNetHTTP_ReadHeaderTimeout为零时慢客户端一直占着连接(t *tes
 	}
 }
 
-func TestValidate_只配一半的TLS(t *testing.T) {
+func TestValidate_HalfConfiguredTLS(t *testing.T) {
 	// 这是最危险的一种配错：服务会以明文起来，而配置文件看上去是配了证书的
 	c := DefaultConfig()
 	c.CertFile = "cert.pem"
@@ -273,7 +273,7 @@ func TestValidate_只配一半的TLS(t *testing.T) {
 	}
 }
 
-func TestValidate_代理网段写错直接起不来(t *testing.T) {
+func TestValidate_InvalidProxyCIDRFailsStartup(t *testing.T) {
 	// gin 的 SetTrustedProxies 解析到出错为止、把已经解出来的留下，
 	// 于是前半段代理被信任、后半段被悄悄丢掉——日志里的 client_ip
 	// 一半真一半假，比起不来难查得多
@@ -291,7 +291,7 @@ func TestValidate_代理网段写错直接起不来(t *testing.T) {
 
 // ---- 装配 ----
 
-func TestBuild_内置中间件顺序(t *testing.T) {
+func TestBuild_BuiltinMiddlewareOrder(t *testing.T) {
 	// Recover 必须是内置里最内层的：panic 在哪一层被兜住，
 	// 比它更内层的中间件里 c.Next() 之后的代码就都不执行了
 	g := New().WithConfig(DefaultConfig()).WithRoutes(func(e *gin.Engine) {
@@ -304,7 +304,7 @@ func TestBuild_内置中间件顺序(t *testing.T) {
 	}
 }
 
-func TestBuild_指标端点自动注册(t *testing.T) {
+func TestBuild_MetricsEndpointAutoRegistered(t *testing.T) {
 	g := New().WithConfig(DefaultConfig())
 	if w := doRequest(t, g.Engine(), "GET", "/metrics"); w.Code != 200 {
 		t.Errorf("启用指标时应自动注册 /metrics，got=%d", w.Code)
@@ -314,7 +314,7 @@ func TestBuild_指标端点自动注册(t *testing.T) {
 	}
 }
 
-func TestBuild_可以改指标路径(t *testing.T) {
+func TestBuild_MetricsPathConfigurable(t *testing.T) {
 	g := New().WithConfig(configWith(func(c *Config) { c.MetricPath = "/internal/metrics" }))
 	if w := doRequest(t, g.Engine(), "GET", "/internal/metrics"); w.Code != 200 {
 		t.Errorf("应注册在配置的路径上，got=%d", w.Code)
@@ -324,14 +324,14 @@ func TestBuild_可以改指标路径(t *testing.T) {
 	}
 }
 
-func TestBuild_关掉指标就不注册端点(t *testing.T) {
+func TestBuild_NoMetricsEndpointWhenDisabled(t *testing.T) {
 	g := New().WithConfig(configWith(func(c *Config) { c.Metric = false }))
 	if w := doRequest(t, g.Engine(), "GET", "/metrics"); w.Code == 200 {
 		t.Error("关掉指标后不该有 /metrics")
 	}
 }
 
-func TestBuild_405而不是404(t *testing.T) {
+func TestBuild_405InsteadOf404(t *testing.T) {
 	// 不开 HandleMethodNotAllowed 的话，方法用错会得到 404，
 	// 调用方会以为是路径写错了
 	g := New().WithConfig(DefaultConfig()).WithRoutes(func(e *gin.Engine) {
@@ -342,7 +342,7 @@ func TestBuild_405而不是404(t *testing.T) {
 	}
 }
 
-func TestBuild_幂等(t *testing.T) {
+func TestBuild_Idempotent(t *testing.T) {
 	// 装配两遍会把中间件注册两遍，表现是每个请求打两条日志、指标翻倍
 	g := New().WithConfig(DefaultConfig())
 	if g.Engine() != g.Engine() {
@@ -350,7 +350,7 @@ func TestBuild_幂等(t *testing.T) {
 	}
 }
 
-func TestBuild_用户中间件在内置之后(t *testing.T) {
+func TestBuild_UserMiddlewareAfterBuiltin(t *testing.T) {
 	var order []string
 	g := New().WithConfig(configWith(func(c *Config) { c.Log, c.Trace, c.Metric = false, false, false })).
 		WithMiddleware(func(c *gin.Context) { order = append(order, "用户"); c.Next() }).
@@ -364,7 +364,7 @@ func TestBuild_用户中间件在内置之后(t *testing.T) {
 	}
 }
 
-func TestBuild_Mode在建engine之前按配置设(t *testing.T) {
+func TestBuild_ModeSetFromConfigBeforeEngine(t *testing.T) {
 	var out bytes.Buffer
 	oldW := gin.DefaultWriter
 	gin.DefaultWriter = &out
@@ -387,7 +387,7 @@ func TestBuild_Mode在建engine之前按配置设(t *testing.T) {
 
 // ---- 开关 ----
 
-func TestLog_关掉就不记访问日志(t *testing.T) {
+func TestLog_NoAccessLogWhenDisabled(t *testing.T) {
 	buf := captureLog(t)
 	route := func(e *gin.Engine) { e.GET("/work", func(c *gin.Context) { c.String(200, "ok") }) }
 
@@ -404,7 +404,7 @@ func TestLog_关掉就不记访问日志(t *testing.T) {
 	}
 }
 
-func TestLogSkipPaths_真的不记这些路径的日志(t *testing.T) {
+func TestLogSkipPaths_ReallySkipsThesePaths(t *testing.T) {
 	// 光在配置里写上不够：它得一路传到 middleware.Log 里
 	buf := captureLog(t)
 	e := New().WithConfig(configWith(func(c *Config) {
@@ -428,7 +428,7 @@ func TestLogSkipPaths_真的不记这些路径的日志(t *testing.T) {
 	}
 }
 
-func TestLogSkipPaths_指标路径自动加进来(t *testing.T) {
+func TestLogSkipPaths_MetricsPathAddedAutomatically(t *testing.T) {
 	// 指标端点会被抓取系统按秒轮询，记日志纯属刷屏
 	buf := captureLog(t)
 	e := New().WithConfig(configWith(func(c *Config) {
@@ -442,7 +442,7 @@ func TestLogSkipPaths_指标路径自动加进来(t *testing.T) {
 	}
 }
 
-func TestLogBody_开关各管各的(t *testing.T) {
+func TestLogBody_TogglesAreIndependent(t *testing.T) {
 	// 请求体和响应体各有一个开关。两个都要一路传到 middleware.Log 里，
 	// 也不能接反：只开了请求体的人，响应体（可能带着令牌）不该进日志
 	for _, c := range []struct {
@@ -475,7 +475,7 @@ func TestLogBody_开关各管各的(t *testing.T) {
 	}
 }
 
-func TestTrace_关掉就不开Span(t *testing.T) {
+func TestTrace_NoSpanWhenDisabled(t *testing.T) {
 	exp := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
 	old := otel.GetTracerProvider()
@@ -496,7 +496,7 @@ func TestTrace_关掉就不开Span(t *testing.T) {
 	}
 }
 
-func TestMetric_关掉就不记请求指标(t *testing.T) {
+func TestMetric_NoRequestMetricsWhenDisabled(t *testing.T) {
 	// 光不注册 /metrics 不够：指标中间件本身也得跟着开关走，
 	// 否则关掉指标的服务照样在每个请求上付记指标的代价
 	m, closer, err := xmetric.New(xmetric.Config{Namespace: "probe"})
@@ -521,7 +521,7 @@ func TestMetric_关掉就不记请求指标(t *testing.T) {
 	}
 }
 
-func TestZHTranslations_装上中文翻译(t *testing.T) {
+func TestZHTranslations_InstallsChineseTranslations(t *testing.T) {
 	New().WithConfig(configWith(quiet, func(c *Config) { c.Trace, c.ZHTranslations = false, true })).Engine()
 
 	var req struct {
@@ -539,7 +539,7 @@ func TestZHTranslations_装上中文翻译(t *testing.T) {
 	}
 }
 
-func TestWithRecoverFunc_换掉_panic_之后的响应(t *testing.T) {
+func TestWithRecoverFunc_ReplacesPanicResponse(t *testing.T) {
 	g := New().WithConfig(configWith(func(c *Config) { c.Log, c.Trace, c.Metric = false, false, false })).
 		WithRecoverFunc(func(c *gin.Context, _ any) { c.String(503, "custom") }).
 		WithRoutes(func(e *gin.Engine) {
@@ -555,7 +555,7 @@ func TestWithRecoverFunc_换掉_panic_之后的响应(t *testing.T) {
 
 // ---- 配置落到 engine 上 ----
 
-func TestBuild_默认只信私有网段的代理(t *testing.T) {
+func TestBuild_TrustsOnlyPrivateProxiesByDefault(t *testing.T) {
 	// gin 自己的默认是 trustedProxies = 0.0.0.0/0 + ::/0，也就是全都信。
 	// 那意味着任何人发一个 X-Forwarded-For 就能决定访问日志里的
 	// client_ip 是什么——日志可以伪造，建在这个字段上的限流和审计一起失效。
@@ -569,7 +569,7 @@ func TestBuild_默认只信私有网段的代理(t *testing.T) {
 	}
 }
 
-func TestBuild_TrustedProxies写空列表就谁都不信(t *testing.T) {
+func TestBuild_TrustedProxiesEmptyListTrustsNone(t *testing.T) {
 	// 默认值是 [private]，要一个都不信得能写出来
 	e := New().WithConfig(configWith(quiet, func(c *Config) { c.TrustedProxies = []string{} })).
 		WithRoutes(echoClientIP).Engine()
@@ -578,7 +578,7 @@ func TestBuild_TrustedProxies写空列表就谁都不信(t *testing.T) {
 	}
 }
 
-func TestBuild_配了代理网段才认转发头(t *testing.T) {
+func TestBuild_ForwardedHeadersOnlyWithProxiesConfigured(t *testing.T) {
 	e := New().WithConfig(configWith(quiet, func(c *Config) { c.TrustedProxies = []string{"10.0.0.0/8"} })).
 		WithRoutes(echoClientIP).Engine()
 	if got := clientIPOf(t, e, "10.0.0.5:1234"); got != "1.2.3.4" {
@@ -586,7 +586,7 @@ func TestBuild_配了代理网段才认转发头(t *testing.T) {
 	}
 }
 
-func TestBuild_multipart的内存阈值来自配置(t *testing.T) {
+func TestBuild_MultipartMemoryThresholdFromConfig(t *testing.T) {
 	// gin 自己默认 32MB，而这个数不是「请求体上限」是「超过多少才落盘」，
 	// 实际代价约是它的三倍：一次 60MB 的上传，配 32MB 时解析这一步
 	// 让堆多占 96MB，二十个并发就是两个 G
@@ -596,7 +596,7 @@ func TestBuild_multipart的内存阈值来自配置(t *testing.T) {
 	}
 }
 
-func TestBuild_回调里改的engine设置盖得过配置(t *testing.T) {
+func TestBuild_CallbackEngineSettingsOverrideConfig(t *testing.T) {
 	// 回调在配置落到 engine 上之后才跑：使用者在代码里明确设了的，就以代码为准。
 	// 原先反过来——Start 时再把配置落一遍，回调里的设置被悄悄盖掉。
 	// 所以起了服务再看一次：Start 不能再落一遍配置
@@ -621,7 +621,7 @@ func TestBuild_回调里改的engine设置盖得过配置(t *testing.T) {
 
 // ---- 启停 ----
 
-func TestStartStop_优雅关闭(t *testing.T) {
+func TestStartStop_GracefulShutdown(t *testing.T) {
 	port := testkit.FreePort(t)
 	g := New().WithConfig(configWith(quiet, on(port))).WithRoutes(func(e *gin.Engine) {
 		e.GET("/ping", func(c *gin.Context) { c.String(200, "pong") })
@@ -656,7 +656,7 @@ func TestStartStop_优雅关闭(t *testing.T) {
 	}
 }
 
-func TestStart_配置非法时不监听(t *testing.T) {
+func TestStart_DoesNotListenOnInvalidConfig(t *testing.T) {
 	err := startErr(t, New().WithConfig(configWith(func(c *Config) { c.CertFile = "只配了一半" })))
 
 	var xe *xerror.Error
@@ -669,7 +669,7 @@ func TestStart_配置非法时不监听(t *testing.T) {
 	}
 }
 
-func TestStart_用的是装配时的那份配置(t *testing.T) {
+func TestStart_UsesConfigFromBuildTime(t *testing.T) {
 	// 监听地址、超时和 engine 上的中间件、信任的代理必须出自同一份配置。
 	// Start 自己再读一遍的话两边可能对不上——这里用「装配之后才 WithConfig」
 	// 造出这种局面：它在装配之后不生效，监听的端口也就不该跟着变
@@ -681,7 +681,7 @@ func TestStart_用的是装配时的那份配置(t *testing.T) {
 	serving(t, g, portA)
 }
 
-func TestStart_信号早于启动到达(t *testing.T) {
+func TestStart_SignalArrivesBeforeStart(t *testing.T) {
 	// 照常监听的话，服务会在「已经收到停止信号」之后才起来，
 	// 然后一直跑到框架等超时为止
 	port := testkit.FreePort(t)
@@ -708,7 +708,7 @@ func TestStart_信号早于启动到达(t *testing.T) {
 	}
 }
 
-func TestStart_重复启动报错(t *testing.T) {
+func TestStart_RepeatedStartFails(t *testing.T) {
 	port := testkit.FreePort(t)
 	g := New().WithConfig(configWith(quiet, on(port)))
 	serving(t, g, port)
@@ -718,7 +718,7 @@ func TestStart_重复启动报错(t *testing.T) {
 	}
 }
 
-func TestStop_没启动过也安全(t *testing.T) {
+func TestStop_SafeWithoutStart(t *testing.T) {
 	if err := New().Stop(context.Background()); err != nil {
 		t.Errorf("没启动过的 Stop 不该报错：%v", err)
 	}
@@ -778,7 +778,7 @@ func stopWithin(t *testing.T, g *XGin) error {
 	}
 }
 
-func TestStop_按调用方给的截止时间收手(t *testing.T) {
+func TestStop_HonorsCallerDeadline(t *testing.T) {
 	// 回归用例。等多久只看调用方的 ctx，xone.Run 给的是服务那一段停止预算。
 	// 这里曾经用 context.WithoutCancel 换掉它，于是会实打实地等满自己的上限——
 	// 「所有组件共享一份预算」就成了一句空话
@@ -788,7 +788,7 @@ func TestStop_按调用方给的截止时间收手(t *testing.T) {
 	}
 }
 
-func TestStop_超时后强制断掉在途连接(t *testing.T) {
+func TestStop_ForceClosesInFlightConnsAfterTimeout(t *testing.T) {
 	// Shutdown 超时只返回错误，它不动那些连接。就这么走的话 handler 还在跑，
 	// 而框架紧接着就去关数据库和缓存了——那些请求会摸到已经关掉的连接池。
 	//
@@ -806,7 +806,7 @@ func TestStop_超时后强制断掉在途连接(t *testing.T) {
 	}
 }
 
-func TestStop_断连之后等handler真正返回(t *testing.T) {
+func TestStop_WaitsForHandlersAfterForceClose(t *testing.T) {
 	// Close 只关连接、取消请求的 ctx，handler 所在的协程照跑。原先 Close 完就返回，
 	// 看到 ctx 取消、正在收尾的 handler 还没返回，框架就接着去关数据库了。
 	// 截止时间也不能被 Shutdown 用满：得给断连之后的这段收尾留出时间
@@ -841,7 +841,7 @@ func TestStop_断连之后等handler真正返回(t *testing.T) {
 	}
 }
 
-func TestStop_handler不看ctx时报出还剩几个(t *testing.T) {
+func TestStop_HandlerIgnoringCtxReportsRemainingCount(t *testing.T) {
 	// Go 没有从外面终止协程的办法，不看 ctx 的 handler 断连之后照跑。
 	// 框架停不下它，但至少要如实说出来，不能让人以为已经停干净了
 	g := servingWithHungRequest(t)
@@ -853,7 +853,7 @@ func TestStop_handler不看ctx时报出还剩几个(t *testing.T) {
 
 // ---- 读配置文件 ----
 
-func TestEngine_在Run之前调也用的是配置文件里的最终值(t *testing.T) {
+func TestEngine_UsesFinalConfigEvenBeforeRun(t *testing.T) {
 	// 使用者在 main 顶上建好 XGin、调 Engine()（比如为了挂 Swagger），之后才 xone.Run。
 	// 曾经那时配置还没加载，TrustedProxies 和 MaxMultipartMemory 只好推迟到 Start
 	// 才落到 engine 上，单独拿 Engine() 去用的只拿得到默认值。现在配置在第一次读的
@@ -872,7 +872,7 @@ func TestEngine_在Run之前调也用的是配置文件里的最终值(t *testin
 	}
 }
 
-func TestEngine_配置文件不合法时按偏安全的默认值装配(t *testing.T) {
+func TestEngine_InvalidConfigFallsBackToSafeDefaults(t *testing.T) {
 	// 照样给一个 engine（使用者可能在 Run 之前就拿了它），但按默认值装：
 	// 解到一半的非法配置里，TrustedProxies 可能正是 0.0.0.0/0。错误由 Start 报，不监听
 	testkit.UseConfigEnv(t, "XGin:\n  Port: 0\n  TrustedProxies: [0.0.0.0/0]\n")
@@ -887,7 +887,7 @@ func TestEngine_配置文件不合法时按偏安全的默认值装配(t *testin
 	}
 }
 
-func TestCurrentConfig_随时读到配置文件里的那一块(t *testing.T) {
+func TestCurrentConfig_AlwaysReadsConfigSection(t *testing.T) {
 	// 不用等 xone.Run：第一次读的时候才加载配置文件，读到的就是最终值
 	testkit.UseConfigEnv(t, "XGin:\n  Port: 18080\n  Mode: debug\n  Log: false\n")
 	c := CurrentConfig()
@@ -899,8 +899,8 @@ func TestCurrentConfig_随时读到配置文件里的那一块(t *testing.T) {
 	}
 }
 
-func TestCurrentConfig_那一块不合法时返回默认值(t *testing.T) {
-	// 错误由 xone.Run 在启动时报（见 TestLoadConfig_取值非法时启动失败）。
+func TestCurrentConfig_ReturnsDefaultsWhenSectionInvalid(t *testing.T) {
+	// 错误由 xone.Run 在启动时报（见 TestLoadConfig_StartupFailsOnInvalidValue）。
 	// 这里返回的东西会被拿去 WithConfig，必须是安全的：解到一半的非法配置不算
 	testkit.UseConfigEnv(t, "XGin:\n  Port: 0\n  TrustedProxies: [0.0.0.0/0]\n")
 	if got := CurrentConfig(); !reflect.DeepEqual(got, DefaultConfig()) {
@@ -908,7 +908,7 @@ func TestCurrentConfig_那一块不合法时返回默认值(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_字段拼错时启动失败(t *testing.T) {
+func TestLoadConfig_StartupFailsOnFieldTypo(t *testing.T) {
 	// 拼错的字段在启动阶段就该被拦下，否则使用者会一直以为自己配上了
 	testkit.UseConfigEnv(t, "XGin:\n  Prot: 8080\n")
 	if err := loadConfig(context.Background()); err == nil {
@@ -916,7 +916,7 @@ func TestLoadConfig_字段拼错时启动失败(t *testing.T) {
 	}
 }
 
-func TestLoadConfig_取值非法时启动失败(t *testing.T) {
+func TestLoadConfig_StartupFailsOnInvalidValue(t *testing.T) {
 	// 端口越界、TLS 只配一半、指标路径写错，原先要等到服务 Start 才报。
 	// Config 实现了 Validate，解码时就一起查了，于是 StageServer 的这个钩子让启动当场失败
 	for name, yml := range map[string]string{
@@ -931,7 +931,7 @@ func TestLoadConfig_取值非法时启动失败(t *testing.T) {
 	}
 }
 
-func TestWithConfig_两个实例监听各自的端口(t *testing.T) {
+func TestWithConfig_TwoInstancesListenOnOwnPorts(t *testing.T) {
 	// 没有 WithConfig 时两个实例读的是同一块配置，只能监听同一个端口——
 	// 「需要两套配置时也有出路」这条承诺对 xgin 就是假的。
 	// 配置文件里那一块留在默认端口上，证明两个实例谁都没按它监听
@@ -968,7 +968,7 @@ func TestWithConfig_两个实例监听各自的端口(t *testing.T) {
 	}
 }
 
-func TestWithConfig_不给就跟着配置文件走(t *testing.T) {
+func TestWithConfig_FollowsConfigFileWhenOmitted(t *testing.T) {
 	// 默认路径：端口、开关都来自配置文件里的 XGin 块
 	port := testkit.FreePort(t)
 	testkit.UseConfigEnv(t, fmt.Sprintf("XGin:\n  Host: 127.0.0.1\n  Port: %d\n  Log: false\n  Metric: false\n", port))
@@ -981,7 +981,7 @@ func TestWithConfig_不给就跟着配置文件走(t *testing.T) {
 
 // ---- 登记 ----
 
-func TestRegister_只读配置不登记停止钩子(t *testing.T) {
+func TestRegister_OnlyReadsConfigNoStopHook(t *testing.T) {
 	var got *hook.Entry
 	for _, e := range hook.Start() {
 		if e.Pkg == "github.com/xiaoshicae/x-one/xgin" {
@@ -1001,7 +1001,7 @@ func TestRegister_只读配置不登记停止钩子(t *testing.T) {
 	}
 }
 
-func TestXGin_满足Runnable(t *testing.T) {
+func TestXGin_ImplementsRunnable(t *testing.T) {
 	// 结构化满足即可，不 import 根包——「集成不依赖框架」这条要在编译层面成立
 	var _ interface {
 		Start(context.Context) error
@@ -1037,7 +1037,7 @@ func waitServing(t *testing.T, url string) {
 	t.Fatalf("服务没有起来：%s", url)
 }
 
-func TestBuild_先拿Engine再初始化指标也不丢(t *testing.T) {
+func TestBuild_MetricsKeptWhenEngineFetchedFirst(t *testing.T) {
 	// 回归用例。装配时如果就把 xmetric 的 registry 抓走，而那时 xmetric
 	// 还没初始化，指标会被注册到一个永远不会被导出的兜底 registry 上：
 	// 请求正常处理、指标正常记录、/metrics 里什么都没有，且没有任何迹象。
@@ -1063,7 +1063,7 @@ func TestBuild_先拿Engine再初始化指标也不丢(t *testing.T) {
 	}
 }
 
-func TestBuild_先拿Engine也不影响metrics端点(t *testing.T) {
+func TestBuild_MetricsEndpointOKWhenEngineFetchedFirst(t *testing.T) {
 	// /metrics 的 handler 同理：装配时定死就会一直导出那个空的兜底 registry
 	e := New().WithConfig(DefaultConfig()).Engine()
 
@@ -1084,7 +1084,7 @@ func TestBuild_先拿Engine也不影响metrics端点(t *testing.T) {
 	}
 }
 
-func TestBuild_metrics端点也走用户中间件(t *testing.T) {
+func TestBuild_MetricsEndpointRunsUserMiddleware(t *testing.T) {
 	// gin 在注册路由那一刻就把处理链定死了。指标端点原先注册在
 	// e.Use(g.extra...) 之前，于是 WithMiddleware 挂的统一鉴权
 	// 对业务路由生效、对 /metrics 不生效——一个以为被保护的端点其实敞着
@@ -1107,7 +1107,7 @@ func TestBuild_metrics端点也走用户中间件(t *testing.T) {
 
 // ---- applyConfig ----
 
-func TestApplyConfig_代理网段设不上时退回谁都不信(t *testing.T) {
+func TestApplyConfig_FallsBackToTrustNoneOnProxyError(t *testing.T) {
 	// gin 的默认是全都信，于是任何人发一个 X-Forwarded-For 就能决定
 	// 访问日志里的 client_ip。它的解析行为是「解到出错为止、把已经解出来的
 	// 留下」，所以列表前半段会被留着信任——必须整个退到安全的那一侧。
@@ -1163,7 +1163,7 @@ func probeTrust(t *testing.T) func(e *gin.Engine, remote string) bool {
 	}
 }
 
-func TestBuild_只有TrustedProxies里的对端发来的透传Header才被收下(t *testing.T) {
+func TestBuild_PassthroughHeadersOnlyFromTrustedProxies(t *testing.T) {
 	// 回归用例。透传 Header 原先从任何入站请求里都照单全收：公网客户端发一个
 	// X-Tenant-Id / X-Internal-Token，就被当成自己人给的，带进内网的每一次调用。
 	// 「谁是自己人」用的是信任代理的那张表，不另设开关
@@ -1186,7 +1186,7 @@ func TestBuild_只有TrustedProxies里的对端发来的透传Header才被收下
 	}
 }
 
-func TestBuild_不配TrustedProxies时只收私有网段发来的透传Header(t *testing.T) {
+func TestBuild_PassthroughHeadersOnlyFromPrivateByDefault(t *testing.T) {
 	// K8s 里 Pod IP 随机，但都在私有网段里：默认就认，不用一个个写
 	trusted := probeTrust(t)
 	e := New().WithConfig(configWith(quiet)).Engine()
@@ -1210,7 +1210,7 @@ func TestBuild_不配TrustedProxies时只收私有网段发来的透传Header(t 
 	}
 }
 
-func TestLoadConfig_配置文件里写TrustedProxies空列表就谁都不信(t *testing.T) {
+func TestLoadConfig_EmptyTrustedProxiesInFileTrustsNone(t *testing.T) {
 	// 默认值预填在结构体里；配置文件写 [] 得真的换成空列表，而不是解码时被当成「没写」留下默认的 private
 	testkit.UseConfigEnv(t, "XGin:\n  TrustedProxies: []\n")
 	if got := clientIPOf(t, New().WithRoutes(echoClientIP).Engine(), "10.0.0.5:1234"); got != "10.0.0.5" {
@@ -1218,7 +1218,7 @@ func TestLoadConfig_配置文件里写TrustedProxies空列表就谁都不信(t *
 	}
 }
 
-func TestBuild_TrustedProxies里private和别的网段一起写(t *testing.T) {
+func TestBuild_TrustedProxiesMixesPrivateWithOtherCIDRs(t *testing.T) {
 	// 列表整体替换默认值：要在私有网段之外再加一段，把 private 一起写上
 	trusted := probeTrust(t)
 	e := New().WithConfig(configWith(quiet, func(c *Config) {
@@ -1236,7 +1236,7 @@ func TestBuild_TrustedProxies里private和别的网段一起写(t *testing.T) {
 	}
 }
 
-func TestBuild_关掉Trace只是不开Span_上游的链路标识和透传照常接上(t *testing.T) {
+func TestBuild_TraceDisabledOnlySkipsSpan_StillPropagates(t *testing.T) {
 	// 回归用例。XGin.Trace: false 原先连 Extract 一起摘掉：可信对端发来的
 	// X-Request-Id、上游的 traceparent 都断在这一跳，而它本该只管 Span
 	trusted := probeTrust(t)
@@ -1334,7 +1334,7 @@ func h2cGet(url string) <-chan h2cResult {
 	return got
 }
 
-func TestStop_h2c的在途请求也等它做完(t *testing.T) {
+func TestStop_H2CWaitsForInFlightRequests(t *testing.T) {
 	// 回归用例。h2c 原先靠 x/net 的 h2c.NewHandler：连接被它劫持走，
 	// http.Server 从此不认识这些连接——实测 Shutdown 约 60µs 就返回 nil，
 	// 而一个 2s 的在途请求还在跑；Close() 同样够不着它们。
@@ -1360,7 +1360,7 @@ func TestStop_h2c的在途请求也等它做完(t *testing.T) {
 	}
 }
 
-func TestStop_h2c超时后同样强制断连(t *testing.T) {
+func TestStop_H2CForceClosesAfterTimeout(t *testing.T) {
 	// 另一半：到点还没做完的 h2c 请求要被 Close() 断掉，
 	// 而不是在框架关掉数据库之后继续跑
 	base, g, entered, _ := servingH2C(t, 5*time.Second)
@@ -1380,7 +1380,7 @@ func TestStop_h2c超时后同样强制断连(t *testing.T) {
 	}
 }
 
-func TestStart_不开h2c时明文HTTP2连不上(t *testing.T) {
+func TestStart_CleartextHTTP2RejectedWithoutH2C(t *testing.T) {
 	// 开关要真的是开关：没开 UseH2C 时，明文 HTTP/2 的前言不该被接受
 	port := testkit.FreePort(t)
 	g := New().WithConfig(configWith(quiet, on(port))).WithRoutes(func(e *gin.Engine) {

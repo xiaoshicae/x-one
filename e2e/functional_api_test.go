@@ -17,7 +17,7 @@ import (
 
 // 每个接口的返回：状态码、body 的形状、副作用真的落进了 PG / Redis。
 // 接口约定写在 e2e/service/main.go 开头和各 handler 的注释里
-func TestFunctional_每个接口的返回符合约定(t *testing.T) {
+func TestFunctional_EveryEndpointReturnsAsSpecified(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 

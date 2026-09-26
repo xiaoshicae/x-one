@@ -20,7 +20,7 @@ var mysqlDriverLogLine = regexp.MustCompile(`(?m)^\[mysql\] \d{4}/\d{2}/\d{2} .*
 //   - 用到 MySQL 的操作当场报错（新连接被拒不需要等任何超时），错误里有地址
 //   - 另一个实例（PG）和不碰 MySQL 的接口不受影响：多实例各是各的连接池
 //   - MySQL 回来之后不用重启就恢复
-func TestMySQL_运行中MySQL拒绝连接_用到它的操作当场报错_PG不受影响_恢复后自动恢复(t *testing.T) {
+func TestMySQL_RefusedAtRuntime_FailsFast_PGUnaffected_Recovers(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	my := harness.NewProxy(t, harness.MySQLAddr())
@@ -93,7 +93,7 @@ func TestMySQL_运行中MySQL拒绝连接_用到它的操作当场报错_PG不�
 // （[mysql] 2026/09/24 packets.go:58 read tcp …: i/o timeout）。docs/architecture.md
 // 「我们故意跟底层库不一样的地方」里，go-redis、resty、GORM 自带的 logger 都接到了 slog
 // ——「绕开 slog 的日志进不了日志平台」；go-sql-driver 的没接，按同一条原则是 bug
-func TestMySQL_运行中MySQL不回话_查询在ReadTimeout失败_PG不受影响(t *testing.T) {
+func TestMySQL_SilentAtRuntime_QueryFailsAtReadTimeout_PGUnaffected(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	const conc = 8
@@ -175,7 +175,7 @@ func TestMySQL_运行中MySQL不回话_查询在ReadTimeout失败_PG不受影响
 //
 // PG 那个实例是好的，而且名字排在前面、先建（xclient.Build 按名字排序）：
 // MySQL 起不来时它要跟着关掉，进程照样失败退出
-func TestMySQL_启动时MySQL不可达_在文档的预算内失败_错误里有实例名和地址没有密码(t *testing.T) {
+func TestMySQL_UnreachableAtStartup_FailsInBudget_ErrHasNameAddrNoPassword(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	pw := harness.MySQLPassword()
@@ -228,7 +228,7 @@ func TestMySQL_启动时MySQL不可达_在文档的预算内失败_错误里有�
 //
 // 这条原先是 KNOWN BUG：xgorm 只认 PG 的 SQLSTATE 28 类，而 MySQL 的认证错误出在 gorm.Open 里
 // （Dialector.Initialize 查版本是第一次建连），报成了 open <地址> failed: Error 1045 …
-func TestMySQL_启动时MySQL密码错误或没有库的权限_错误说清是认证失败_不重试_没有密码(t *testing.T) {
+func TestMySQL_BadPasswordOrNoDBAccessAtStartup_AuthFail_NoRetry_NoPassword(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	pw := harness.MySQLPassword()
