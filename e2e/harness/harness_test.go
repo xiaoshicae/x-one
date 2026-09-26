@@ -57,7 +57,7 @@ func roundTrip(t *testing.T, c net.Conn, r *bufio.Reader) time.Duration {
 	return time.Since(start)
 }
 
-func TestProxy_断开时现有连接断掉新连接被拒_恢复后照常转发(t *testing.T) {
+func TestProxy_DisconnectDropsConnsRefusesNew_ResumeForwards(t *testing.T) {
 	Require(t)
 	p := NewProxy(t, echoServer(t))
 
@@ -93,7 +93,7 @@ func TestProxy_断开时现有连接断掉新连接被拒_恢复后照常转发(
 	roundTrip(t, c3, bufio.NewReader(c3))
 }
 
-func TestProxy_黑洞时现有连接不回话新连接拨号超时_恢复后旧连接断开新连接照常转发(t *testing.T) {
+func TestProxy_BlackholeStallsConnsNewDialTimesOut_ResumeDropsOldForwardsNew(t *testing.T) {
 	Require(t)
 	p := NewProxy(t, echoServer(t))
 	c, err := net.Dial("tcp", p.Addr())
@@ -150,7 +150,7 @@ func TestProxy_黑洞时现有连接不回话新连接拨号超时_恢复后旧�
 	}
 }
 
-func TestProxy_延迟按到达时刻算不累加(t *testing.T) {
+func TestProxy_DelayFromArrivalTimeNotCumulative(t *testing.T) {
 	Require(t)
 	p := NewProxy(t, echoServer(t))
 	c, err := net.Dial("tcp", p.Addr())
@@ -183,7 +183,7 @@ func TestProxy_延迟按到达时刻算不累加(t *testing.T) {
 	}
 }
 
-func TestStub_记下请求并按设定响应(t *testing.T) {
+func TestStub_RecordsRequestsAndRespondsAsSet(t *testing.T) {
 	Require(t)
 	s := NewStub(t)
 	s.SetStatus(http.StatusTeapot)
@@ -207,7 +207,7 @@ func TestStub_记下请求并按设定响应(t *testing.T) {
 	}
 }
 
-func TestLoad_按状态码分桶并统计分位数(t *testing.T) {
+func TestLoad_BucketsByStatusAndComputesPercentiles(t *testing.T) {
 	Require(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("fail") == "1" {
@@ -256,7 +256,7 @@ func btoi(b bool) int {
 	return 0
 }
 
-func TestParseMetrics_直方图拆成桶和总数(t *testing.T) {
+func TestParseMetrics_SplitsHistogramIntoBucketsAndCount(t *testing.T) {
 	Require(t)
 	text := `# TYPE e2e_http_requests_total counter
 e2e_http_requests_total{route="/ping",status="200"} 3
@@ -285,7 +285,7 @@ e2e_order_flow_seconds_count 2
 	}
 }
 
-func TestReadProc_读得到自己的CPU和内存(t *testing.T) {
+func TestReadProc_ReadsOwnCPUAndMemory(t *testing.T) {
 	Require(t)
 	s, err := ReadProc(os.Getpid())
 	if err != nil {
@@ -296,7 +296,7 @@ func TestReadProc_读得到自己的CPU和内存(t *testing.T) {
 	}
 }
 
-func TestResetPeakRSS_峰值从此刻的RSS重新算起(t *testing.T) {
+func TestResetPeakRSS_PeakRestartsFromCurrentRSS(t *testing.T) {
 	Require(t)
 	// 先把峰值顶高 256MB，再把这块内存还给操作系统：重置前峰值还记着它，重置后不该再记着
 	buf := make([]byte, 256<<20)

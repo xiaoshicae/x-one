@@ -10,7 +10,7 @@ import (
 
 // xmetric/README.md XMetric：Namespace「指标名前缀」，ConstLabels「附加到所有指标上」。
 // 查的是真的 /metrics：框架自带的请求指标、业务用快捷方法建的指标、Go 运行时与进程指标
-func TestCoverage_Namespace和ConstLabels出现在真实的metrics上(t *testing.T) {
+func TestCoverage_NamespaceAndConstLabelsOnRealMetrics(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
@@ -63,7 +63,7 @@ func TestCoverage_Namespace和ConstLabels出现在真实的metrics上(t *testing
 }
 
 // xmetric/README.md「行为与实测」那张表
-func TestCoverage_Namespace或ConstLabels写错时启动失败(t *testing.T) {
+func TestCoverage_NamespaceOrConstLabelsTypoFailsStartup(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
@@ -89,9 +89,9 @@ func TestCoverage_Namespace或ConstLabels写错时启动失败(t *testing.T) {
 
 // xapp/README.md App：「指标不读这一块，/metrics 上没有应用名和版本：要在指标上区分应用，用 XMetric.ConstLabels」。
 // 文档从前写「指标的默认标题取自 App」，指标上并没有这回事（xmetric 不 import xapp），改的是文档。
-// 链路那一半见 TestCoverage_service_name取自App且被OTEL环境变量压过，接口文档那一半见 swagger_ui_test.go；
-// ConstLabels 附加到所有指标上见 TestCoverage_Namespace和ConstLabels出现在真实的metrics上
-func TestCoverage_指标不带App的名字(t *testing.T) {
+// 链路那一半见 TestCoverage_service_NameFromAppOverriddenByOTELEnv，接口文档那一半见 swagger_ui_test.go；
+// ConstLabels 附加到所有指标上见 TestCoverage_NamespaceAndConstLabelsOnRealMetrics
+func TestCoverage_MetricsCarryNoAppName(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 

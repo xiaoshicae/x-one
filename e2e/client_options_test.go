@@ -37,7 +37,7 @@ func covCacheSet(t *testing.T, p *harness.Process, name, key, ttl string) {
 //	            （算进去的话 MaxCost: 2000 实际只存得下 35 条）
 //	DefaultTTL  包级 Set 用的过期时间；0 是永不过期；负数启动失败
 //	多实例      XCache: {Clients: {hot: {...}, cold: {...}}}，C("name") 取
-func TestCoverage_本地缓存多实例各自的容量和过期时间(t *testing.T) {
+func TestCoverage_LocalCacheMultiInstanceOwnCapacityAndTTL(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
@@ -118,7 +118,7 @@ func covRedisDo(t *testing.T, p *harness.Process, name, op, key, val string) (in
 // xredis/README.md XRedis：多实例写在 Clients 下面，每个实例一套自己的字段（DB、重试……）；
 // MaxRetries「0 交给 go-redis（3 次），-1 关闭」，MinRetryBackoff / MaxRetryBackoff 是两次重试之间的退避。
 // Redis 拒绝连接时一条命令要多久几乎全是退避：拨号当场失败，剩下的是 MaxRetries 次退避
-func TestCoverage_Redis多实例各连各的_重试次数和退避按实例生效(t *testing.T) {
+func TestCoverage_RedisMultiInstanceSeparateConns_RetryAndBackoffPerInstance(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
@@ -191,7 +191,7 @@ func TestCoverage_Redis多实例各连各的_重试次数和退避按实例生�
 
 // xhttp/README.md「行为与实测」那张表：「cookie jar：resty.New() 自带一个，同一 client 的所有请求共享会话 cookie ｜ 这里：没有」。
 // 下游第一次响应种一个 cookie，之后经 xhttp 的每次调用都不该把它带回去
-func TestCoverage_xhttp不带cookie_jar_下游种的cookie不会串到下一次调用(t *testing.T) {
+func TestCoverage_XhttpNoCookieJar_DownstreamCookiesDontLeakToNextCall(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 

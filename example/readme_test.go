@@ -12,7 +12,7 @@ import (
 // README 的快速开始是使用者照抄的第一段代码。改了公开 API 却没改它，
 // 使用者复制下来的第一件事就是编译失败——这里把它当成代码编一遍。
 
-func TestREADME_快速开始的代码编得过(t *testing.T) {
+func TestREADME_QuickStartCodeCompiles(t *testing.T) {
 	readme, err := os.ReadFile("../README.md")
 	if err != nil {
 		t.Fatal(err)

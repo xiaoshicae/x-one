@@ -20,7 +20,7 @@ func fresh(t *testing.T) {
 	t.Setenv(EnvKey, "")
 }
 
-func TestUnmarshal_还没加载时先加载(t *testing.T) {
+func TestUnmarshal_LoadsFirstIfNotLoaded(t *testing.T) {
 	// 要防的是：读得早就静默拿到空值，服务带着一套默认配置正常起来。
 	// 现在第一次读就先加载：读得早拿到的也是文件里的最终值
 	fresh(t)
@@ -35,7 +35,7 @@ func TestUnmarshal_还没加载时先加载(t *testing.T) {
 	}
 }
 
-func TestEnsure_沿用提前加载的那一份(t *testing.T) {
+func TestEnsure_ReusesEarlierLoad(t *testing.T) {
 	// 提前读过的块已经认领过了，Run 接手时不能把认领记录清掉，
 	// 否则它会被报成「没人读」而让启动失败
 	fresh(t)
@@ -57,7 +57,7 @@ func TestEnsure_沿用提前加载的那一份(t *testing.T) {
 	}
 }
 
-func TestEnsure_点名的是同一个文件的另一种写法时照常(t *testing.T) {
+func TestEnsure_SameFileSpelledDifferentlyIsFine(t *testing.T) {
 	// 从前按字符串比：dir/./b.yml 和 dir/b.yml 被当成两个文件，Run 启动失败
 	p := write(t, "Demo:\n  Addr: x\n")
 	dir := filepath.Dir(p)
@@ -93,7 +93,7 @@ func TestEnsure_点名的是同一个文件的另一种写法时照常(t *testin
 	}
 }
 
-func TestEnsure_点名的文件和提前加载的不是同一个时报错(t *testing.T) {
+func TestEnsure_FailsWhenNamedFileDiffersFromEarlierLoad(t *testing.T) {
 	// 悄悄换一份的话，提前读到的值和之后组件里读到的对不上
 	fresh(t)
 	t.Setenv(EnvKey, write(t, "Demo:\n  Addr: a\n"))
@@ -111,7 +111,7 @@ func TestEnsure_点名的文件和提前加载的不是同一个时报错(t *tes
 	}
 }
 
-func TestEnsure_找不到配置文件时全用默认值(t *testing.T) {
+func TestEnsure_UsesDefaultsWhenNoConfigFile(t *testing.T) {
 	// 从前这种情况只打一条告警，配置却一直停在「还没加载」：之后每个集成
 	// 读配置都报「读早了」，一个不需要任何配置的服务根本起不来
 	fresh(t)
@@ -129,7 +129,7 @@ func TestEnsure_找不到配置文件时全用默认值(t *testing.T) {
 	}
 }
 
-func TestEnsure_点名要的文件不存在是错误(t *testing.T) {
+func TestEnsure_MissingNamedFileIsError(t *testing.T) {
 	fresh(t)
 	err := Ensure(filepath.Join(t.TempDir(), "nope.yml"), quiet())
 	if err == nil || !strings.Contains(err.Error(), "does not exist") {
@@ -137,7 +137,7 @@ func TestEnsure_点名要的文件不存在是错误(t *testing.T) {
 	}
 }
 
-func TestUnmarshal_加载失败之后每次读都报同一个错(t *testing.T) {
+func TestUnmarshal_SameErrorOnEveryReadAfterLoadFailure(t *testing.T) {
 	// 写坏了的配置不该在第二次读时悄悄当成没配，也不该每读一次重新解析一遍
 	fresh(t)
 	t.Setenv(EnvKey, write(t, "Demo: [\n"))
@@ -155,7 +155,7 @@ func TestUnmarshal_加载失败之后每次读都报同一个错(t *testing.T) {
 	}
 }
 
-func TestReset_之后重新找文件重新加载(t *testing.T) {
+func TestReset_RelocatesAndReloadsAfterward(t *testing.T) {
 	// 配置跟着一次 Run 走：同一个进程里的下一次 Run 要读它自己的那一份
 	fresh(t)
 	if err := Load(write(t, "Demo:\n  Addr: a\n")); err != nil {

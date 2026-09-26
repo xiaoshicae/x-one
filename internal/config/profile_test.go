@@ -49,7 +49,7 @@ func withProfileEnv(t *testing.T, v string) {
 	t.Setenv(ProfileEnvKey, v)
 }
 
-func TestLoad_profile文件压过base(t *testing.T) {
+func TestLoad_ProfileFileOverridesBase(t *testing.T) {
 	withProfileEnv(t, "prod")
 	base := files(t, "application.yml", map[string]string{
 		"application.yml":      "Demo:\n  Addr: base:1\n  Timeout: 1s\n",
@@ -68,7 +68,7 @@ func TestLoad_profile文件压过base(t *testing.T) {
 	}
 }
 
-func TestLoad_靠后的profile压过靠前的(t *testing.T) {
+func TestLoad_LaterProfileOverridesEarlier(t *testing.T) {
 	withProfileEnv(t, "a, b")
 	base := files(t, "application.yml", map[string]string{
 		"application.yml":   "Demo:\n  Addr: base:1\n",
@@ -88,7 +88,7 @@ func TestLoad_靠后的profile压过靠前的(t *testing.T) {
 	}
 }
 
-func TestLoad_列表整体替换不逐元素合并(t *testing.T) {
+func TestLoad_ListsReplacedWholeNotMerged(t *testing.T) {
 	// 逐元素合并的话 [A,B] 叠上 [C] 会变成 [C,B]——使用者以为换掉了整张表，
 	// 实际只换掉第一项，剩下那项来自另一个文件。Spring 也是整体替换
 	withProfileEnv(t, "prod")
@@ -106,7 +106,7 @@ func TestLoad_列表整体替换不逐元素合并(t *testing.T) {
 	}
 }
 
-func TestLoad_map递归合并(t *testing.T) {
+func TestLoad_MapMergedRecursively(t *testing.T) {
 	withProfileEnv(t, "prod")
 	base := files(t, "application.yml", map[string]string{
 		"application.yml":      "Demo:\n  Nested:\n    A: base-a\n    B: base-b\n",
@@ -122,7 +122,7 @@ func TestLoad_map递归合并(t *testing.T) {
 	}
 }
 
-func TestLoad_profile文件不存在直接失败(t *testing.T) {
+func TestLoad_ProfileFileMissingFailsFast(t *testing.T) {
 	// 与 Spring 不同：那边静默跳过。点名要了某个 profile 文件却不在，
 	// 几乎总是名字写错了，静默跳过的结果是一份谁都没看过的配置以默认值起来
 	withProfileEnv(t, "typo")
@@ -140,7 +140,7 @@ func TestLoad_profile文件不存在直接失败(t *testing.T) {
 	}
 }
 
-func TestLoad_import进来的压过引它的(t *testing.T) {
+func TestLoad_ImportOverridesImporter(t *testing.T) {
 	// 与 Spring 一致：import 相当于插在声明它的那份文档正下方，下面的压过上面的
 	base := files(t, "application.yml", map[string]string{
 		"application.yml": "XApp:\n  Import: shared.yml\nDemo:\n  Addr: base:1\n  Timeout: 1s\n",
@@ -159,7 +159,7 @@ func TestLoad_import进来的压过引它的(t *testing.T) {
 	}
 }
 
-func TestLoad_profile压过base的import(t *testing.T) {
+func TestLoad_ProfileOverridesBaseImport(t *testing.T) {
 	// 顺序：base < base 的 import < profile 文件 < profile 的 import
 	withProfileEnv(t, "prod")
 	base := files(t, "application.yml", map[string]string{
@@ -177,7 +177,7 @@ func TestLoad_profile压过base的import(t *testing.T) {
 	}
 }
 
-func TestLoad_import多个按顺序生效(t *testing.T) {
+func TestLoad_ImportMultipleAppliedInOrder(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
 		"application.yml": "XApp:\n  Import:\n    - a.yml\n    - b.yml\nDemo:\n  Addr: base:1\n",
 		"a.yml":           "Demo:\n  Addr: a:1\n  Timeout: 3s\n",
@@ -196,7 +196,7 @@ func TestLoad_import多个按顺序生效(t *testing.T) {
 	}
 }
 
-func TestLoad_import的相对路径按引它的文件解析(t *testing.T) {
+func TestLoad_ImportRelativePathResolvedAgainstImporter(t *testing.T) {
 	// 按进程工作目录解析的话，配置目录整个搬个位置里面的引用就失效了
 	base := files(t, "conf/application.yml", map[string]string{
 		"conf/application.yml": "XApp:\n  Import: parts/db.yml\nDemo:\n  Addr: base:1\n",
@@ -212,7 +212,7 @@ func TestLoad_import的相对路径按引它的文件解析(t *testing.T) {
 	}
 }
 
-func TestLoad_import文件不存在是错误(t *testing.T) {
+func TestLoad_ImportMissingFileIsError(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
 		"application.yml": "XApp:\n  Import: missing.yml\nDemo:\n  Addr: base:1\n",
 	})
@@ -223,7 +223,7 @@ func TestLoad_import文件不存在是错误(t *testing.T) {
 	}
 }
 
-func TestLoad_optional的import可以不存在(t *testing.T) {
+func TestLoad_OptionalImportMayBeMissing(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
 		"application.yml": "XApp:\n  Import: optional:local.yml\nDemo:\n  Addr: base:1\n",
 	})
@@ -237,7 +237,7 @@ func TestLoad_optional的import可以不存在(t *testing.T) {
 	}
 }
 
-func TestLoad_import成环不会转不出来(t *testing.T) {
+func TestLoad_ImportCycleTerminates(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
 		"application.yml": "XApp:\n  Import: a.yml\nDemo:\n  Addr: base:1\n",
 		"a.yml":           "XApp:\n  Import: application.yml\nDemo:\n  Addr: a:1\n",
@@ -253,7 +253,7 @@ func TestLoad_import成环不会转不出来(t *testing.T) {
 	}
 }
 
-func TestLoad_Profiles只能写在base里(t *testing.T) {
+func TestLoad_ProfilesOnlyAllowedInBase(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
 		"application.yml": "XApp:\n  Import: shared.yml\nDemo:\n  Addr: base:1\n",
 		"shared.yml":      "XApp:\n  Profiles: [prod]\nDemo:\n  Addr: shared:1\n",
@@ -269,7 +269,7 @@ func TestLoad_Profiles只能写在base里(t *testing.T) {
 	}
 }
 
-func TestLoad_base里的Profiles生效(t *testing.T) {
+func TestLoad_BaseProfilesTakeEffect(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
 		"application.yml":      "XApp:\n  Profiles: [prod]\nDemo:\n  Addr: base:1\n",
 		"application-prod.yml": "Demo:\n  Addr: prod:1\n",
@@ -284,7 +284,7 @@ func TestLoad_base里的Profiles生效(t *testing.T) {
 	}
 }
 
-func TestLoad_环境变量压过文件里的Profiles(t *testing.T) {
+func TestLoad_EnvVarOverridesProfilesInFile(t *testing.T) {
 	withProfileEnv(t, "dev")
 	base := files(t, "application.yml", map[string]string{
 		"application.yml":      "XApp:\n  Profiles: [prod]\nDemo:\n  Addr: base:1\n",
@@ -301,7 +301,7 @@ func TestLoad_环境变量压过文件里的Profiles(t *testing.T) {
 	}
 }
 
-func TestLoad_Import和Profiles不算没人认领的块(t *testing.T) {
+func TestLoad_ImportAndProfilesAreNotUnclaimed(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
 		"application.yml": "XApp:\n  Profiles: []\n  Import: optional:x.yml\nDemo:\n  Addr: base:1\n",
 	})
@@ -312,7 +312,7 @@ func TestLoad_Import和Profiles不算没人认领的块(t *testing.T) {
 	}
 }
 
-func TestLoad_被profile覆盖掉的必填占位符不再要求设置(t *testing.T) {
+func TestLoad_RequiredPlaceholderOverriddenByProfileNotRequired(t *testing.T) {
 	// 占位符在全部合并完之后才展开。逐个文件展开的话，
 	// base 里那个 ${SECRET} 即便已经被 prod 换掉了，也还是会要求必须设置
 	withProfileEnv(t, "prod")
@@ -330,7 +330,7 @@ func TestLoad_被profile覆盖掉的必填占位符不再要求设置(t *testing
 	}
 }
 
-func TestLoad_import路径里的占位符会展开(t *testing.T) {
+func TestLoad_ImportPathPlaceholdersAreExpanded(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "shared.yml"), []byte("Demo:\n  Addr: shared:1\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -350,7 +350,7 @@ func TestLoad_import路径里的占位符会展开(t *testing.T) {
 	}
 }
 
-func TestLoad_import进来的文件也有profile变体(t *testing.T) {
+func TestLoad_ImportFilesAlsoGetProfileVariants(t *testing.T) {
 	// 配置拆成片段之后，最该按环境变的恰恰是片段里的内容（连接串之类），
 	// 只有主文件有变体的话，拆分就变得很别扭
 	withProfileEnv(t, "prod")
@@ -373,7 +373,7 @@ func TestLoad_import进来的文件也有profile变体(t *testing.T) {
 	}
 }
 
-func TestLoad_片段的profile变体可以不存在(t *testing.T) {
+func TestLoad_FragmentProfileVariantMayBeMissing(t *testing.T) {
 	// 与主文件不同：拆成十个片段之后，要求每个片段都备齐每个环境的变体没法用。
 	// profile 名写错这件事已经由主文件的变体挡住了
 	withProfileEnv(t, "prod")
@@ -392,7 +392,7 @@ func TestLoad_片段的profile变体可以不存在(t *testing.T) {
 	}
 }
 
-func TestLoad_主文件的profile变体压过片段的(t *testing.T) {
+func TestLoad_MainProfileVariantOverridesFragments(t *testing.T) {
 	// 顺序：base、base 的 import（含其变体）、application-prod、它的 import
 	withProfileEnv(t, "prod")
 	base := files(t, "application.yml", map[string]string{
@@ -411,7 +411,7 @@ func TestLoad_主文件的profile变体压过片段的(t *testing.T) {
 	}
 }
 
-func TestLoad_Profiles的Active两种写法都收(t *testing.T) {
+func TestLoad_ProfilesActiveAcceptsBothForms(t *testing.T) {
 	// 注释和文档都说逗号分隔的字符串也行，从前那种写法以
 	// cannot unmarshal !!str into []string 失败
 	for name, active := range map[string]string{
@@ -437,7 +437,7 @@ func TestLoad_Profiles的Active两种写法都收(t *testing.T) {
 	}
 }
 
-func TestLoad_Profiles里的占位符会展开(t *testing.T) {
+func TestLoad_ProfilesPlaceholdersAreExpanded(t *testing.T) {
 	// 要先知道激活哪些 profile 才知道读哪些文件，所以这一块和 Import 一样，
 	// 在读它的时候就展开，而不是等到全部合并完
 	t.Setenv("XONE_T_ENV", "prod")
@@ -454,7 +454,7 @@ func TestLoad_Profiles里的占位符会展开(t *testing.T) {
 	}
 }
 
-func TestLoad_Profiles里未设置的占位符是错误(t *testing.T) {
+func TestLoad_ProfilesUnsetPlaceholderIsError(t *testing.T) {
 	os.Unsetenv("XONE_T_ENV_MISSING")
 	base := files(t, "application.yml", map[string]string{
 		"application.yml": "XApp:\n  Profiles: ${XONE_T_ENV_MISSING}\n",
@@ -465,7 +465,7 @@ func TestLoad_Profiles里未设置的占位符是错误(t *testing.T) {
 	}
 }
 
-func TestLoad_被引进来的文件里写空的Profiles也是错误(t *testing.T) {
+func TestLoad_EmptyProfilesInImportedFileIsError(t *testing.T) {
 	// 从前只在它真的声明了 profile 时才报，Active: [] 能混过去
 	base := files(t, "application.yml", map[string]string{
 		"application.yml": "XApp:\n  Import: shared.yml\n",
@@ -476,7 +476,7 @@ func TestLoad_被引进来的文件里写空的Profiles也是错误(t *testing.T
 	}
 }
 
-func TestLoad_import嵌套过深要报错(t *testing.T) {
+func TestLoad_ImportNestedTooDeepIsError(t *testing.T) {
 	m := map[string]string{}
 	for i := 0; i <= maxImportDepth+1; i++ {
 		m[fmt.Sprintf("f%d.yml", i)] = fmt.Sprintf("XApp:\n  Import: f%d.yml\n", i+1)
@@ -492,7 +492,7 @@ func TestLoad_import嵌套过深要报错(t *testing.T) {
 	}
 }
 
-func TestLoad_一级的App_Import_Profiles是旧写法_启动失败并说明怎么改(t *testing.T) {
+func TestLoad_TopLevelAppImportProfilesIsLegacy_FailsWithFix(t *testing.T) {
 	// v0.1.0 的写法。静默忽略的话，配了的 profile 和 import 悄悄不生效
 	for name, c := range map[string]struct {
 		files map[string]string
@@ -517,7 +517,7 @@ func TestLoad_一级的App_Import_Profiles是旧写法_启动失败并说明怎�
 	}
 }
 
-func TestLoad_XApp只写了Profiles和Import时不算没人读的块(t *testing.T) {
+func TestLoad_XAppWithOnlyProfilesAndImportIsNotUnclaimed(t *testing.T) {
 	// 没 import xapp 的程序：XApp 里的两项被加载器取走之后是个空块，不该被当成拼错的 key
 	t.Cleanup(Reset)
 	base := files(t, "application.yml", map[string]string{
@@ -534,7 +534,7 @@ func TestLoad_XApp只写了Profiles和Import时不算没人读的块(t *testing.
 	}
 }
 
-func TestLoad_XApp里的Name留给xapp_Profiles和Import被加载器取走(t *testing.T) {
+func TestLoad_XAppNameLeftToXapp_ProfilesAndImportTakenByLoader(t *testing.T) {
 	// xapp 严格解码 XApp：Profiles、Import 要是还在，它会报不认识的字段
 	t.Cleanup(Reset)
 	withProfileEnv(t, "")

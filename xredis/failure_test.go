@@ -15,7 +15,7 @@ import (
 // 这一组钉的是 Redis 出故障时的行为：建连拨几次号、ctx 的取消和截止时间各管什么、
 // 认证失败怎么报、go-redis 自己的日志去了哪。数字都写进了 xredis/README.md XRedis 一节
 
-func TestNew_Redis挂了时一次建连只拨一次号(t *testing.T) {
+func TestNew_RedisDownDialsOncePerConnect(t *testing.T) {
 	// go-redis v9.22.0 默认每次建连内部重拨 5 次、间隔 100ms：拒绝连接时一次建连白等 400ms，
 	// 主机宕机时是 5×DialTimeout+400ms。xredis 配成只拨一次，重试只剩 MaxRetries 那一层
 	f := newFakeRedis(t)
@@ -46,7 +46,7 @@ func TestNew_Redis挂了时一次建连只拨一次号(t *testing.T) {
 	t.Fatal("3 条命令都没走到建连")
 }
 
-func TestNew_命令不听ctx的取消只听截止时间(t *testing.T) {
+func TestNew_CommandsIgnoreCtxCancelOnlyDeadline(t *testing.T) {
 	// 钉住 go-redis 的行为，文档（ContextTimeoutEnabled 的注释、xredis/README.md XRedis）照这个写：
 	// ctx 被取消叫不醒一个阻塞在读上的命令，它等到 ReadTimeout 才返回。
 	// 哪天升级之后这条挂了，是 go-redis 开始听取消了——把文档里那句限制删掉
@@ -71,7 +71,7 @@ func TestNew_命令不听ctx的取消只听截止时间(t *testing.T) {
 	}
 }
 
-func TestNew_启动时收到退出信号不等读超时(t *testing.T) {
+func TestNew_ExitSignalAtStartupSkipsReadTimeout(t *testing.T) {
 	// 对端收下连接不回话，Ping 卡在读上。go-redis 只认 ctx 的截止时间，
 	// 直接在当前协程里 Ping 的话，取消要等这次读撞上 ReadTimeout（这里 5s）才生效。
 	// 上界 1.5s：离 100ms 的取消点和 5s 的读超时都远，慢机器上不会误报
@@ -98,7 +98,7 @@ func TestNew_启动时收到退出信号不等读超时(t *testing.T) {
 	}
 }
 
-func TestNew_认证失败说清是认证失败且不重试(t *testing.T) {
+func TestNew_AuthFailureReportedClearlyWithoutRetry(t *testing.T) {
 	f := newFakeRedis(t)
 	f.setFailAuth(true)
 	c := liveCfg(f)
@@ -155,7 +155,7 @@ func (h ctxRecorder) Handle(ctx context.Context, r slog.Record) error {
 	return nil
 }
 
-func TestGoRedis自己的日志进slog且带着调用方的ctx(t *testing.T) {
+func TestGoRedisOwnLogsGoToSlogWithCallerCtx(t *testing.T) {
 	// go-redis 默认用标准库 log 往 stderr 写纯文本：不是 JSON、不带 trace_id。
 	// 让它写一条：过期时间短于 1ms 时它会记一句「truncating to 1ms」，用的是命令的 ctx
 	f := newFakeRedis(t)

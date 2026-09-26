@@ -112,7 +112,7 @@ func emptyConf(t *testing.T) string {
 
 // ---- 用例 ----
 
-func TestRun_停止预算为零直接失败(t *testing.T) {
+func TestRun_ZeroStopBudgetFailsFast(t *testing.T) {
 	// 0 在这里不是「不限时」而是「一点都不等」：Stop 拿到的是一个已经过期的
 	// context，服务当场被切断，后面每个组件的关闭也都在超时状态下跑。
 	// 这种配错必须在做任何事之前就拦住
@@ -130,7 +130,7 @@ func TestRun_停止预算为零直接失败(t *testing.T) {
 	}
 }
 
-func TestRun_逆序关闭(t *testing.T) {
+func TestRun_ClosesInReverseOrder(t *testing.T) {
 	r := &recorder{}
 	go func() { time.Sleep(120 * time.Millisecond); syscall.Kill(syscall.Getpid(), syscall.SIGTERM) }()
 
@@ -146,7 +146,7 @@ func TestRun_逆序关闭(t *testing.T) {
 	}
 }
 
-func TestRun_Stage决定顺序而非登记顺序(t *testing.T) {
+func TestRun_StageDecidesOrderNotRegistration(t *testing.T) {
 	// 这是整套设计的核心主张：init() 的执行顺序（也就是登记顺序）不影响结果
 	r := &recorder{}
 	go func() { time.Sleep(120 * time.Millisecond); syscall.Kill(syscall.Getpid(), syscall.SIGTERM) }()
@@ -170,7 +170,7 @@ func TestRun_Stage决定顺序而非登记顺序(t *testing.T) {
 	}
 }
 
-func TestRun_同档内保持登记顺序(t *testing.T) {
+func TestRun_KeepsRegistrationOrderWithinStage(t *testing.T) {
 	r := &recorder{}
 	go func() { time.Sleep(120 * time.Millisecond); syscall.Kill(syscall.Getpid(), syscall.SIGTERM) }()
 
@@ -184,7 +184,7 @@ func TestRun_同档内保持登记顺序(t *testing.T) {
 	}
 }
 
-func TestRun_组件初始化失败时回滚已初始化的部分(t *testing.T) {
+func TestRun_InitFailureRollsBackInitialized(t *testing.T) {
 	r := &recorder{}
 	boom := errors.New("连不上")
 
@@ -202,7 +202,7 @@ func TestRun_组件初始化失败时回滚已初始化的部分(t *testing.T) {
 	}
 }
 
-func TestRun_服务启动失败(t *testing.T) {
+func TestRun_ServiceStartFails(t *testing.T) {
 	r := &recorder{}
 	boom := errors.New("端口被占用")
 	s := newServer(r)
@@ -218,7 +218,7 @@ func TestRun_服务启动失败(t *testing.T) {
 	}
 }
 
-func TestRun_关闭出错会被汇总而不是吞掉(t *testing.T) {
+func TestRun_CloseErrorsAggregatedNotSwallowed(t *testing.T) {
 	r := &recorder{}
 	closeErr := errors.New("关不掉")
 	go func() { time.Sleep(120 * time.Millisecond); syscall.Kill(syscall.Getpid(), syscall.SIGTERM) }()
@@ -239,7 +239,7 @@ type demoConf struct {
 	Name string `yaml:"Name"`
 }
 
-func TestRun_Init读到的是配置文件里的值而不是默认值(t *testing.T) {
+func TestRun_InitSeesFileValuesNotDefaults(t *testing.T) {
 	// 集成在 BeforeStart 钩子里读配置。「框架什么时候加载文件」这一步
 	// 使用者不需要知道——这里守的就是钩子里读到的确实是文件里的值
 	p := filepath.Join(t.TempDir(), "application.yml")
@@ -280,7 +280,7 @@ func earlyConf(t *testing.T, yml string) string {
 	return p
 }
 
-func TestRun_在Run之前读配置拿到的就是文件里的值(t *testing.T) {
+func TestRun_ReadingConfigBeforeRunGetsFileValues(t *testing.T) {
 	// 要防的是：读早了静默拿到空值，服务带着一套默认配置正常起来，
 	// 直到有人发现连的库不是预期那个。现在第一次读就先加载：
 	// main 里读到的和 Run 里生效的是同一份
@@ -304,7 +304,7 @@ func TestRun_在Run之前读配置拿到的就是文件里的值(t *testing.T) {
 	}
 }
 
-func TestRun_提前读过配置又点名另一个文件时报错(t *testing.T) {
+func TestRun_FailsWhenOtherFileNamedAfterEarlyRead(t *testing.T) {
 	// 悄悄换一份的话，main 里读到的值和组件里读到的对不上
 	earlyConf(t, "Demo:\n  Name: a\n")
 	var c demoConf
@@ -323,7 +323,7 @@ func TestRun_提前读过配置又点名另一个文件时报错(t *testing.T) {
 	}
 }
 
-func TestRun_没人读过的配置块要报错(t *testing.T) {
+func TestRun_UnreadConfigBlockIsError(t *testing.T) {
 	// 多半是拼错了，或者忘了 import 对应的包。静默忽略的话，
 	// 使用者会盯着一份「明明配了」的文件查半天
 	p := filepath.Join(t.TempDir(), "application.yml")
@@ -351,7 +351,7 @@ func TestRun_没人读过的配置块要报错(t *testing.T) {
 	}
 }
 
-func TestRun_组件panic被隔离(t *testing.T) {
+func TestRun_ComponentPanicIsIsolated(t *testing.T) {
 	r := &recorder{}
 	comps(t, pair{start: hook.Entry{Name: "panicky.init", Pkg: "panicky",
 		Run: func(context.Context) error { panic("初始化炸了") }}})
@@ -362,7 +362,7 @@ func TestRun_组件panic被隔离(t *testing.T) {
 	}
 }
 
-func TestRun_显式指定的配置文件不存在是错误(t *testing.T) {
+func TestRun_MissingExplicitConfigFileIsError(t *testing.T) {
 	r := &recorder{}
 	// 断言英文原文，不断言中文：临时目录的路径里带着测试名，
 	// 「不存在」三个字从那里就能匹配上，这条断言原先因此永远成立
@@ -372,7 +372,7 @@ func TestRun_显式指定的配置文件不存在是错误(t *testing.T) {
 	}
 }
 
-func TestRun_找不到配置文件时用默认值正常启动(t *testing.T) {
+func TestRun_StartsWithDefaultsWhenNoConfigFile(t *testing.T) {
 	// 组件必须真的去读配置：原先的假组件一行配置都不读，于是「没有配置文件时
 	// 每个 Unmarshal 都报读早了、服务根本起不来」这个 bug 一直没被发现
 	r := &recorder{}
@@ -412,7 +412,7 @@ func chdir(t *testing.T, dir string) {
 	t.Cleanup(func() { os.Chdir(old) })
 }
 
-func TestRun_等服务真正退出再关组件(t *testing.T) {
+func TestRun_WaitsForServiceExitBeforeClosing(t *testing.T) {
 	// 回归用例。Stop 返回不等于服务已经停干净——Stop 只负责「让它停」，
 	// 等不等在处理的请求做完是各实现自己的事。不等就往下关的话，
 	// 还在跑的请求会摸到已经关掉的数据库和缓存。
@@ -461,7 +461,7 @@ func TestRun_等服务真正退出再关组件(t *testing.T) {
 	}
 }
 
-func TestRun_服务退出时的错误不会被丢掉(t *testing.T) {
+func TestRun_ServiceExitErrorIsKept(t *testing.T) {
 	// 走信号分支时 Start 的返回值此前从没被读过
 	wantErr := errors.New("监听挂了")
 	stop := make(chan struct{})
@@ -495,7 +495,7 @@ func (s *startOnly) Start(ctx context.Context) error {
 	return nil
 }
 
-func TestRun_只写Start的Runnable也能跑(t *testing.T) {
+func TestRun_StartOnlyRunnableWorks(t *testing.T) {
 	// 靠 ctx 就停得下来的 Runnable 不该被迫写一个空的 Stop
 	r := &recorder{}
 	go func() { time.Sleep(120 * time.Millisecond); syscall.Kill(syscall.Getpid(), syscall.SIGTERM) }()
@@ -510,7 +510,7 @@ func TestRun_只写Start的Runnable也能跑(t *testing.T) {
 	}
 }
 
-func TestFunc_函数返回Run就收尾_错误原样交回(t *testing.T) {
+func TestFunc_RunEndsWhenFuncReturns_ErrorPassedThrough(t *testing.T) {
 	// 一次性任务：钩子建好组件，函数干完活返回，Run 逆序关掉组件、把函数的错误交回来
 	r := &recorder{}
 	comps(t, comp("a", hook.StageClient, r, nil))
@@ -525,7 +525,7 @@ func TestFunc_函数返回Run就收尾_错误原样交回(t *testing.T) {
 	}
 }
 
-func TestFunc_传nil直接panic(t *testing.T) {
+func TestFunc_NilPanics(t *testing.T) {
 	// 不拦的话，nil 要等启动钩子全跑完、调 Start 的那一刻才炸
 	defer func() {
 		if recover() == nil {
@@ -535,7 +535,7 @@ func TestFunc_传nil直接panic(t *testing.T) {
 	Func(nil)
 }
 
-func TestUntilSignal_阻塞到信号再逆序关闭(t *testing.T) {
+func TestUntilSignal_BlocksUntilSignalThenClosesInReverse(t *testing.T) {
 	// 活全在钩子里的进程：Run 跑完启动钩子就停住，收到信号才去跑停止钩子
 	r := &recorder{}
 	comps(t, comp("a", hook.StageClient, r, nil))
@@ -558,7 +558,7 @@ type wrongStop struct{ started bool }
 func (w *wrongStop) Start(context.Context) error { w.started = true; return nil }
 func (w *wrongStop) Stop() error                 { return nil }
 
-func TestRun_Stop签名写错时直接报错(t *testing.T) {
+func TestRun_StopWithWrongSignatureFails(t *testing.T) {
 	// Stop 是可选的，签名写错编译器不拦，它就永远不会被调到——
 	// 服务收到信号停不下来，只能等停止预算耗尽。要在做任何事之前说清楚
 	w := &wrongStop{}
@@ -577,7 +577,7 @@ type valueStart struct{ started *bool }
 func (v valueStart) Start(context.Context) error { *v.started = true; return nil }
 func (v *valueStart) Stop(context.Context) error { return nil }
 
-func TestRun_Stop写在指针上却传了值时直接报错(t *testing.T) {
+func TestRun_StopOnPointerButValuePassedFails(t *testing.T) {
 	// 传值的话 Stop 不在方法集里，框架调不到它，服务收到信号停不下来
 	started := false
 	err := Run(valueStart{started: &started}, WithConfigPath(emptyConf(t)), WithLogger(quietLogger()))
@@ -589,7 +589,7 @@ func TestRun_Stop写在指针上却传了值时直接报错(t *testing.T) {
 	}
 }
 
-func TestRun_传nil直接报错(t *testing.T) {
+func TestRun_NilFails(t *testing.T) {
 	// 不拦的话，nil 要等到启动钩子全跑完、调 Start 的那一刻才炸
 	if err := Run(nil, WithLogger(quietLogger())); err == nil {
 		t.Fatal("没有 Runnable 应当报错")
@@ -615,7 +615,7 @@ func syscallSelfInterrupt(t *testing.T) {
 	}
 }
 
-func TestRun_服务自己退出时立刻返回(t *testing.T) {
+func TestRun_ReturnsWhenServiceExitsOnItsOwn(t *testing.T) {
 	// 回归用例。服务自己退出时，上面那次 select 已经把 runErr 取走了，
 	// 再取一次就是白等满整个停止预算——一个只会表现为「慢」的 bug。
 	r := &lateRunnable{
@@ -634,7 +634,7 @@ func TestRun_服务自己退出时立刻返回(t *testing.T) {
 
 // ---- 启动期间收到退出信号 ----
 
-func TestRun_初始化期间收到信号就不启动服务(t *testing.T) {
+func TestRun_SignalDuringInitSkipsServiceStart(t *testing.T) {
 	// 信号接管必须早于初始化。装在初始化之后的话，连库、连 Redis、Ping 重试
 	// 那几秒里 SIGTERM 走的是系统默认处置——进程当场暴毙，已经建好的资源
 	// 一个都来不及注销（注册中心里那条记录、那把分布式锁只能等超时过期）
@@ -683,7 +683,7 @@ func TestRun_初始化期间收到信号就不启动服务(t *testing.T) {
 	}
 }
 
-func TestRun_初始化被信号打断而失败时不算故障(t *testing.T) {
+func TestRun_InitInterruptedBySignalIsNotFailure(t *testing.T) {
 	// 被取消的建连必然失败。把它当故障报上去的话，每次滚动更新撞上
 	// 这个窗口都会在面板上留一条「启动失败」，而它其实是按要求退出
 	r := &recorder{}
@@ -712,7 +712,7 @@ func TestRun_初始化被信号打断而失败时不算故障(t *testing.T) {
 // stuckChildEnv 置位时，测试进程扮演「卡在初始化里的子进程」
 const stuckChildEnv = "XONE_TEST_STUCK_CHILD"
 
-func TestRun_卡住时第二个信号能立即终止(t *testing.T) {
+func TestRun_SecondSignalKillsWhenStuck(t *testing.T) {
 	if os.Getenv(stuckChildEnv) == "1" {
 		runStuckChild()
 		return
@@ -729,7 +729,7 @@ func TestRun_卡住时第二个信号能立即终止(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(self, "-test.run=^TestRun_卡住时第二个信号能立即终止$")
+	cmd := exec.Command(self, "-test.run=^TestRun_SecondSignalKillsWhenStuck$")
 	cmd.Env = append(os.Environ(), stuckChildEnv+"=1")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -806,7 +806,7 @@ func waitFor(t *testing.T, r io.Reader, marker string) {
 
 // ---- 停止预算 ----
 
-func TestShutdown_关不掉的组件不拖住其余组件(t *testing.T) {
+func TestShutdown_StuckComponentDoesNotBlockOthers(t *testing.T) {
 	// WithStopTimeout 说的是「整个退出流程的预算」，而 io.Closer.Close()
 	// 没有 ctx。不看着它就等于没有上限——一个连接池关不掉，整个进程就陪着它
 	// 挂到部署环境来 SIGKILL 为止
@@ -841,7 +841,7 @@ func TestShutdown_关不掉的组件不拖住其余组件(t *testing.T) {
 	}
 }
 
-func TestShutdown_初始化失败时的关闭也有预算(t *testing.T) {
+func TestShutdown_ShutdownAfterInitFailureIsBudgeted(t *testing.T) {
 	// 这一支还没有 stopCtx，但已经建好的那几个照样可能关不掉
 	stuck := pair{
 		start: hook.Entry{Name: "关不掉的.init", Pkg: "关不掉的", Stage: hook.StageLog,
@@ -892,7 +892,7 @@ func flushComp(r *recorder) pair {
 	}
 }
 
-func TestShutdown_卡住的钩子吃不掉排在后面的那一份(t *testing.T) {
+func TestShutdown_StuckHookCannotEatLaterHooksShare(t *testing.T) {
 	// 一个卡住的钩子要是能把预算吃光，排在它后面的钩子一进去就判超时，
 	// 连 1ms 的活都来不及做完。最吃亏的是日志：它排在最后关，要把前面所有组件的
 	// 关闭日志写出去，结果每次都被报成「没关完」。
@@ -923,7 +923,7 @@ func TestShutdown_卡住的钩子吃不掉排在后面的那一份(t *testing.T)
 	}
 }
 
-func TestShutdown_退出总耗时不超过停止预算(t *testing.T) {
+func TestShutdown_TotalTimeWithinStopBudget(t *testing.T) {
 	// WithStopTimeout 是使用者唯一要认的数：从开始退出到 Run 返回，最坏就这么久。
 	// 最坏的情形凑齐了——服务不肯退出、还有一个关不掉的连接池——也不能超出它，
 	// 而且排在最后的日志仍要跑完：服务只能用前面那一段，吃不掉留给钩子的
@@ -962,7 +962,7 @@ func entry(r *recorder, name string, err error) hook.Entry {
 		Run: func(context.Context) error { r.add(name); return err }}
 }
 
-func TestRun_停止钩子只认和它一起登记的那个启动钩子(t *testing.T) {
+func TestRun_StopHookPairsOnlyWithItsStartHook(t *testing.T) {
 	// 一起登记的就是一对。一个包先后登记了两对，第二对的启动失败时：
 	// 第一对照常关——它的资源是建好了的，不关就漏；第二对不关——它根本没建起来。
 	// 按包配对的话只能二选一：要么都关（第二个得处理「还没建起来」），要么都不关（第一个漏掉）
@@ -984,7 +984,7 @@ func TestRun_停止钩子只认和它一起登记的那个启动钩子(t *testin
 	}
 }
 
-func TestRun_两个启动钩子配一个停止钩子时认后登记的那个(t *testing.T) {
+func TestRun_StopHookPairsWithLaterOfTwoStartHooks(t *testing.T) {
 	// initA、initB、close 依次登记：close 配的是离它最近的 initB。
 	// initB 失败，资源只建了一半，close 就不该被调到——它不必处理「建了一半」。
 	// initA 建好的东西没人关，这是把两步拆成两个启动钩子的代价：要么合成一个，
@@ -1017,7 +1017,7 @@ func earlyFailure(t *testing.T, r *recorder) {
 	hook.AddStop(entry(r, "日志.flush", nil))
 }
 
-func TestRun_Runnable写错时不依赖启动的停止钩子照样执行(t *testing.T) {
+func TestRun_RunnableInvalid_UnpairedStopHooksStillRun(t *testing.T) {
 	// 文档说之前没有启动钩子的停止钩子总会执行。Runnable 被拦下时从前直接返回，
 	// 日志的 flush 这类钩子一次都没跑，缓冲里的那几行就此丢掉
 	r := &recorder{}
@@ -1032,7 +1032,7 @@ func TestRun_Runnable写错时不依赖启动的停止钩子照样执行(t *test
 	}
 }
 
-func TestRun_配置读不出来时不依赖启动的停止钩子照样执行(t *testing.T) {
+func TestRun_ConfigLoadFails_UnpairedStopHooksStillRun(t *testing.T) {
 	r := &recorder{}
 	earlyFailure(t, r)
 	err := Run(newServer(r), WithConfigPath(filepath.Join(t.TempDir(), "nope.yml")), WithLogger(quietLogger()))
@@ -1045,7 +1045,7 @@ func TestRun_配置读不出来时不依赖启动的停止钩子照样执行(t *
 	}
 }
 
-func TestRun_钩子panic只包一层且用约定的op(t *testing.T) {
+func TestRun_HookPanicWrappedOnceWithStandardOp(t *testing.T) {
 	// 一个模块边界一个 xerror：panic 先在钩子这一层包一次、再在启动那一层包一次的话，
 	// 文本就套成 xone start failed, err=[... xone hook failed, err=[...]]。
 	// panic 出来的是 error 时要用 %w 接住，调用方才判断得了根因
@@ -1069,7 +1069,7 @@ func TestRun_钩子panic只包一层且用约定的op(t *testing.T) {
 	}
 }
 
-func TestRun_服务panic报在对应的op上(t *testing.T) {
+func TestRun_ServicePanicReportedOnMatchingOp(t *testing.T) {
 	// op 只从 CLAUDE.md 那张表里选：服务启动炸了是 start，停止炸了是 stop
 	for _, tc := range []struct {
 		name string
@@ -1095,7 +1095,7 @@ func TestRun_服务panic报在对应的op上(t *testing.T) {
 	}
 }
 
-func TestRun_出错时能问出是谁报的(t *testing.T) {
+func TestRun_ErrorTellsWhoReportedIt(t *testing.T) {
 	// 统一成 xerror 的全部意义就在这里：调用方拿到一个错误，
 	// 既能问「最终是谁报的」，也能问「链里牵扯到谁」，
 	// 而不必去匹配错误消息里的字符串前缀
@@ -1127,7 +1127,7 @@ func TestRun_出错时能问出是谁报的(t *testing.T) {
 
 // ---- 信号 ----
 
-func TestRun_两种退出信号都被监听(t *testing.T) {
+func TestRun_ListensForBothExitSignals(t *testing.T) {
 	// K8s 发的是 SIGTERM，Ctrl-C 是 SIGINT。漏掉任何一个，
 	// 那条路径上的进程就是被系统直接杀掉，没有优雅退出这回事
 	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
@@ -1184,7 +1184,7 @@ func (h *blockingHandler) saw(msg string) bool {
 	return false
 }
 
-func TestRun_配置加载期间收到信号也算数(t *testing.T) {
+func TestRun_SignalDuringConfigLoadCounts(t *testing.T) {
 	// 信号接管必须早于读配置。装在读配置之后的话，那段窗口里的 SIGTERM
 	// 走系统默认处置——进程当场暴毙。配置文件大、或者 Import 了好几个文件时，
 	// 这段窗口并不短。
@@ -1226,7 +1226,7 @@ func TestRun_配置加载期间收到信号也算数(t *testing.T) {
 	}
 }
 
-func TestRun_返回之后还能再跑一次(t *testing.T) {
+func TestRun_CanRunAgainAfterReturn(t *testing.T) {
 	// Run 返回时必须把信号注销干净。不注销的话，第二次 Run 的 handler
 	// 挂在一个没人读的 channel 上，信号被前一次的残留吃掉——
 	// 表现是「第二次怎么都停不下来」。同一个进程里反复 Run 的测试全靠这点
@@ -1244,7 +1244,7 @@ func TestRun_返回之后还能再跑一次(t *testing.T) {
 	}
 }
 
-func TestRun_加载失败之后下一次Run照常读自己的配置(t *testing.T) {
+func TestRun_NextRunReadsOwnConfigAfterLoadFailure(t *testing.T) {
 	// 配置跟着一次 Run 走，失败的那次也不例外：加载失败要是留在包里，
 	// 同一个进程里的下一次 Run 会被它挡住，读不到自己的那一份
 	bad := filepath.Join(t.TempDir(), "application.yml")
@@ -1265,7 +1265,7 @@ func TestRun_加载失败之后下一次Run照常读自己的配置(t *testing.T
 
 // ---- 停止阶段的 ctx ----
 
-func TestRun_Stop拿到的ctx不继承那次取消(t *testing.T) {
+func TestRun_StopCtxDoesNotInheritCancellation(t *testing.T) {
 	// 收到信号之后唯一要做的事就是优雅退出，而优雅退出全靠 Stop 还能干活。
 	// 沿用被取消的那个 ctx 的话，每个关闭动作一进去就被拒绝——
 	// 在途请求没做完、注册中心那条记录没注销，等于没有优雅退出这回事
@@ -1309,7 +1309,7 @@ func TestRun_Stop拿到的ctx不继承那次取消(t *testing.T) {
 
 // ---- panic 隔离 ----
 
-func TestRun_服务Start_panic被隔离(t *testing.T) {
+func TestRun_ServiceStartPanicIsIsolated(t *testing.T) {
 	// 一个 panic 打穿进程的话，已经建好的资源一个都关不掉
 	r := &recorder{}
 	srv := &lateRunnable{
@@ -1328,7 +1328,7 @@ func TestRun_服务Start_panic被隔离(t *testing.T) {
 	}
 }
 
-func TestRun_服务Stop_panic被隔离(t *testing.T) {
+func TestRun_ServiceStopPanicIsIsolated(t *testing.T) {
 	r := &recorder{}
 	srv := &lateRunnable{
 		start: func(ctx context.Context) error { <-ctx.Done(); return nil },
@@ -1347,7 +1347,7 @@ func TestRun_服务Stop_panic被隔离(t *testing.T) {
 	}
 }
 
-func TestRun_停止钩子panic不打断其余钩子(t *testing.T) {
+func TestRun_StopHookPanicDoesNotAbortOthers(t *testing.T) {
 	// 退出阶段要尽量把能关的都关掉。一个钩子炸了就停手的话，
 	// 排在它后面的连接池全都漏着
 	r := &recorder{}
@@ -1374,7 +1374,7 @@ func TestRun_停止钩子panic不打断其余钩子(t *testing.T) {
 
 // ---- 服务退出相关 ----
 
-func TestRun_服务Stop报错会被汇总(t *testing.T) {
+func TestRun_ServiceStopErrorIsAggregated(t *testing.T) {
 	r := &recorder{}
 	stopErr := errors.New("优雅退出没做完")
 	srv := &lateRunnable{
@@ -1394,7 +1394,7 @@ func TestRun_服务Stop报错会被汇总(t *testing.T) {
 	}
 }
 
-func TestRun_服务迟迟不退出时仍关掉其余组件(t *testing.T) {
+func TestRun_ClosesOthersWhenServiceWontExit(t *testing.T) {
 	// Stop 返回不等于 Start 返回。等 Start 是对的（还在处理的请求会摸到
 	// 已经关掉的连接池），但不能无限等——预算耗尽就得往下走，
 	// 否则一个不肯退的服务能把整个进程挂到被 SIGKILL
@@ -1427,7 +1427,7 @@ func TestRun_服务迟迟不退出时仍关掉其余组件(t *testing.T) {
 	}
 }
 
-func TestRun_Stop不看ctx时不挂住退出(t *testing.T) {
+func TestRun_StopIgnoringCtxDoesNotHangExit(t *testing.T) {
 	// Stop 收了 ctx，但里面可能是一个不吃 ctx 的第三方调用。同步调的话
 	// Run 永远返回不了，一个停止钩子都轮不到
 	r := &recorder{}
@@ -1462,7 +1462,7 @@ func TestRun_Stop不看ctx时不挂住退出(t *testing.T) {
 	}
 }
 
-func TestRun_看着截止时间返回的Stop报的错不丢(t *testing.T) {
+func TestRun_DeadlineAwareStopErrorIsKept(t *testing.T) {
 	// 守规矩的 Stop 恰恰是等到截止时间才返回的：xgin 等在途 handler 等到那一刻，
 	// 再带着「N handler(s) still running」回来。它和框架那边的超时几乎同时发生，
 	// 框架先看到超时的话，这个错误就丢了，进程以 0 退出（e2e 撞上过）。
@@ -1487,7 +1487,7 @@ func TestRun_看着截止时间返回的Stop报的错不丢(t *testing.T) {
 
 // ---- 配置 ----
 
-func TestRun_配置内容非法时一个钩子都不跑(t *testing.T) {
+func TestRun_InvalidConfigRunsNoHooks(t *testing.T) {
 	// 配置是使用者唯一的操作界面。带着一份读不出来的配置往下建连接，
 	// 报出来的会是一堆看不出根因的连接错误
 	p := filepath.Join(t.TempDir(), "application.yml")
@@ -1509,7 +1509,7 @@ func TestRun_配置内容非法时一个钩子都不跑(t *testing.T) {
 
 // ---- 参数与入口 ----
 
-func TestRun_停止预算必须为正(t *testing.T) {
+func TestRun_StopBudgetMustBePositive(t *testing.T) {
 	// 0 不是「不限时」而是「一点都不等」：Stop 拿到一个已经过期的 context，
 	// 服务当场被切断。负值同理，而且更像是算出来的而不是写死的
 	for _, d := range []time.Duration{0, -time.Second} {
@@ -1530,7 +1530,7 @@ func TestRun_停止预算必须为正(t *testing.T) {
 	}
 }
 
-func TestMustRun_成功时正常返回(t *testing.T) {
+func TestMustRun_ReturnsOnSuccess(t *testing.T) {
 	r := &recorder{}
 	srv := &lateRunnable{
 		start: func(context.Context) error { r.add("start"); return nil },
@@ -1544,7 +1544,7 @@ func TestMustRun_成功时正常返回(t *testing.T) {
 
 const mustRunChildEnv = "XONE_TEST_MUSTRUN_CHILD"
 
-func TestMustRun_出错时以退出码1结束(t *testing.T) {
+func TestMustRun_ExitsWithCode1OnError(t *testing.T) {
 	if os.Getenv(mustRunChildEnv) == "1" {
 		// 停止预算为 0 是最容易造的启动失败
 		MustRun(newServer(&recorder{}), WithStopTimeout(0))
@@ -1555,7 +1555,7 @@ func TestMustRun_出错时以退出码1结束(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(self, "-test.run=^TestMustRun_出错时以退出码1结束$")
+	cmd := exec.Command(self, "-test.run=^TestMustRun_ExitsWithCode1OnError$")
 	cmd.Env = append(os.Environ(), mustRunChildEnv+"=1")
 	out, err := cmd.CombinedOutput()
 
@@ -1573,7 +1573,7 @@ func TestMustRun_出错时以退出码1结束(t *testing.T) {
 
 // ---- 框架自己的日志 ----
 
-func TestRun_框架日志跟着钩子换掉的全局logger走(t *testing.T) {
+func TestRun_FrameworkLogsFollowGlobalLoggerSwappedByHook(t *testing.T) {
 	// xlog 就是在启动钩子里调 slog.SetDefault 的。Run 开头把 logger 捕获一次的话，
 	// 它之后所有框架日志都还写在旧的那个上——服务起来了，
 	// 而「初始化到哪一步」的日志一行都看不到

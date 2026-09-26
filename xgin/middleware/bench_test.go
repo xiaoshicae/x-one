@@ -96,12 +96,12 @@ func runChain(b *testing.B, mw ...gin.HandlerFunc) {
 	})
 }
 
-func BenchmarkChain_0_裸gin(b *testing.B)      { runReqs(b, benchEngine()) }
-func BenchmarkChain_1_只LogScope(b *testing.B) { runReqs(b, benchEngine(LogScope())) }
-func BenchmarkChain_2_加Trace(b *testing.B)    { runChain(b, LogScope(), Trace()) }
-func BenchmarkChain_3_加Log(b *testing.B)      { runChain(b, LogScope(), Trace(), Log()) }
-func BenchmarkChain_4_加Metric(b *testing.B)   { runChain(b, LogScope(), Trace(), Log(), Metric()) }
-func BenchmarkChain_5_全量(b *testing.B) {
+func BenchmarkChain_0_BareGin(b *testing.B)      { runReqs(b, benchEngine()) }
+func BenchmarkChain_1_LogScopeOnly(b *testing.B) { runReqs(b, benchEngine(LogScope())) }
+func BenchmarkChain_2_PlusTrace(b *testing.B)    { runChain(b, LogScope(), Trace()) }
+func BenchmarkChain_3_PlusLog(b *testing.B)      { runChain(b, LogScope(), Trace(), Log()) }
+func BenchmarkChain_4_PlusMetric(b *testing.B)   { runChain(b, LogScope(), Trace(), Log(), Metric()) }
+func BenchmarkChain_5_Full(b *testing.B) {
 	runChain(b, LogScope(), Trace(), Log(), Metric(), Recover(nil))
 }
 
@@ -119,8 +119,8 @@ func BenchmarkRedactHeaders(b *testing.B) {
 	}
 }
 
-// BenchmarkRedactBody_纯文本 认不出结构、也没有敏感词的 body：预检之后去掉换行原样记
-func BenchmarkRedactBody_纯文本(b *testing.B) {
+// BenchmarkRedactBody_PlainText 认不出结构、也没有敏感词的 body：预检之后去掉换行原样记
+func BenchmarkRedactBody_PlainText(b *testing.B) {
 	body := []byte("order 20260923-000123 shipped to warehouse 7, eta 2 days")
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -138,9 +138,9 @@ func benchHeader() http.Header {
 	return h
 }
 
-// BenchmarkRedact_整条日志 盯住「请求头只被序列化一次」这件事。
+// BenchmarkRedact_WholeLogEntry 盯住「请求头只被序列化一次」这件事。
 // 交出序列化好的字符串会让 slog 再转义一遍，时间和分配都翻倍。
-func BenchmarkRedact_整条日志(b *testing.B) {
+func BenchmarkRedact_WholeLogEntry(b *testing.B) {
 	h := benchHeader()
 	l := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	b.ReportAllocs()
@@ -154,14 +154,14 @@ func BenchmarkRedact_整条日志(b *testing.B) {
 // 预检之后走快路径，这是打开 WithBody 之后绝大多数请求走的那一支
 var benchJSON = []byte(`{"order_id":"20260923-000123","user_id":10086,"items":[{"sku":"A-1001","qty":2,"price":"19.90"},{"sku":"B-2002","qty":1,"price":"5.00"}],"address":"上海市浦东新区张江路 88 号","remark":"工作日送货"}`)
 
-func BenchmarkRedactBody_JSON没有敏感字段(b *testing.B) {
+func BenchmarkRedactBody_JSONWithoutSensitiveFields(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		_ = RedactBody(benchJSON, "application/json")
 	}
 }
 
-func BenchmarkRedactBody_JSON有敏感字段(b *testing.B) {
+func BenchmarkRedactBody_JSONWithSensitiveFields(b *testing.B) {
 	body := []byte(`{"user":"alice","password":"hunter2","items":[{"sku":"A-1001","qty":2}]}`)
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -169,9 +169,9 @@ func BenchmarkRedactBody_JSON有敏感字段(b *testing.B) {
 	}
 }
 
-// BenchmarkLog_记请求体和响应体 打开 WithBody 之后的整条路径：
+// BenchmarkLog_WithRequestAndResponseBody 打开 WithBody 之后的整条路径：
 // 预读请求体、截响应、两次 body 脱敏、写一行日志
-func BenchmarkLog_记请求体和响应体(b *testing.B) {
+func BenchmarkLog_WithRequestAndResponseBody(b *testing.B) {
 	testkit.QuietSlog(b)
 	gin.SetMode(gin.ReleaseMode)
 	e := gin.New()

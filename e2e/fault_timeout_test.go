@@ -36,7 +36,7 @@ var faultSilentModes = []struct {
 // 两段的错误都是 context deadline exceeded，分不出来；靠代理分：命令开始时代理上
 // 一条连接都没有（主机宕机），或者命令期间代理接受了新连接（对端不回话），就是新建的那一段
 
-func TestFault_Redis慢或宕机时_命令在调用方给的截止时间返回_不等ReadTimeout(t *testing.T) {
+func TestFault_RedisSlowOrDown_CommandReturnsAtCallerDeadline_NoReadTimeoutWait(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	const deadline = 200 * time.Millisecond
@@ -80,7 +80,7 @@ func TestFault_Redis慢或宕机时_命令在调用方给的截止时间返回_�
 // 实测：故障之后的第一条命令约 2×ReadTimeout（本机 0.63–0.66s；默认 500ms 时 1.03–1.05s），
 // 之后每条约 1×ReadTimeout（0.31–0.34s）。上限按文档的模型给：一次尝试不超过
 // DialTimeout + ReadTimeout（xredis 的 pingTimeout 同样这么算），中位数应在 ReadTimeout 附近
-func TestFault_Redis不回话且调用方没给截止时间_命令在配置的ReadTimeout失败(t *testing.T) {
+func TestFault_RedisSilentNoCallerDeadline_CommandFailsAtReadTimeout(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	const readTimeout = 300 * time.Millisecond
@@ -118,7 +118,7 @@ func TestFault_Redis不回话且调用方没给截止时间_命令在配置的Re
 //
 // 进入「建连」这一段之前，池里现成的连接（MinIdleConns 预热的）会先各自读超时一次，
 // 那些命令要 0.5–1s；所以循环到错误里出现 dial tcp 为止，量的是第一条走到建连的命令
-func TestFault_Redis主机宕机且调用方没给截止时间_一条命令不超过文档推出来的预算(t *testing.T) {
+func TestFault_RedisHostDownNoCallerDeadline_CommandWithinDocumentedBudget(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	cases := []struct {
@@ -169,7 +169,7 @@ func TestFault_Redis主机宕机且调用方没给截止时间_一条命令不�
 // 调用方给了截止时间，gorm 的查询就在那一刻返回：xgorm/README.md 没有单写这一条，
 // 依据是 xgorm.CWithCtx 的注释「取实例并绑定 ctx，链路和超时才能传到下游」。
 // 池里的连接（卡在读上）和新建的连接（卡在 startup 或 SYN 上）都要听，所以连发 6 次
-func TestFault_PG慢或宕机时_查询在调用方给的截止时间返回(t *testing.T) {
+func TestFault_PGSlowOrDown_QueryReturnsAtCallerDeadline(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	const deadline = 200 * time.Millisecond
@@ -209,7 +209,7 @@ func TestFault_PG慢或宕机时_查询在调用方给的截止时间返回(t *t
 //
 // 调用方给一个比它宽得多的截止时间（5s），新建连接就该在 connect_timeout 那一刻失败：
 // 默认 500ms → 1s；配 1500ms → 向上取整成 2s。两种故障（startup 不回话、SYN 没回音）都一样
-func TestFault_PG慢或宕机时_新建连接在注入的connect_timeout失败(t *testing.T) {
+func TestFault_PGSlowOrDown_NewConnFailsAtInjectedConnectTimeout(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	for _, dial := range []struct {
@@ -265,7 +265,7 @@ func TestFault_PG慢或宕机时_新建连接在注入的connect_timeout失败(t
 // 哪天框架给 PG 加了默认的读超时，这条会红，那时连文档一起改。
 //
 // 另一半：调用方放弃（断开连接）时请求的 ctx 被取消，查询跟着返回——handler 不会一直挂在那里
-func TestFault_PG不回话且调用方没给截止时间_查询一直等到调用方放弃(t *testing.T) {
+func TestFault_PGSilentNoCallerDeadline_QueryWaitsUntilCallerGivesUp(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	const giveUp = 3 * time.Second

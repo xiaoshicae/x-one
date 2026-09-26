@@ -16,7 +16,7 @@ import (
 // 增删改查走的是第二个实例：xgorm/README.md XGorm「多实例」——C() 取 default，C("name") 取具名的那个。
 // 数据直连 MySQL 核对，同时确认 PG 上的同名表里没有这些行：写进了 default 的话，
 // 接口照样回 201 / 200，只看接口是看不出来的
-func TestMySQL_增删改查走第二个实例且数据真的落在MySQL上(t *testing.T) {
+func TestMySQL_CRUDViaSecondInstance_DataLandsInMySQL(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	p := harness.Start(t, harness.Options{})
@@ -83,7 +83,7 @@ func TestMySQL_增删改查走第二个实例且数据真的落在MySQL上(t *te
 // 日志里的语句就是 Span 的 db.query.text（xgorm/trace.go：「记的是带占位符的 SQL，不记 Statement.Vars」）。
 //
 // Log 按实例生效（它是 ClientConfig 的字段）：只给 mysql 开，default（PG）那边的 SQL 一条都不该记
-func TestMySQL_SQL日志只记问号占位符不记参数值_和Span的db_query_text一致_Log按实例生效(t *testing.T) {
+func TestMySQL_SQLLogHasPlaceholdersNotArgs_MatchesSpan_LogPerInstance(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	p := harness.Start(t, harness.Options{Spans: true, Overlay: sqlLog("mysql")})
@@ -138,7 +138,7 @@ func TestMySQL_SQL日志只记问号占位符不记参数值_和Span的db_query_
 // server.address / server.port 是从 DSN 里解出来的地址、db.operation.name 是语句的第一个关键字，
 // 结束时补 db.rows_affected；
 // 父是服务端 Span。每个实例用自己的连接信息：同一个请求里 PG 和 MySQL 的 Span 各报各的
-func TestMySQL_SQL的Span带上这个实例自己的连接信息(t *testing.T) {
+func TestMySQL_SQLSpanCarriesThisInstanceConnInfo(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	p := harness.Start(t, harness.Options{Spans: true})
@@ -201,7 +201,7 @@ func TestMySQL_SQL的Span带上这个实例自己的连接信息(t *testing.T) {
 // xgorm/README.md XGorm：「Metric: true # 连接池指标，按实例生效：Metric: false 的实例不出现在 /metrics 里」。
 // 指标按实例名打 name 标签，每个实例报自己的池子：给 mysql 配 MaxOpenConns: 7，
 // e2e_db_pool_max_open{name="mysql"} 就是 7，default 仍是默认的 50
-func TestMySQL_连接池指标按实例名打标签_Metric按实例关得掉(t *testing.T) {
+func TestMySQL_PoolMetricsLabeledByInstance_MetricTogglePerInstance(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	pool := []string{
@@ -254,7 +254,7 @@ func TestMySQL_连接池指标按实例名打标签_Metric按实例关得掉(t *
 // xgorm/dsn.go「这里的做法是根本不打印 DSN」。SQL 日志、debug、请求体日志、Span 全开，
 // 走一圈增删改查，中途断一次 MySQL（这时的错误最可能把连接串带出来），再核对
 // stdout / stderr、Span 文件、/metrics、响应体
-func TestMySQL_密码不出现在任何日志Span指标和响应里(t *testing.T) {
+func TestMySQL_PasswordNeverInLogsSpansMetricsOrResponses(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	pw := harness.MySQLPassword()
@@ -327,7 +327,7 @@ func TestMySQL_密码不出现在任何日志Span指标和响应里(t *testing.T
 //	DSN 里写了            readTimeout=1s&timeout=1500ms，配置里同时写着上面那组，以 DSN 为准
 //
 // 三组数两两之间至少差 300ms（faultSlack）：差得比余量小的话，DSN 里的被配置盖掉也照样落在余量里
-func TestMySQL_读超时和建连超时按DSN里写的_没写按这个实例的配置(t *testing.T) {
+func TestMySQL_ReadAndDialTimeoutFromDSN_ElseInstanceConfig(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	cfgOverlay := mysqlOverlay("DialTimeout: 800ms\nMySQL:\n  ReadTimeout: 2s")
@@ -392,7 +392,7 @@ func TestMySQL_读超时和建连超时按DSN里写的_没写按这个实例的�
 
 // 调用方给了截止时间，MySQL 上的查询就在那一刻返回（xgorm.CWithCtx：「取实例并绑定 ctx，
 // 链路和超时才能传到下游」）。池里的连接（卡在读上）和新建的连接（主机宕机时卡在 SYN 上）都要听
-func TestMySQL_卡住或宕机时_查询在调用方给的截止时间返回(t *testing.T) {
+func TestMySQL_HungOrDown_QueryReturnsAtCallerDeadline(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	const deadline = 200 * time.Millisecond
@@ -422,7 +422,7 @@ func TestMySQL_卡住或宕机时_查询在调用方给的截止时间返回(t *
 // （实测 MySQL 8.0.46 的 1366 是 Incorrect integer value: '<值>' for column 'id'，
 // PG 16 的 22P02 是 invalid input syntax for type bigint: "<值>"）。
 // SQL failed 日志的 error 字段和 Span 的状态、属性、事件里只有错误码；返回给业务的错误原样不变
-func TestXGorm_服务端错误原文里的参数值不进SQL日志和Span(t *testing.T) {
+func TestXGorm_ArgsInServerErrorKeptOutOfSQLLogAndSpan(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	p := harness.Start(t, harness.Options{Spans: true, Overlay: sqlLog("default", "mysql")})

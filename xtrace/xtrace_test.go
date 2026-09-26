@@ -61,7 +61,7 @@ func (r *recorder) isShut() bool {
 	return r.shut
 }
 
-func TestNew_默认配置产出真provider(t *testing.T) {
+func TestNew_DefaultConfigYieldsRealProvider(t *testing.T) {
 	rec := &recorder{}
 	tr, closer, err := New(context.Background(), DefaultConfig(), rec)
 	if err != nil {
@@ -88,7 +88,7 @@ func TestNew_默认配置产出真provider(t *testing.T) {
 	}
 }
 
-func TestNew_关闭链路时是noop(t *testing.T) {
+func TestNew_NoopWhenTracingDisabled(t *testing.T) {
 	c := DefaultConfig()
 	c.Enable = false
 	rec := &recorder{}
@@ -108,7 +108,7 @@ func TestNew_关闭链路时是noop(t *testing.T) {
 	}
 }
 
-func TestNew_关闭链路仍保留Header透传(t *testing.T) {
+func TestNew_TracingDisabledKeepsHeaderForwarding(t *testing.T) {
 	// X-Request-Id 该不该带给下游，跟要不要采样 Span 是两个问题
 	c := DefaultConfig()
 	c.Enable = false
@@ -130,7 +130,7 @@ func TestNew_关闭链路仍保留Header透传(t *testing.T) {
 	}
 }
 
-func TestNew_装好的Propagator只收可信对端的透传Header(t *testing.T) {
+func TestNew_InstalledPropagatorAcceptsHeadersOnlyFromTrustedPeers(t *testing.T) {
 	// 与 HeaderPropagator 自己的用例互补：这里走的是 New 组装出来的那个组合
 	// Propagator——carrier 要穿过 TraceContext、Baggage、B3 才到它手上，
 	// 可信的记号在路上不能丢，不可信的也不能被别的 propagator 放行
@@ -163,7 +163,7 @@ func TestNew_装好的Propagator只收可信对端的透传Header(t *testing.T) 
 	}
 }
 
-func TestNew_装好的Propagator只收可信对端的baggage(t *testing.T) {
+func TestNew_InstalledPropagatorAcceptsBaggageOnlyFromTrustedPeers(t *testing.T) {
 	// baggage 和透传 Header 是同一种东西：上游给的键值原样带进每一次调用。
 	// 谁发来的都收的话，ForwardHeaders 挡在门外的 X-Tenant-Id 改写成
 	// baggage: tenant=… 照样进了内网。traceparent 只是链路标识，谁发来的都接
@@ -197,7 +197,7 @@ func TestNew_装好的Propagator只收可信对端的baggage(t *testing.T) {
 	}
 }
 
-func TestTrustedBaggage_不可信对端带来baggage时只告警一次(t *testing.T) {
+func TestTrustedBaggage_WarnsOnceForUntrustedPeerBaggage(t *testing.T) {
 	var buf strings.Builder
 	old := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
@@ -216,7 +216,7 @@ func TestTrustedBaggage_不可信对端带来baggage时只告警一次(t *testin
 	}
 }
 
-func TestNew_开启时装W3C与B3(t *testing.T) {
+func TestNew_InstallsW3CAndB3WhenEnabled(t *testing.T) {
 	tr, closer, err := New(context.Background(), DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
@@ -235,7 +235,7 @@ func TestNew_开启时装W3C与B3(t *testing.T) {
 	}
 }
 
-func TestNew_矛盾的透传配置直接失败(t *testing.T) {
+func TestNew_ContradictoryForwardingConfigFails(t *testing.T) {
 	c := DefaultConfig()
 	c.ForwardHeaders = []string{"X-Internal-Token"}
 	c.ForwardHeaderRules = []ForwardHeaderRule{{Domains: []string{"*.internal.com"}, Headers: []string{"X-Internal-Token"}}}
@@ -245,7 +245,7 @@ func TestNew_矛盾的透传配置直接失败(t *testing.T) {
 	}
 }
 
-func TestNew_停止预算为零直接失败(t *testing.T) {
+func TestNew_ZeroStopBudgetFails(t *testing.T) {
 	// 0 不是「不限时」而是「一点都不等」：Shutdown 拿到一个已经过期的 context，
 	// 缓冲区里还没发出去的 Span 直接丢掉，而配置文件看上去只是没设上限
 	c := DefaultConfig()
@@ -255,7 +255,7 @@ func TestNew_停止预算为零直接失败(t *testing.T) {
 	}
 }
 
-func TestNew_采样率为零仍然生成并透传TraceID(t *testing.T) {
+func TestNew_ZeroSampleRateStillGeneratesAndPropagatesTraceID(t *testing.T) {
 	// 「不采样」和「关掉链路」是两件事：写 0 时 Span 照常创建、TraceID 照常
 	// 生成，只是不落地——下游拿得到 TraceID，本地不存 Span。
 	// 要连 Span 都不产生请用 Enable: false
@@ -297,7 +297,7 @@ func TestSamplerOf(t *testing.T) {
 	}
 }
 
-func TestNew_全采样时也尊重上游不采样的决定(t *testing.T) {
+func TestNew_FullSamplingRespectsUpstreamNotSampled(t *testing.T) {
 	// 回归用例。SampleRatio>=1 原先用的是 AlwaysSample，不看父 Span：
 	// 上游传来 sampled=00，我们照样采，再以 -01 往下游传——
 	// 上游的采样决定在我们这里被推翻，整条链路要么断成两截，要么把
@@ -326,7 +326,7 @@ func TestNew_全采样时也尊重上游不采样的决定(t *testing.T) {
 	}
 }
 
-func TestNew_采样率越界直接失败(t *testing.T) {
+func TestNew_OutOfRangeSampleRateFails(t *testing.T) {
 	// 原先 >1 当作全采样、负数当作不采样、NaN 更是什么都不像——
 	// 都是写错了的配置，却能静默跑起来
 	for _, r := range []float64{-0.1, 1.5, math.NaN(), math.Inf(1)} {
@@ -344,7 +344,7 @@ func TestNew_采样率越界直接失败(t *testing.T) {
 	}
 }
 
-func TestNew_资源属性部分采集失败时照常启动(t *testing.T) {
+func TestNew_StartsWhenSomeResourceAttrsFail(t *testing.T) {
 	// 回归用例。resource.New 在部分探测失败时返回 ErrPartialResource，
 	// 同时给出采到的那部分。原先一律当作致命错误：OTEL_RESOURCE_ATTRIBUTES
 	// 写错一个字符、或者容器里 user.Current 查不到随机 UID，服务就起不来——
@@ -382,7 +382,7 @@ func TestNew_资源属性部分采集失败时照常启动(t *testing.T) {
 	}
 }
 
-func TestCloseXTrace_听框架给的截止时间(t *testing.T) {
+func TestCloseXTrace_HonorsFrameworkDeadline(t *testing.T) {
 	// 回归用例。关闭原先用 Background + ShutdownTimeout，不看框架传进来的 ctx：
 	// 框架的停止预算只剩 100ms 时，这里照样等满自己的 5s，
 	// 后面还没关的组件被挤掉，K8s 的宽限期一到整个进程被 SIGKILL
@@ -407,7 +407,7 @@ func TestCloseXTrace_听框架给的截止时间(t *testing.T) {
 	}
 }
 
-func TestNew_采样率生效(t *testing.T) {
+func TestNew_SampleRateTakesEffect(t *testing.T) {
 	c := DefaultConfig()
 	c.SampleRatio = 0.5
 	tr, closer, err := New(context.Background(), c)
@@ -432,7 +432,7 @@ func TestNew_采样率生效(t *testing.T) {
 	}
 }
 
-func TestClose_超时不挂死(t *testing.T) {
+func TestClose_DoesNotHangOnTimeout(t *testing.T) {
 	// 导出端不可达时 Shutdown 会一直阻塞，没有 deadline 就是退出时挂死
 	c := DefaultConfig()
 	c.ShutdownTimeout = 50 * time.Millisecond
@@ -464,7 +464,7 @@ func (blockingProcessor) Shutdown(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func TestInstall_日志拿得到TraceID(t *testing.T) {
+func TestInstall_LogsGetTraceID(t *testing.T) {
 	// xlog 不依赖 OpenTelemetry，日志里的 trace_id 全靠本包注入这个提取器
 	t.Cleanup(func() { xlog.SetTraceExtractor(nil) })
 
@@ -494,7 +494,7 @@ func TestInstall_日志拿得到TraceID(t *testing.T) {
 	}
 }
 
-func TestTransport_把目标Host写进ctx(t *testing.T) {
+func TestTransport_WritesTargetHostToCtx(t *testing.T) {
 	// 没有它，ForwardHeaderRules 里的 header 一条都不会被注入
 	var seen string
 	tr := &Transport{Next: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
@@ -515,7 +515,7 @@ func TestTransport_把目标Host写进ctx(t *testing.T) {
 	}
 }
 
-func TestTransport_Next为空时用默认(t *testing.T) {
+func TestTransport_NextNilUsesDefault(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer srv.Close()
 
@@ -588,7 +588,7 @@ func TestAddSpanProcessor(t *testing.T) {
 	})
 }
 
-func TestAddSpanProcessor_与初始化并发也不会被吞(t *testing.T) {
+func TestAddSpanProcessor_NotLostWhenConcurrentWithInit(t *testing.T) {
 	// 注册分两支：初始化前进 pending 等着被取走，初始化后直接挂到 live 上。
 	// 如果取 pending 和装 live 之间放开了锁，落在那个窗口里的注册两边都不占——
 	// 它进了一个再也不会被读的 pending，然后被静默丢掉。
@@ -623,7 +623,7 @@ func TestAddSpanProcessor_与初始化并发也不会被吞(t *testing.T) {
 	}
 }
 
-func TestRegister_登记内容与框架对得上(t *testing.T) {
+func TestRegister_RegistrationMatchesFramework(t *testing.T) {
 	// 这是本包和框架之间唯一的一根线：钩子漏登记、档位挂错，
 	// 表现是「配置不生效」或者「比用它的东西晚就绪」，别处都测不出来
 	var got *hook.Entry
@@ -651,7 +651,7 @@ func TestRegister_登记内容与框架对得上(t *testing.T) {
 	}
 }
 
-func TestInit_读到应用名做ServiceName(t *testing.T) {
+func TestInit_UsesAppNameAsServiceName(t *testing.T) {
 	// 服务名放在共用的 App 块里，链路和指标读同一份，不会各配一遍再对不上。
 	// 这里走完整路径：配置文件 → config.Load → 组件 Init → OTel resource
 	resetRegistration(t)
@@ -762,7 +762,7 @@ func loadConfig(t *testing.T, yml string) {
 	}
 }
 
-func TestClose_关掉独立实例不影响全局(t *testing.T) {
+func TestClose_ClosingStandaloneInstanceLeavesGlobalAlone(t *testing.T) {
 	// New 出来的实例不一定是装到全局的那个——测试要一套干净的链路设施、
 	// 或者同时存在两套配置时都会这样。关掉其中一个曾经把全局那个也抹掉，
 	// 之后每一次 AddSpanProcessor 都挂到 pending 上再也没人读：
@@ -837,7 +837,7 @@ func keepGlobals(t *testing.T) {
 	})
 }
 
-func TestInitXTrace_没配也装好一套默认链路(t *testing.T) {
+func TestInitXTrace_InstallsDefaultTracingWhenUnconfigured(t *testing.T) {
 	// 链路没配就不装的话，AddSpanProcessor 登记的处理器会一直挂在 pending 上
 	// 再也没人读，Span 照常产生却永远到不了上报端
 	keepGlobals(t)
@@ -854,7 +854,7 @@ func TestInitXTrace_没配也装好一套默认链路(t *testing.T) {
 	}
 }
 
-func TestInitXTrace_配置写错时启动失败(t *testing.T) {
+func TestInitXTrace_ConfigTypoFailsStartup(t *testing.T) {
 	keepGlobals(t)
 	loadConfig(t, "XTrace:\n  Sample: 0.5\n")
 
@@ -863,7 +863,7 @@ func TestInitXTrace_配置写错时启动失败(t *testing.T) {
 	}
 }
 
-func TestInitXTrace_取值非法时启动失败(t *testing.T) {
+func TestInitXTrace_InvalidValueFailsStartup(t *testing.T) {
 	// 0 不是「不限时」而是「一点都不等」：Shutdown 拿到一个已经过期的
 	// context，缓冲区里还没发出去的 Span 会被直接丢掉
 	keepGlobals(t)
@@ -874,7 +874,7 @@ func TestInitXTrace_取值非法时启动失败(t *testing.T) {
 	}
 }
 
-func TestInitXTrace_透传规则写错在读配置时就失败(t *testing.T) {
+func TestInitXTrace_BadForwardingRulesFailAtConfigRead(t *testing.T) {
 	// Validate 连透传规则一起查：xconfig.Unmarshal 读这一块时就拦下，
 	// 错误出自 xconfig、点名是哪一块，不必等到装配 Propagator
 	for name, conf := range map[string]string{
@@ -896,7 +896,7 @@ func TestInitXTrace_透传规则写错在读配置时就失败(t *testing.T) {
 	}
 }
 
-func TestInitXTrace_配置装到了全局_provider_上(t *testing.T) {
+func TestInitXTrace_ConfigAppliedToGlobalProvider(t *testing.T) {
 	keepGlobals(t)
 	loadConfig(t, "XApp:\n  Name: xone.demo.app\n  Version: v9.9.9\nXTrace:\n  Enable: true\n")
 
@@ -911,7 +911,7 @@ func TestInitXTrace_配置装到了全局_provider_上(t *testing.T) {
 	}
 }
 
-func TestCloseXTrace_没装过也能关(t *testing.T) {
+func TestCloseXTrace_ClosesWithoutInit(t *testing.T) {
 	keepGlobals(t)
 	mu.Lock()
 	live = nil
@@ -929,7 +929,7 @@ type idleCloser struct {
 
 func (c *idleCloser) CloseIdleConnections() { c.closed++ }
 
-func TestTransport_CloseIdleConnections_转给底层(t *testing.T) {
+func TestTransport_CloseIdleConnections_ForwardsToUnderlying(t *testing.T) {
 	// http.Client.CloseIdleConnections() 是靠类型断言找这个方法的：
 	// 包一层却不转发，断言仍然成立（本类型有这个方法），但调用变成空操作——
 	// 而链路默认开着，也就是默认情况下退出时空闲连接根本没被清掉
@@ -948,12 +948,12 @@ func TestTransport_CloseIdleConnections_转给底层(t *testing.T) {
 	}
 }
 
-func TestTransport_CloseIdleConnections_底层没这个方法也不炸(t *testing.T) {
+func TestTransport_CloseIdleConnections_NoPanicWhenUnderlyingLacksIt(t *testing.T) {
 	tr := &Transport{Next: roundTripperFunc(func(*http.Request) (*http.Response, error) { return nil, nil })}
 	tr.CloseIdleConnections() // 不 panic 就是通过
 }
 
-func TestTransport_CloseIdleConnections_没配_Next_时转给默认_transport(t *testing.T) {
+func TestTransport_CloseIdleConnections_ForwardsToDefaultWithoutNext(t *testing.T) {
 	(&Transport{}).CloseIdleConnections() // 不 panic 就是通过
 }
 
@@ -989,7 +989,7 @@ func useApp(t *testing.T, name, version string) {
 	t.Cleanup(func() { set("", "") })
 }
 
-func TestNew_资源_没配应用名时不写空的服务名(t *testing.T) {
+func TestNew_Resource_NoEmptyServiceNameWithoutAppName(t *testing.T) {
 	// 回归用例。App.Name 没配时原先照样写进 service.name=""，
 	// OTel 自己的 unknown_service 兜底名被盖掉，看板上多出一个无名服务
 	useApp(t, "", "")
@@ -1005,7 +1005,7 @@ func TestNew_资源_没配应用名时不写空的服务名(t *testing.T) {
 	}
 }
 
-func TestNew_资源_没配应用名时听OTEL_SERVICE_NAME(t *testing.T) {
+func TestNew_Resource_UsesOTEL_SERVICE_NAMEWithoutAppName(t *testing.T) {
 	useApp(t, "", "")
 	t.Setenv("OTEL_SERVICE_NAME", "from-env")
 
@@ -1014,7 +1014,7 @@ func TestNew_资源_没配应用名时听OTEL_SERVICE_NAME(t *testing.T) {
 	}
 }
 
-func TestNew_资源_OTel环境变量压过App配置(t *testing.T) {
+func TestNew_Resource_OTelEnvOverridesAppConfig(t *testing.T) {
 	// 环境变量是部署方的最后一句话，应当压过打进镜像的配置文件
 	useApp(t, "from-config", "v1.0.0")
 	t.Setenv("OTEL_SERVICE_NAME", "from-env")
@@ -1029,7 +1029,7 @@ func TestNew_资源_OTel环境变量压过App配置(t *testing.T) {
 	}
 }
 
-func TestNew_关闭链路时关闭照样Shutdown处理器(t *testing.T) {
+func TestNew_TracingDisabledStillShutsDownProcessors(t *testing.T) {
 	// 回归用例。链路关着时原先交回空操作的 Closer，传进来的处理器
 	// 从来没被 Shutdown：exporter 持有的连接和协程退出时没人收
 	c := DefaultConfig()
@@ -1047,7 +1047,7 @@ func TestNew_关闭链路时关闭照样Shutdown处理器(t *testing.T) {
 	}
 }
 
-func TestCloseXTrace_关闭链路时也关掉登记的处理器(t *testing.T) {
+func TestCloseXTrace_TracingDisabledStillClosesRegisteredProcessors(t *testing.T) {
 	// AddSpanProcessor 承诺过由本包关掉它们，链路开关与否都一样
 	keepGlobals(t)
 	resetRegistration(t)

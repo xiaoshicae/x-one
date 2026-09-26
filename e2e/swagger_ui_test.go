@@ -44,7 +44,7 @@ func getSwaggerDoc(t *testing.T, p *harness.Process, prefix string) swaggerDoc {
 //	Schemes    默认留空：沿用注解里的 @schemes，写了才覆盖
 //	Title      默认取 App.Name；版本默认取自 App
 //	没写的字段一律沿用注解里的值，写了才覆盖
-func TestCoverage_Swagger的UI和doc挂在URLPrefix下_没配的字段沿用注解(t *testing.T) {
+func TestCoverage_SwaggerUIAndDocUnderURLPrefix_UnsetFieldsFromAnnotations(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 

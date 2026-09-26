@@ -29,7 +29,7 @@ func withMetrics(t *testing.T) *xmetric.Metrics {
 	return m
 }
 
-func TestMetric_记录状态码与耗时(t *testing.T) {
+func TestMetric_RecordsStatusAndDuration(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(503)
 	}))
@@ -49,7 +49,7 @@ func TestMetric_记录状态码与耗时(t *testing.T) {
 	}
 }
 
-func TestMetric_网络错误记状态码0(t *testing.T) {
+func TestMetric_NetworkErrorRecordsStatus0(t *testing.T) {
 	// 把它和真实状态码混在一起，会让「5xx 比例」这类告警在网络故障时反而看不出问题
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hj, _ := w.(http.Hijacker)
@@ -66,7 +66,7 @@ func TestMetric_网络错误记状态码0(t *testing.T) {
 	}
 }
 
-func TestMetric_重试只记一次(t *testing.T) {
+func TestMetric_RetriesRecordedOnce(t *testing.T) {
 	// 挂在中间件上会把每次重试都记一遍，请求量和耗时分布都虚高
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +91,7 @@ func TestMetric_重试只记一次(t *testing.T) {
 	}
 }
 
-func TestMetric_用xmetric的桶与标签(t *testing.T) {
+func TestMetric_UsesXMetricBucketsAndLabels(t *testing.T) {
 	// 出站和入站的耗时要在同一把刻度上，看板才对得起来
 	m, closer, err := xmetric.New(func() xmetric.Config {
 		c := xmetric.DefaultConfig()
@@ -125,7 +125,7 @@ func TestMetric_用xmetric的桶与标签(t *testing.T) {
 	}
 }
 
-func TestMetric_重复注册复用已有实例(t *testing.T) {
+func TestMetric_DuplicateRegisterReusesExisting(t *testing.T) {
 	// 建两个 client 时第二个的指标必须落在已注册的那个上，否则记的值导不出去
 	m := withMetrics(t)
 	srv, _ := echo(t, nil)
@@ -147,7 +147,7 @@ func TestMetric_重复注册复用已有实例(t *testing.T) {
 	}
 }
 
-func TestNew_指标注册失败只记日志客户端照常可用(t *testing.T) {
+func TestNew_MetricRegisterFailureOnlyLogs_ClientStillUsable(t *testing.T) {
 	// 指标导不出去是可观测性问题，与 xgin / xgorm / xredis 一致：
 	// 不该让所有出站调用跟着起不来
 	m := withMetrics(t)
@@ -174,7 +174,7 @@ func TestNew_指标注册失败只记日志客户端照常可用(t *testing.T) {
 	}
 }
 
-func TestMetric_method标签收敛到固定集合(t *testing.T) {
+func TestMetric_MethodLabelCollapsedToFixedSet(t *testing.T) {
 	// 方法是自由 token：照抄进标签的话 CUSTOM1、CUSTOM2 各是一组时间序列
 	srv, _ := echo(t, nil)
 	client, m := newQuiet(t, DefaultConfig())
@@ -206,7 +206,7 @@ func TestNormalizeMethod(t *testing.T) {
 	}
 }
 
-func TestElapsed_拿不到起点时退回这一次尝试的耗时(t *testing.T) {
+func TestElapsed_FallsBackToAttemptDurationWithoutStart(t *testing.T) {
 	// 起点是在第一次尝试之前写进 context 的：拿不到就说明这条路径上
 	// 没经过那个中间件，此时报这一次尝试的耗时，好过报 0
 	want := 3 * time.Second
@@ -220,7 +220,7 @@ func TestElapsed_拿不到起点时退回这一次尝试的耗时(t *testing.T) 
 	}
 }
 
-func TestElapsed_有起点时算的是整次逻辑请求(t *testing.T) {
+func TestElapsed_WithStartCoversWholeLogicalRequest(t *testing.T) {
 	// 重试三次的话，每次尝试各自的耗时加起来才是调用方等的时间；
 	// 只报最后一次会让 P99 看上去比实际好得多
 	start := time.Now().Add(-2 * time.Second)

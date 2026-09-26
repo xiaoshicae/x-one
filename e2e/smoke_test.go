@@ -11,7 +11,7 @@ import (
 
 // 冒烟：harness 的整条链路是通的——构建、起进程、连上真的 PG / Redis、
 // 收请求、收到 SIGTERM 之后干净退出
-func TestSmoke_服务起得来也关得掉(t *testing.T) {
+func TestSmoke_ServiceStartsAndStops(t *testing.T) {
 	harness.Require(t)
 	p := harness.Start(t, harness.Options{})
 

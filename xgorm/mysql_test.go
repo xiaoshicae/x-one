@@ -67,7 +67,7 @@ func silentMySQL(t *testing.T, read time.Duration) (ClientConfig, *atomic.Int32)
 	return c, n
 }
 
-func TestNew_MySQL对端不回话时按文档重试三次(t *testing.T) {
+func TestNew_MySQLRetriesThreeTimesWhenPeerSilent(t *testing.T) {
 	// 回归用例。曾经 gorm.Open 里驱动自己查一次 SELECT VERSION()（context.Background()），
 	// 那一下就是第一次建连：失败了 gorm.Open 直接返回，xgorm 的重试一次都没轮上，
 	// 实测只建了 1 个连接
@@ -87,7 +87,7 @@ func TestNew_MySQL对端不回话时按文档重试三次(t *testing.T) {
 	t.Logf("数字：对端不回话、ReadTimeout 100ms：%v 后失败，对端收到 %d 个连接", time.Since(start).Round(time.Millisecond), accepted.Load())
 }
 
-func TestNew_MySQL启动期间取消时当场返回不等ReadTimeout(t *testing.T) {
+func TestNew_MySQLCancelReturnsImmediatelyWithoutReadTimeout(t *testing.T) {
 	// 握手那一读受 ReadTimeout 管（不是 DialTimeout）。建连走 ctx-aware 的 Ping 之后，
 	// 取消由 go-sql-driver 的 watcher 当场关掉连接，不必等这一读超时
 	c, accepted := silentMySQL(t, 5*time.Second)
@@ -113,7 +113,7 @@ func TestNew_MySQL启动期间取消时当场返回不等ReadTimeout(t *testing.
 	t.Logf("数字：卡在握手读上时取消，New 在 %v 返回（其中约 50ms 是取消前的等待）", elapsed.Round(time.Millisecond))
 }
 
-func TestNew_MySQL驱动自己的日志接到slog上(t *testing.T) {
+func TestNew_MySQLDriverLogsGoToSlog(t *testing.T) {
 	// go-sql-driver 默认往 stderr 写 [mysql] 2026/09/24 … packets.go:58 …，绕开 slog。
 	// 对端不回话、读超时时它就会写这一行
 	logs := capture(t)
@@ -139,7 +139,7 @@ func TestNew_MySQL驱动自己的日志接到slog上(t *testing.T) {
 	t.Logf("数字：一轮 3 次读超时，驱动记了 %d 条；例：%v", len(got), got[0]["detail"])
 }
 
-func TestMySQL方言_Open不碰网络_查版本挪进Ready(t *testing.T) {
+func TestMySQLDialect_OpenSkipsNetwork_VersionProbeInReady(t *testing.T) {
 	d, _ := lookupDialect(DriverMySQL)
 	md, ok := d.Open("u:p@tcp(127.0.0.1:1)/app").(*mysql.Dialector)
 	if !ok {
@@ -153,7 +153,7 @@ func TestMySQL方言_Open不碰网络_查版本挪进Ready(t *testing.T) {
 	}
 }
 
-func TestProbeMySQLVersion_查到的版本设进Dialector(t *testing.T) {
+func TestProbeMySQLVersion_SetsVersionOnDialector(t *testing.T) {
 	versionReply = "5.7.44-log"
 	t.Cleanup(func() { versionReply = "8.0.46" })
 	db := fakeVersionDB(t)
@@ -170,7 +170,7 @@ func TestProbeMySQLVersion_查到的版本设进Dialector(t *testing.T) {
 	}
 }
 
-func TestProbeMySQLVersion_查询受ctx管(t *testing.T) {
+func TestProbeMySQLVersion_QueryHonorsCtx(t *testing.T) {
 	// 挪出 gorm.Open 就是为了这一条：驱动原来那次用的是 context.Background()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -179,7 +179,7 @@ func TestProbeMySQLVersion_查询受ctx管(t *testing.T) {
 	}
 }
 
-func TestApplyMySQLVersion_与驱动的规则一致(t *testing.T) {
+func TestApplyMySQLVersion_MatchesDriverRules(t *testing.T) {
 	type flags struct{ renameIndex, renameColumn, forShare, nullDefault, dropConstraint, noPrecision, renameUnique bool }
 	for _, c := range []struct {
 		v    string
@@ -207,7 +207,7 @@ func TestApplyMySQLVersion_与驱动的规则一致(t *testing.T) {
 	}
 }
 
-func TestApplyMySQLVersion_与驱动自己查版本的结果逐项相同(t *testing.T) {
+func TestApplyMySQLVersion_IdenticalToDriverOwnProbe(t *testing.T) {
 	// 规则是抄的，升级驱动时最容易漂：拿驱动自己的 Initialize（不跳过查版本，
 	// 让它在假驱动上查到同一个版本号）和我们的结果逐项对比，开关和增删改的子句都要一样
 	t.Cleanup(func() { versionReply = "8.0.46" })
@@ -256,7 +256,7 @@ type returningUser struct {
 	Flag int `gorm:"default:7"`
 }
 
-func TestApplyMySQLVersion_MariaDB105以上的增删改带RETURNING(t *testing.T) {
+func TestApplyMySQLVersion_MariaDB105PlusWritesUseRETURNING(t *testing.T) {
 	// 驱动在 Initialize 里把「支不支持 RETURNING」闭包进了回调，版本挪到后面查之后
 	// 得把那三个回调换掉，否则 MariaDB 10.5+ 上默认值字段就不再回填
 	for _, c := range []struct {

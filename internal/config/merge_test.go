@@ -8,7 +8,7 @@ import (
 
 // ---- 空文件：叠上来什么都不改 ----
 
-func TestLoad_空的profile文件不改变任何配置(t *testing.T) {
+func TestLoad_EmptyProfileFileChangesNothing(t *testing.T) {
 	// 空文件和只有注释的文件解析出来是一个 Kind 为 0 的节点，不是文档节点。
 	// 从前它走不进「文档节点」那一支，被当成标量整个替换掉了前面所有文件——
 	// application-prod.yml 里只写一行 # TODO，全部配置就悄悄退回默认值
@@ -35,7 +35,7 @@ func TestLoad_空的profile文件不改变任何配置(t *testing.T) {
 	}
 }
 
-func TestLoad_import一个空文件不改变任何配置(t *testing.T) {
+func TestLoad_ImportOfEmptyFileChangesNothing(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
 		"application.yml": "XApp:\n  Import: empty.yml\nDemo:\n  Addr: base:1\n",
 		"empty.yml":       "# 以后再填\n",
@@ -49,7 +49,7 @@ func TestLoad_import一个空文件不改变任何配置(t *testing.T) {
 	}
 }
 
-func TestLoad_base是空文件时profile照样生效(t *testing.T) {
+func TestLoad_BaseEmpty_ProfileStillApplies(t *testing.T) {
 	withProfileEnv(t, "prod")
 	base := files(t, "application.yml", map[string]string{
 		"application.yml":      "# 全在 profile 里\n",
@@ -66,7 +66,7 @@ func TestLoad_base是空文件时profile照样生效(t *testing.T) {
 
 // ---- 重复 key：每个文件都查，不只第一个 ----
 
-func TestLoad_后续文件里的重复key也要报错(t *testing.T) {
+func TestLoad_DuplicateKeyInLaterFileIsError(t *testing.T) {
 	// 从前只有第一个文件的重复能被发现：合并时 override 里的同名 key
 	// 被按名字去重，后面的严格解码和顶层检查都再也看不见它
 	cases := map[string]string{
@@ -94,7 +94,7 @@ func TestLoad_后续文件里的重复key也要报错(t *testing.T) {
 	}
 }
 
-func TestLoad_import进来的文件里的重复key也要报错(t *testing.T) {
+func TestLoad_ImportDuplicateKeyInImportedFileIsError(t *testing.T) {
 	base := files(t, "application.yml", map[string]string{
 		"application.yml": "XApp:\n  Import: shared.yml\nDemo:\n  Addr: base:1\n",
 		"shared.yml":      "Demo:\n  Addr: a:1\n  Timeout: 1s\n  Addr: a:2\n",
@@ -110,7 +110,7 @@ func TestLoad_import进来的文件里的重复key也要报错(t *testing.T) {
 	}
 }
 
-func TestLoad_没有人读的块里的重复key也要报错(t *testing.T) {
+func TestLoad_DuplicateKeyInUnreadBlockIsError(t *testing.T) {
 	// 嵌套的重复原本靠严格解码发现，那只在有人 Unmarshal 这一块时才发生
 	c := comps(t)
 	err := LoadInto(write(t, "Demo:\n  Retries: 1\nOther:\n  X: 1\n  X: 2\n"), "Demo", c)
@@ -121,7 +121,7 @@ func TestLoad_没有人读的块里的重复key也要报错(t *testing.T) {
 
 // ---- null：在叠加的文件里写 null 等于没写 ----
 
-func TestLoad_叠加文件里的null不覆盖低优先级的值(t *testing.T) {
+func TestLoad_NullInOverlayDoesNotOverrideLowerPriority(t *testing.T) {
 	// 单个文件里 null 保持结构体默认值；叠加时同样不该改变任何东西。
 	// 从前 `Demo:` 这个空块整个替换掉了 base 的 mapping，
 	// 而 `Demo: {}` 却保留 base——一个空块两种写法两种结果
@@ -151,7 +151,7 @@ func TestLoad_叠加文件里的null不覆盖低优先级的值(t *testing.T) {
 	}
 }
 
-func TestLoad_叠加文件用空值而不是null来清空(t *testing.T) {
+func TestLoad_OverlayClearsWithEmptyValueNotNull(t *testing.T) {
 	// null 是「没写」，要清空就写出空的那个值
 	withProfileEnv(t, "prod")
 	base := files(t, "application.yml", map[string]string{

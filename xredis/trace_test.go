@@ -56,7 +56,7 @@ func (t recordingTracer) Start(ctx context.Context, name string, opts ...trace.S
 	return t.Tracer.Start(ctx, name, opts...)
 }
 
-func TestTrace_命令参数不进Span(t *testing.T) {
+func TestTrace_CommandArgsNotInSpan(t *testing.T) {
 	// redisotel v9.22.0 默认 dbStmtEnabled=true，把整条命令连同参数写进
 	// db.statement：SET 的值、AUTH 的密码，统统进了链路后端。
 	// 与 xgorm 的「不记 Statement.Vars」是同一条原则
@@ -100,7 +100,7 @@ func useTP(t *testing.T) *recordingTP {
 	return tp
 }
 
-func TestTrace_启动时的建连验证不开Span(t *testing.T) {
+func TestTrace_StartupConnectCheckOpensNoSpan(t *testing.T) {
 	// 钩子挂在建连验证之前的话，每一次 Ping 尝试都是一个没有父 Span 的 ping，
 	// 连不上时一轮重试就是一串报错的根 Span——那是一次启动，不是业务请求
 	tp := useTP(t)

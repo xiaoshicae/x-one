@@ -10,12 +10,12 @@ mutate("超时后强制断掉在途连接", "xgin/xgin.go", "./xgin", "TestStop"
        swap('\t\tif cerr := srv.Close(); cerr != nil {\n\t\t\tslog.Warn("xgin force close failed", "error", cerr)\n\t\t}\n',''))
 # Close 只关连接、取消请求的 ctx，handler 的协程照跑。Close 完就返回的话，
 # 正在收尾的 handler 还没返回，框架就去关数据库了
-mutate("断连之后等 handler 真正返回", "xgin/xgin.go", "./xgin", "TestStop_断连之后|TestStop_handler不看ctx",
+mutate("断连之后等 handler 真正返回", "xgin/xgin.go", "./xgin", "TestStop_WaitsForHandlersAfterForceClose|TestStop_HandlerIgnoringCtxReportsRemainingCount",
        swap('if n := g.waitHandlers(ctx); n > 0 {', 'if n := int64(0); n > 0 {'))
-mutate("每个请求都记进在途计数", "xgin/xgin.go", "./xgin", "TestStop_断连之后",
+mutate("每个请求都记进在途计数", "xgin/xgin.go", "./xgin", "TestStop_WaitsForHandlersAfterForceClose",
        swap('Handler:           g.track(g.engine.Handler()),', 'Handler:           g.engine.Handler(),'))
 # Shutdown 用满全部时间的话，Close 落下时预算已经花完，收尾的 handler 没人等
-mutate("Shutdown 给等 handler 留出一截", "xgin/xgin.go", "./xgin", "TestStop_断连之后",
+mutate("Shutdown 给等 handler 留出一截", "xgin/xgin.go", "./xgin", "TestStop_WaitsForHandlersAfterForceClose",
        swap('shutCtx, cancel := shutdownCtx(ctx)', 'shutCtx, cancel := context.WithCancel(ctx)'))
 mutate("内置路由也走用户中间件", "xgin/xgin.go", "./xgin", "TestBuild",
        swap('\t\te.Use(middleware.Recover(g.recover))\n\t\te.Use(g.extra...)\n', '\t\te.Use(middleware.Recover(g.recover))\n'),
@@ -25,11 +25,11 @@ mutate("公网对端的 X-Forwarded-For 不认", "xgin/xgin.go", "./xgin", "Test
     '_ = e.SetTrustedProxies([]string{})\n\t}\n'))
 # h2c 原先靠 x/net 的 h2c.NewHandler：连接被劫持，Shutdown 约 100µs 就返回 nil、
 # 在途请求照跑，框架紧接着去关数据库。换回那个写法，这条承诺就没了
-mutate("h2c 的在途请求也等它做完", "xgin/xgin.go", "./xgin", "TestStop_h2c",
+mutate("h2c 的在途请求也等它做完", "xgin/xgin.go", "./xgin", "TestStop_H2C",
        swap('\t"github.com/gin-gonic/gin"\n', '\t"github.com/gin-gonic/gin"\n\t"golang.org/x/net/http2"\n\t"golang.org/x/net/http2/h2c"\n'),
        swap('\t\tHandler:           g.track(g.engine.Handler()),\n\t\tProtocols:         protocols(c),\n',
      '\t\tHandler:           h2c.NewHandler(g.track(g.engine.Handler()), &http2.Server{}),\n'))
-mutate("不开 UseH2C 时不接受明文 HTTP/2", "xgin/xgin.go", "./xgin", "TestStart_不开h2c",
+mutate("不开 UseH2C 时不接受明文 HTTP/2", "xgin/xgin.go", "./xgin", "TestStart_CleartextHTTP2RejectedWithoutH2C",
        swap('p.SetUnencryptedHTTP2(c.UseH2C && !c.tlsEnabled())', 'p.SetUnencryptedHTTP2(true)'))
 # net/http 把 ReadHeaderTimeout 的 0 当成「退到 ReadTimeout」，而后者默认也是 0：
 # 慢连接攻击的主要防线整个消失，配置文件看上去只是写了个 0
@@ -44,14 +44,14 @@ mutate("指标路径不以 / 开头要启动失败", "xgin/config.go", "./xgin",
 mutate("配错的 XGin 块在启动阶段就失败", "xgin/xgin.go", "./xgin", "TestLoadConfig",
        swap('\t_, err := fileConfig()\n\treturn err\n', '\t_, _ = fileConfig()\n\treturn nil\n'))
 # CurrentConfig 和装配都靠它兜底：解到一半的非法配置里 TrustedProxies 可能正是 0.0.0.0/0
-mutate("XGin 块不合法时退回默认值", "xgin/xgin.go", "./xgin", "TestCurrentConfig|TestEngine_配置文件不合法",
+mutate("XGin 块不合法时退回默认值", "xgin/xgin.go", "./xgin", "TestCurrentConfig|TestEngine_InvalidConfigFallsBackToSafeDefaults",
        swap('\tif err := xconfig.Unmarshal(ConfigKey, &c); err != nil {\n\t\treturn DefaultConfig(), err\n',
      '\tif err := xconfig.Unmarshal(ConfigKey, &c); err != nil {\n\t\treturn c, err\n'))
-mutate("WithConfig 给的那份也要校验", "xgin/xgin.go", "./xgin", "TestStart_配置非法",
+mutate("WithConfig 给的那份也要校验", "xgin/xgin.go", "./xgin", "TestStart_DoesNotListenOnInvalidConfig",
        swap('\tif err := g.override.Validate(); err != nil {', '\tif err := g.override.Validate(); false && err != nil {'))
 # 监听地址、TLS 和 engine 上的中间件、信任的代理必须出自同一份配置。
 # Start 自己再读一遍的话，装配之后换过的配置只生效一半
-mutate("Start 用的是装配时的那份配置", "xgin/xgin.go", "./xgin", "TestStart_用的是装配时",
+mutate("Start 用的是装配时的那份配置", "xgin/xgin.go", "./xgin", "TestStart_UsesConfigFromBuildTime",
        swap('\tc := g.conf\n', '\tc, _ := g.cfg()\n'))
 # gin.New 在 debug 模式下会打一段「切到 release」的警告。先建后设的话，
 # 配成 release 的服务照样打出它（使用者的二进制里没设 GIN_MODE 时默认就是 debug）
@@ -67,10 +67,10 @@ mutate("请求头里的凭证被遮掉", "xgin/middleware/redact.go", "./xgin", 
 mutate("配置在装配时落到 engine 上", "xgin/xgin.go", "./xgin", "TestBuild", swap('\t\tapplyConfig(e, c)\n', ''))
 # 回调在配置落到 engine 上之后才跑，所以回调里明确设了的以回调为准。
 # 两种改坏的写法：配置挪到回调之后落，或者 Start 时再落一遍（原先就是这样）
-mutate("回调里的 engine 设置盖得过配置", "xgin/xgin.go", "./xgin", "TestBuild_回调",
+mutate("回调里的 engine 设置盖得过配置", "xgin/xgin.go", "./xgin", "TestBuild_CallbackEngineSettingsOverrideConfig",
        swap('\t\tapplyConfig(e, c)\n', ''),
        swap('\t\tfor _, f := range g.routes {\n\t\t\tf(e)\n\t\t}\n', '\t\tfor _, f := range g.routes {\n\t\t\tf(e)\n\t\t}\n\t\tapplyConfig(e, c)\n'))
-mutate("Start 不再把配置落一遍", "xgin/xgin.go", "./xgin", "TestBuild_回调",
+mutate("Start 不再把配置落一遍", "xgin/xgin.go", "./xgin", "TestBuild_CallbackEngineSettingsOverrideConfig",
        swap('\tc := g.conf\n', '\tc := g.conf\n\tapplyConfig(g.engine, c)\n'))
 # 开关写在配置里，读它们的是装配里的这几处。开关接不上是最难发现的一类 bug：
 # 程序照常跑，只是那一项从来没生效
@@ -78,9 +78,9 @@ mutate("访问日志的开关读的是配置", "xgin/xgin.go", "./xgin", "TestLo
 mutate("链路的开关读的是配置", "xgin/xgin.go", "./xgin", "TestTrace_", swap('\t\tif c.Trace {\n', '\t\tif true {\n'))
 mutate("关掉指标就不挂指标中间件", "xgin/xgin.go", "./xgin", "TestMetric_",
        swap('\t\tif c.Metric {\n\t\t\te.Use(middleware.Metric())', '\t\tif true {\n\t\t\te.Use(middleware.Metric())'))
-mutate("关掉指标就不注册端点", "xgin/xgin.go", "./xgin", "TestBuild_关掉指标",
+mutate("关掉指标就不注册端点", "xgin/xgin.go", "./xgin", "TestBuild_NoMetricsEndpointWhenDisabled",
        swap('\t\tif c.Metric {\n\t\t\te.GET(c.MetricPath, serveMetrics)', '\t\tif true {\n\t\t\te.GET(c.MetricPath, serveMetrics)'))
-mutate("指标端点挂在配置的路径上", "xgin/xgin.go", "./xgin", "TestBuild_可以改指标路径",
+mutate("指标端点挂在配置的路径上", "xgin/xgin.go", "./xgin", "TestBuild_MetricsPathConfigurable",
        swap('e.GET(c.MetricPath, serveMetrics)', 'e.GET("/metrics", serveMetrics)'))
 mutate("跳过日志的路径读的是配置", "xgin/xgin.go", "./xgin", "TestLogSkipPaths",
        swap('skip := append([]string{}, c.LogSkipPaths...)', 'skip := []string{}'))
@@ -101,7 +101,7 @@ mutate("ErrAbortHandler 原样抛给 net/http", "xgin/middleware/middleware.go",
        cut('\t\t\tif err == http.ErrAbortHandler {\n', '\t\t\t\tpanic(err)\n\t\t\t}\n'))
 # 中止的请求往往已经写出了 200 的响应头：照读 c.Writer.Status() 的话，
 # 被截断的响应在访问日志、指标、链路里都是一次成功
-mutate("ErrAbortHandler 中止的请求登记下来", "xgin/middleware/middleware.go", "./xgin", "ErrAbortHandler中止",
+mutate("ErrAbortHandler 中止的请求登记下来", "xgin/middleware/middleware.go", "./xgin", "TestLog_ErrAbortHandlerAbortLoggedAs499|TestMetric_ErrAbortHandlerAbortRecordedAs499|TestTrace_ErrAbortHandlerAbortRecordedAsError",
        swap('\t\t\t\t_ = c.Error(http.ErrAbortHandler) //nolint:errcheck // 只是登记\n', ''))
 mutate("访问日志把中止的请求记成 499", "xgin/middleware/log.go", "./xgin", "TestLog_ErrAbortHandler",
        swap('slog.Int("status", status(c)),', 'slog.Int("status", c.Writer.Status()),'))
@@ -144,45 +144,45 @@ mutate("脱敏后不转义 HTML 字符", "xgin/middleware/redact.go", "./xgin", 
 mutate("JSON 后面跟着别的东西时整个遮掉", "xgin/middleware/redact.go", "./xgin", "TestRedactBody",
        swap('dec.Decode(new(any)) != io.EOF', '(dec.Decode(new(any)) != io.EOF && false)'))
 # 「谁是自己人」只看 TrustedProxies。记号打错一次，要么伪造的头被带进内网，要么透传整个失效
-mutate("对端在 TrustedProxies 里才算可信", "xgin/xgin.go", "./xgin", "TestBuild_只有|TestBuild_不配Trusted",
+mutate("对端在 TrustedProxies 里才算可信", "xgin/xgin.go", "./xgin", "TestBuild_PassthroughHeadersOnlyFromTrustedProxies|TestBuild_PassthroughHeadersOnlyFromPrivateByDefault",
        swap('if trustedAddr(g.trusted, c.RemoteIP()) {', 'if len(g.trusted) > 0 {'))
-mutate("可信网段来自装配时的配置", "xgin/xgin.go", "./xgin", "TestBuild_只有",
+mutate("可信网段来自装配时的配置", "xgin/xgin.go", "./xgin", "TestBuild_PassthroughHeadersOnlyFromTrustedProxies",
        swap('g.trusted = prefixes(c.trustedProxies())', 'g.trusted = prefixes(nil)'))
 # 默认只信私有网段：K8s 里 Pod IP 随机，Ingress、负载均衡、sidecar 转发来的默认就认
-mutate("TrustedProxies 默认是 private", "xgin/config.go", "./xgin", "TestBuild_默认只信|TestBuild_不配Trusted",
+mutate("TrustedProxies 默认是 private", "xgin/config.go", "./xgin", "TestBuild_TrustsOnlyPrivateProxiesByDefault|TestBuild_PassthroughHeadersOnlyFromPrivateByDefault",
        swap('\t\tTrustedProxies:     []string{trustPrivate},\n', ''))
-mutate("private 包含运营商级 NAT 网段", "xgin/config.go", "./xgin", "TestBuild_不配Trusted",
+mutate("private 包含运营商级 NAT 网段", "xgin/config.go", "./xgin", "TestBuild_PassthroughHeadersOnlyFromPrivateByDefault",
        swap('"192.168.0.0/16", "100.64.0.0/10",', '"192.168.0.0/16",'))
-mutate("private 包含 IPv6 ULA", "xgin/config.go", "./xgin", "TestBuild_不配Trusted",
+mutate("private 包含 IPv6 ULA", "xgin/config.go", "./xgin", "TestBuild_PassthroughHeadersOnlyFromPrivateByDefault",
        swap('"::1/128", "fc00::/7",', '"::1/128",'))
-mutate("private 和别的网段一起写时别的网段也算", "xgin/config.go", "./xgin", "TestBuild_TrustedProxies里private",
+mutate("private 和别的网段一起写时别的网段也算", "xgin/config.go", "./xgin", "TestBuild_TrustedProxiesMixesPrivateWithOtherCIDRs",
        swap('\t\tout = append(out, p)\n\t}\n\treturn out', '\t}\n\treturn out'))
 # 调用点：client_ip 那边（gin）也得拿展开后的网段，直接给 "private" 它解析失败、退回谁都不信
-mutate("gin 拿到的是展开后的网段", "xgin/xgin.go", "./xgin", "TestBuild_默认只信",
+mutate("gin 拿到的是展开后的网段", "xgin/xgin.go", "./xgin", "TestBuild_TrustsOnlyPrivateProxiesByDefault",
        swap('e.SetTrustedProxies(c.trustedProxies())', 'e.SetTrustedProxies(c.TrustedProxies)'))
-mutate("装配时先判对端再开链路", "xgin/xgin.go", "./xgin", "TestBuild_只有",
+mutate("装配时先判对端再开链路", "xgin/xgin.go", "./xgin", "TestBuild_PassthroughHeadersOnlyFromTrustedProxies",
        swap('e.Use(g.markTrustedPeer, middleware.Trace())', 'e.Use(middleware.Trace())'))
 # XGin.Trace 只管 Span。原先关掉它连提取一起摘了，上游的链路标识和透传头都不收
-mutate("XGin.Trace 关掉照样接上游的链路和透传", "xgin/xgin.go", "./xgin", "TestBuild_关掉Trace",
+mutate("XGin.Trace 关掉照样接上游的链路和透传", "xgin/xgin.go", "./xgin", "TestBuild_TraceDisabledOnlySkipsSpan_StillPropagates",
        swap('e.Use(g.markTrustedPeer, middleware.Propagate())', 'e.Use(g.markTrustedPeer)'))
-mutate("XGin.Trace 关掉时可信规则不变", "xgin/xgin.go", "./xgin", "TestBuild_关掉Trace",
+mutate("XGin.Trace 关掉时可信规则不变", "xgin/xgin.go", "./xgin", "TestBuild_TraceDisabledOnlySkipsSpan_StillPropagates",
        swap('e.Use(g.markTrustedPeer, middleware.Propagate())', 'e.Use(middleware.Propagate())'))
-mutate("Propagate 也把可信记号交给 xtrace", "xgin/middleware/trace.go", "./xgin", "TestTrace_对端可信",
+mutate("Propagate 也把可信记号交给 xtrace", "xgin/middleware/trace.go", "./xgin", "TestTrace_PeerTrustFollowsXginMarker",
        swap('WithContext(otel.GetTextMapPropagator().Extract(c.Request.Context(), inbound(c)))', 'WithContext(otel.GetTextMapPropagator().Extract(c.Request.Context(), propagation.HeaderCarrier(c.Request.Header)))'))
-mutate("链路中间件把可信记号交给 xtrace", "xgin/middleware/trace.go", "./xgin", "TestTrace_对端可信",
+mutate("链路中间件把可信记号交给 xtrace", "xgin/middleware/trace.go", "./xgin", "TestTrace_PeerTrustFollowsXginMarker",
        swap('\tif c.GetBool(peer.TrustedKey) {\n\t\treturn trustedCarrier{h}\n\t}\n', '\t_ = peer.TrustedKey\n'))
 
 section("客户端")
 mutate("XGin 服务端 TLS 设置交给 http.Server", "xgin/xgin.go", "./xgin", "TestStart_ClientCAFile|TestStart_MinVersion",
        swap('\tsrv.TLSConfig = tlsCfg', '\t_ = tlsCfg'))
-mutate("XGin ClientCAFile 开双向认证", "xgin/config.go", "./xgin", "TestStart_ClientCAFile开双向认证",
+mutate("XGin ClientCAFile 开双向认证", "xgin/config.go", "./xgin", "TestStart_ClientCAFileEnablesMutualTLS",
        swap('\t\tcfg.ClientAuth = tls.RequireAndVerifyClientCert\n', ''))
 mutate("XGin MinVersion 生效", "xgin/config.go", "./xgin", "TestStart_MinVersion",
        swap('cfg := &tls.Config{MinVersion: tlsVersions[c.MinVersion]}', 'cfg := &tls.Config{}'))
 # 以为开了双向认证，实际是谁都能连的明文
-mutate("XGin ClientCAFile 要和证书一起配", "xgin/config.go", "./xgin", "TestValidate_服务端TLS|TestConfig_服务端TLS",
+mutate("XGin ClientCAFile 要和证书一起配", "xgin/config.go", "./xgin", "TestValidate_ServerTLSNewFields|TestConfig_ServerTLSLoadedFromFile",
        swap('if c.ClientCAFile != "" && !c.tlsEnabled() {', 'if false {'))
-mutate("XGin MinVersion 只收 1.2 / 1.3", "xgin/config.go", "./xgin", "TestValidate_服务端TLS",
+mutate("XGin MinVersion 只收 1.2 / 1.3", "xgin/config.go", "./xgin", "TestValidate_ServerTLSNewFields",
        swap('if _, ok := tlsVersions[c.MinVersion]; !ok {', 'if false {'))
 # gin 的 ResponseWriter 接口带 WriteString，handler 直接调它是常见写法。
 # 包装层只包 Write 的话，这条路写出去的响应在日志里永远是空的
@@ -192,11 +192,11 @@ mutate("WriteString 写的响应也截得下来", "xgin/middleware/log.go", "./x
 \t}''', '\tif false {\n\t}'))
 # gin 的默认是全都信，于是任何人发一个 X-Forwarded-For 就能决定
 # 访问日志里的 client_ip。设置出错时必须退到安全的那一侧
-mutate("代理网段设不上时退回谁都不信", "xgin/xgin.go", "./xgin", "TestApplyConfig|TestBuild_配了代理",
+mutate("代理网段设不上时退回谁都不信", "xgin/xgin.go", "./xgin", "TestApplyConfig|TestBuild_ForwardedHeadersOnlyWithProxiesConfigured",
        swap('\t\t_ = e.SetTrustedProxies([]string{})', ''))
 
 section("链路")
 # 用了 xgin 就有链路，使用者不用记得另外 import xtrace。摘掉这一行，
 # 全局的 TracerProvider 就一直是 noop：Span 什么都不记、日志没有 trace_id，而且没有任何报错
-mutate("用了 xgin 不另外 import xtrace 也有链路", "xgin/xgin.go", "./xgin", "Test用了xgin不另外import_xtrace",
+mutate("用了 xgin 不另外 import xtrace 也有链路", "xgin/xgin.go", "./xgin", "TestTracingWorksWithoutImportingXtrace",
        swap('\t_ "github.com/xiaoshicae/x-one/xtrace"\n', ''))

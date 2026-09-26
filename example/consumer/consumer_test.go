@@ -25,7 +25,7 @@ func testSettings(workers int, timeout time.Duration) Settings {
 	return Settings{Workers: workers, Timeout: timeout}
 }
 
-func TestConsumer_在途消息做完之后Start才返回(t *testing.T) {
+func TestConsumer_StartReturnsAfterInFlightMessagesFinish(t *testing.T) {
 	// 框架是在 Start 返回之后才关数据库和缓存的。提前返回的话，
 	// 还在处理的消息会摸到已经关掉的连接池
 	q := newMemQueue(4)
@@ -62,7 +62,7 @@ func TestConsumer_在途消息做完之后Start才返回(t *testing.T) {
 	}
 }
 
-func TestConsumer_在途消息拿到的ctx没有被取消(t *testing.T) {
+func TestConsumer_InFlightMessageCtxNotCanceled(t *testing.T) {
 	// 沿用已取消的 ctx 的话，这条消息里每一次写库、每一次调下游、
 	// 连最后那次 Ack 都会一进去就被拒绝——消息没做完，队列也没收到确认
 	q := newMemQueue(4)
@@ -100,7 +100,7 @@ func TestConsumer_在途消息拿到的ctx没有被取消(t *testing.T) {
 	}
 }
 
-func TestConsumer_一条毒消息不会拖垮worker(t *testing.T) {
+func TestConsumer_PoisonMessageDoesNotKillWorker(t *testing.T) {
 	q := newMemQueue(8)
 	q.publish("bad", nil)
 	q.publish("good", nil)
@@ -136,7 +136,7 @@ func TestConsumer_一条毒消息不会拖垮worker(t *testing.T) {
 	}
 }
 
-func TestConsumer_失败的消息被Nack(t *testing.T) {
+func TestConsumer_FailedMessageIsNacked(t *testing.T) {
 	q := newMemQueue(4)
 	q.publish("m1", nil)
 
@@ -155,9 +155,9 @@ func TestConsumer_失败的消息被Nack(t *testing.T) {
 	}
 }
 
-// TestRun_组件在消费者收工之后才关 是这个目录里唯一走完整框架的测试：
+// TestRun_ComponentsCloseAfterConsumerStops 是这个目录里唯一走完整框架的测试：
 // 上面几条证明 Consumer 自己的行为，这一条证明它和 xone.Run 接得上
-func TestRun_组件在消费者收工之后才关(t *testing.T) {
+func TestRun_ComponentsCloseAfterConsumerStops(t *testing.T) {
 	q := newMemQueue(4)
 	q.publish("m1", nil)
 
@@ -213,7 +213,7 @@ func TestRun_组件在消费者收工之后才关(t *testing.T) {
 	}
 }
 
-func TestQueue_ctx取消之后不再取消息(t *testing.T) {
+func TestQueue_CtxCanceledStopsFetching(t *testing.T) {
 	// select 在几路同时就绪时随机挑：只靠 select 的话，ctx 取消了、
 	// 队列里又有消息，一半的概率照样取走一条
 	q := newMemQueue(64)
@@ -234,7 +234,7 @@ type closerFunc func() error
 
 func (f closerFunc) Close() error { return f() }
 
-func TestQueue_退出时生产者还在投递也不崩(t *testing.T) {
+func TestQueue_NoPanicWhenProducerStillSendingOnExit(t *testing.T) {
 	// 回归用例。原来 Close 是 close(ch)，而这个例子里 feed 一直在往里发；
 	// 关的那一刻正好有人在投递就会 panic: send on closed channel。
 	// 只在那个窗口里复现，所以跑十次八次都可能是好的——实际是一跑真就炸

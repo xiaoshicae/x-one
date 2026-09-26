@@ -50,7 +50,7 @@ func TestPoolCollector(t *testing.T) {
 	}
 }
 
-func TestPoolCollector_按实例分标签(t *testing.T) {
+func TestPoolCollector_LabelsPerInstance(t *testing.T) {
 	// 多实例时必须分得开，否则连接数是几个池子加起来的，看不出是谁满了
 	m, closer, _ := xmetric.New(xmetric.Config{})
 	defer closer.Close()
@@ -67,14 +67,14 @@ func TestPoolCollector_按实例分标签(t *testing.T) {
 	}
 }
 
-func TestPoolStats_读的是活着的实例(t *testing.T) {
+func TestPoolStats_EmptyWithoutInstances(t *testing.T) {
 	withClients(t, nil)
 	if got := poolStats(); len(got) != 0 {
 		t.Errorf("没有实例时应为空，got=%v", got)
 	}
 }
 
-func TestPoolCollector_带上常量标签(t *testing.T) {
+func TestPoolCollector_IncludesConstLabels(t *testing.T) {
 	// 自建指标要和框架内置指标带上同样的环境/集群标签，否则看板上对不起来
 	m, closer, _ := xmetric.New(xmetric.Config{})
 	defer closer.Close()
@@ -89,7 +89,7 @@ func TestPoolCollector_带上常量标签(t *testing.T) {
 	}
 }
 
-func TestPoolStats_读得到活着的实例(t *testing.T) {
+func TestPoolStats_ReadsLiveInstances(t *testing.T) {
 	// collector 是抓取时才调 poolStats 的：这里要是读不出来，
 	// /metrics 上连接池那一组指标就是永远空的，而没有任何报错
 	pool, err := sql.Open("mysql", "u:p@tcp(127.0.0.1:1)/app")
@@ -112,7 +112,7 @@ func TestPoolStats_读得到活着的实例(t *testing.T) {
 	}
 }
 
-func TestPoolStats_取不到连接池的实例直接跳过(t *testing.T) {
+func TestPoolStats_SkipsInstancesWithoutPool(t *testing.T) {
 	// 一个实例读不出状态，不该让其余实例的指标也一起消失
 	pool, err := sql.Open("mysql", "u:p@tcp(127.0.0.1:1)/app")
 	if err != nil {
@@ -156,7 +156,7 @@ func (okDialector) Initialize(db *gorm.DB) (err error) {
 	return err
 }
 
-func TestInstall_只导出开了Metric的实例且xmetric重装后照样导出(t *testing.T) {
+func TestInstall_ExportsOnlyMetricEnabled_SurvivesXmetricReinstall(t *testing.T) {
 	// collector 是进程级的一个，抓取时遍历全部实例：不看实例自己的开关，
 	// Metric: false 就是一句空话。第二轮是同一进程里再走一遍生命周期——
 	// xmetric 换了新的 Registry，collector 得跟着挂上去，否则连接池指标全丢

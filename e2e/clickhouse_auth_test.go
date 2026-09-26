@@ -16,7 +16,7 @@ import (
 //	密码错 / 用户不存在  code: 516, message: <user>: Authentication failed: password is incorrect, or there is no user with such name.
 //
 // 库不存在不是认证失败（code: 81 UNKNOWN_DATABASE），照常重试、报 cannot reach
-func TestClickHouse_启动时密码错误或用户不存在_native协议认得出是认证失败_不重试_没有密码(t *testing.T) {
+func TestClickHouse_BadPasswordOrUnknownUserAtStartup_NativeAuthFail_NoRetry(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	pw := harness.CHPassword()
@@ -81,7 +81,7 @@ func TestClickHouse_启动时密码错误或用户不存在_native协议认得�
 //
 // 状态码是 403（不是 401）。v2.30.0 时这里是一段拼好的文本、错误链上没有 Exception，认不出，试满 3 次、报 cannot reach。
 // 密码照样不出现在输出里（错误文本里没有它）
-func TestClickHouse_启动时HTTP协议密码错误_同样认得出是认证失败_不重试_没有密码(t *testing.T) {
+func TestClickHouse_BadPasswordOverHTTPAtStartup_AuthFail_NoRetry_NoPassword(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	pw := harness.CHPassword()

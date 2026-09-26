@@ -45,7 +45,7 @@ func deadAddr(t *testing.T) string {
 	return addr
 }
 
-func TestNew_连得上就返回可用实例(t *testing.T) {
+func TestNew_ReturnsUsableClientWhenReachable(t *testing.T) {
 	f := newFakeRedis(t)
 	client, closer, err := New(context.Background(), liveCfg(f))
 	if err != nil {
@@ -61,7 +61,7 @@ func TestNew_连得上就返回可用实例(t *testing.T) {
 	}
 }
 
-func TestNew_启动时就验证连通性(t *testing.T) {
+func TestNew_VerifiesConnectivityAtStartup(t *testing.T) {
 	// 地址写错、密码不对这类问题该在启动时暴露，而不是线上第一次读缓存才发现
 	f := newFakeRedis(t)
 	f.setFailPing(true)
@@ -76,7 +76,7 @@ func TestNew_启动时就验证连通性(t *testing.T) {
 	}
 }
 
-func TestNew_连不上时不漏连接池(t *testing.T) {
+func TestNew_NoPoolLeakWhenUnreachable(t *testing.T) {
 	c := DefaultClientConfig()
 	c.Addr = deadAddr(t)
 	c.DialTimeout, c.ReadTimeout = 50*time.Millisecond, 50*time.Millisecond
@@ -98,7 +98,7 @@ func TestNew_连不上时不漏连接池(t *testing.T) {
 	}
 }
 
-func TestInstall_日志写出实例名和地址但不写密码(t *testing.T) {
+func TestInstall_LogsNameAndAddrButNotPassword(t *testing.T) {
 	f := newFakeRedis(t)
 	lines := capture(t)
 
@@ -124,7 +124,7 @@ func TestInstall_日志写出实例名和地址但不写密码(t *testing.T) {
 	}
 }
 
-func TestNew_配置有误时不建连(t *testing.T) {
+func TestNew_NoConnectOnInvalidConfig(t *testing.T) {
 	c := DefaultClientConfig()
 	c.Addr = ""
 	if _, _, err := New(context.Background(), c); err == nil {
@@ -132,7 +132,21 @@ func TestNew_配置有误时不建连(t *testing.T) {
 	}
 }
 
-func TestNew_传下去的连接池参数生效(t *testing.T) {
+func TestNew_ValidatesBeforeConnecting(t *testing.T) {
+	// 对端是好的，只有配置不合法：不校验的话 go-redis 把 -1s 当成「不限时」，建连照样成功
+	c := liveCfg(newFakeRedis(t))
+	c.ReadTimeout = -time.Second
+	_, closer, err := New(context.Background(), c)
+	if closer != nil {
+		closer.Close()
+	}
+	var xe *xerror.Error
+	if !errors.As(err, &xe) || xe.Op != "config" {
+		t.Fatalf("直接调 New 也该先校验配置，以 op=config 报错，got=%v", err)
+	}
+}
+
+func TestNew_PoolOptionsPassedThrough(t *testing.T) {
 	f := newFakeRedis(t)
 	c := liveCfg(f)
 	c.PoolSize, c.MinIdleConns = 7, 2
@@ -163,7 +177,7 @@ func TestPingTimeout(t *testing.T) {
 	}
 }
 
-func TestNew_退出信号到达时当场放弃建连(t *testing.T) {
+func TestNew_AbortsConnectOnExitSignal(t *testing.T) {
 	// 地址不通时这里要走满一轮 Ping 重试（默认 3 次 × 间隔）。
 	// 启动到一半收到 SIGTERM，就该立刻放弃，而不是让进程卡在一个
 	// 注定连不上的库上，把退出时间拖满整轮重试
@@ -189,7 +203,7 @@ func TestNew_退出信号到达时当场放弃建连(t *testing.T) {
 	}
 }
 
-func TestProbe_重试后仍失败(t *testing.T) {
+func TestProbe_FailsAfterRetries(t *testing.T) {
 	f := newFakeRedis(t)
 	f.setFailPing(true)
 	c := liveCfg(f)
@@ -235,7 +249,7 @@ func publish(t *testing.T, insts map[string]instance) {
 	t.Cleanup(func() { _ = xclient.Build(context.Background(), reg, nil, keep) })
 }
 
-func TestC_取不到就panic(t *testing.T) {
+func TestC_PanicsWhenNotFound(t *testing.T) {
 	withClients(t, map[string]*redis.Client{})
 	defer func() {
 		msg := fmt.Sprint(recover())
@@ -249,7 +263,7 @@ func TestC_取不到就panic(t *testing.T) {
 	C()
 }
 
-func TestC_panic信息列出已配置的实例(t *testing.T) {
+func TestC_PanicMessageListsConfiguredInstances(t *testing.T) {
 	withClients(t, map[string]*redis.Client{"cache": {}, "session": {}})
 	defer func() {
 		msg := fmt.Sprint(recover())
@@ -270,7 +284,7 @@ func TestHasNames(t *testing.T) {
 	}
 }
 
-func TestRegister_登记内容与框架对得上(t *testing.T) {
+func TestRegister_RegistrationMatchesFramework(t *testing.T) {
 	// 这是本包和框架之间唯一的一根线：钩子漏登记、档位挂错，
 	// 表现是「配置不生效」或者「实例比用它的东西晚就绪」，别处都测不出来
 	var got *hook.Entry
@@ -302,7 +316,7 @@ func TestRegister_登记内容与框架对得上(t *testing.T) {
 	}
 }
 
-func TestInitAll_建起来又关干净(t *testing.T) {
+func TestInitAll_BuildsAndClosesCleanly(t *testing.T) {
 	// 配置直接传进去，不用换包级变量再记得换回来：
 	// start 的接收者就是那份配置
 	f := newFakeRedis(t)
@@ -323,7 +337,7 @@ func TestInitAll_建起来又关干净(t *testing.T) {
 	}
 }
 
-func TestInitAll_一个失败就全部回滚(t *testing.T) {
+func TestInitAll_OneFailureRollsBackAll(t *testing.T) {
 	// Init 返回错误时框架拿不到 closer，已经建好的实例必须自己收拾——
 	// 不收拾的话那些连接会一直挂到进程结束，而且 C() 还可能摸到它们
 	f := newFakeRedis(t)
@@ -349,7 +363,7 @@ func TestInitAll_一个失败就全部回滚(t *testing.T) {
 	}
 }
 
-func TestInitAll_没配就什么都不做(t *testing.T) {
+func TestInitAll_NoOpWhenUnconfigured(t *testing.T) {
 	cfg := DefaultConfig()
 
 	err := initComponent(t, cfg)
@@ -362,7 +376,7 @@ func TestInitAll_没配就什么都不做(t *testing.T) {
 	}
 }
 
-func TestInstallPoolMetrics_挂多次只注册一次(t *testing.T) {
+func TestInstallPoolMetrics_RegistersOnceWhenInstalledRepeatedly(t *testing.T) {
 	// 每个开了指标的实例都会调它一次，而 collector 是进程级的一个：
 	// 第二次注册 Prometheus 会报 duplicate，这套指标从此一个都导不出去
 	m, closer, err := xmetric.New(xmetric.Config{})
@@ -415,7 +429,7 @@ func TestPoolCollector(t *testing.T) {
 	}
 }
 
-func TestPoolStats_读的是活着的实例(t *testing.T) {
+func TestPoolStats_ReadsLiveInstance(t *testing.T) {
 	f := newFakeRedis(t)
 	client, closer, err := New(context.Background(), liveCfg(f))
 	if err != nil {
@@ -430,7 +444,7 @@ func TestPoolStats_读的是活着的实例(t *testing.T) {
 	}
 }
 
-func TestNew_命令遵守调用方的deadline(t *testing.T) {
+func TestNew_CommandsHonorCallerDeadline(t *testing.T) {
 	// go-redis 默认不让请求的 context 管住 socket 读写：不开
 	// ContextTimeoutEnabled 的话，每个命令用的是 ReadTimeout 这组固定值，
 	// 调用方给的 deadline 只是摆设——一个 200ms 超时的请求照样会在一个
@@ -476,7 +490,7 @@ func initComponent(t *testing.T, c Config) error {
 	return install(context.Background(), c)
 }
 
-func TestInitXRedis_没写这一块就一个连接都不建(t *testing.T) {
+func TestInitXRedis_NoConnectionsWithoutSection(t *testing.T) {
 	// xredis 是可选依赖：没配不该让服务起不来，更不该去连 localhost:6379
 	t.Cleanup(func() { _ = closeXRedis(context.Background()) })
 	xonetest.UseConfigYAML(t, "XApp:\n  Name: demo\n")
@@ -489,7 +503,7 @@ func TestInitXRedis_没写这一块就一个连接都不建(t *testing.T) {
 	}
 }
 
-func TestInitXRedis_写了空块也不建(t *testing.T) {
+func TestInitXRedis_NoConnectionsWithEmptySection(t *testing.T) {
 	t.Cleanup(func() { _ = closeXRedis(context.Background()) })
 	xonetest.UseConfigYAML(t, "XRedis:\n")
 
@@ -501,7 +515,7 @@ func TestInitXRedis_写了空块也不建(t *testing.T) {
 	}
 }
 
-func TestInitXRedis_配置写错时启动失败(t *testing.T) {
+func TestInitXRedis_ConfigTypoFailsStartup(t *testing.T) {
 	t.Cleanup(func() { _ = closeXRedis(context.Background()) })
 	xonetest.UseConfigYAML(t, "XRedis:\n  Addrs: \"127.0.0.1:6379\"\n")
 
@@ -513,7 +527,7 @@ func TestInitXRedis_配置写错时启动失败(t *testing.T) {
 	}
 }
 
-func TestInitXRedis_按配置建好再关干净(t *testing.T) {
+func TestInitXRedis_BuildsFromConfigAndClosesCleanly(t *testing.T) {
 	t.Cleanup(func() { _ = closeXRedis(context.Background()) })
 	f := newFakeRedis(t)
 	xonetest.UseConfigYAML(t, "XRedis:\n  Clients:\n    cache:\n      Addr: \""+f.addr()+"\"\n    session:\n      Addr: \""+f.addr()+"\"\n")
@@ -536,13 +550,13 @@ func TestInitXRedis_按配置建好再关干净(t *testing.T) {
 	}
 }
 
-func TestCloseXRedis_没建过也能关(t *testing.T) {
+func TestCloseXRedis_ClosesWithoutInit(t *testing.T) {
 	if err := closeXRedis(context.Background()); err != nil {
 		t.Errorf("want nil, got %v", err)
 	}
 }
 
-func TestInitXRedis_写了空块不会让启动失败(t *testing.T) {
+func TestInitXRedis_EmptySectionDoesNotFailStartup(t *testing.T) {
 	// 空块是「我先占个位」：把内容注释掉、或者挪到 profile 文件里之后，
 	// 留下的就是这个形状。它曾经让 Run 报「XRedis 这个 key 没人读，
 	// 检查拼写、或者有没有 import 对应的包」——两条都不成立
@@ -574,7 +588,7 @@ func assertOneFrame(t *testing.T, err error, module, op string) {
 	}
 }
 
-func TestInstall_错误只包一层且op如实(t *testing.T) {
+func TestInstall_ErrorWrappedOnceWithAccurateOp(t *testing.T) {
 	bad := DefaultClientConfig()
 	bad.Addr = ""
 	err := initComponent(t, Config{Clients: map[string]ClientConfig{"a": bad}})
@@ -589,7 +603,7 @@ func TestInstall_错误只包一层且op如实(t *testing.T) {
 	}
 }
 
-func TestInstall_只导出开了Metric的实例且xmetric重装后照样导出(t *testing.T) {
+func TestInstall_ExportsOnlyMetricEnabledInstances_SurvivesXmetricReinstall(t *testing.T) {
 	// collector 是进程级的一个，抓取时遍历全部实例：不看实例自己的开关，
 	// Metric: false 就是一句空话。第二轮是同一进程里再走一遍生命周期——
 	// xmetric 换了新的 Registry，collector 得跟着挂上去，否则连接池指标全丢
@@ -620,7 +634,7 @@ func TestInstall_只导出开了Metric的实例且xmetric重装后照样导出(t
 	}
 }
 
-func TestInitXRedis_没配时C说的是没配而不是调早了(t *testing.T) {
+func TestInitXRedis_CSaysUnconfiguredNotTooEarly(t *testing.T) {
 	// 没配也要让注册表知道启动钩子跑过了。否则 C() 会把「没配」说成「调早了」，
 	// 使用者会去查调用时机，而真正该查的是配置文件
 	t.Cleanup(func() { _ = closeXRedis(context.Background()) })

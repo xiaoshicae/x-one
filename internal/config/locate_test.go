@@ -14,7 +14,7 @@ func withArgs(t *testing.T, args ...string) {
 	t.Cleanup(func() { os.Args = old })
 }
 
-func TestLocate_启动参数优先(t *testing.T) {
+func TestLocate_FlagTakesPrecedence(t *testing.T) {
 	withArgs(t, "--config=/a/b.yml")
 	t.Setenv(EnvKey, "/from/env.yml")
 
@@ -23,7 +23,7 @@ func TestLocate_启动参数优先(t *testing.T) {
 	}
 }
 
-func TestLocate_启动参数两种写法(t *testing.T) {
+func TestLocate_FlagBothForms(t *testing.T) {
 	t.Run("等号", func(t *testing.T) {
 		withArgs(t, "--config=/a.yml")
 		if got := Locate(); got != "/a.yml" {
@@ -44,7 +44,7 @@ func TestLocate_启动参数两种写法(t *testing.T) {
 	})
 }
 
-func TestLocate_不吃掉别人的参数(t *testing.T) {
+func TestLocate_LeavesOtherArgsAlone(t *testing.T) {
 	// 使用者的程序有自己的命令行参数，框架不该误读
 	withArgs(t, "--port", "8080", "--configx=/x.yml", "--verbose")
 	t.Setenv(EnvKey, "")
@@ -54,7 +54,7 @@ func TestLocate_不吃掉别人的参数(t *testing.T) {
 	}
 }
 
-func TestLocate_环境变量次之(t *testing.T) {
+func TestLocate_EnvVarIsSecond(t *testing.T) {
 	withArgs(t)
 	t.Setenv(EnvKey, "/from/env.yml")
 
@@ -63,7 +63,7 @@ func TestLocate_环境变量次之(t *testing.T) {
 	}
 }
 
-func TestLocate_按约定路径查找(t *testing.T) {
+func TestLocate_SearchesConventionalPaths(t *testing.T) {
 	withArgs(t)
 	t.Setenv(EnvKey, "")
 
@@ -77,7 +77,7 @@ func TestLocate_按约定路径查找(t *testing.T) {
 	}
 }
 
-func TestLocate_都没有时返回空(t *testing.T) {
+func TestLocate_ReturnsEmptyWhenNothingFound(t *testing.T) {
 	withArgs(t)
 	t.Setenv(EnvKey, "")
 	chdir(t, t.TempDir())

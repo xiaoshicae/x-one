@@ -99,7 +99,7 @@ func tlsServer(t *testing.T, cfg *tls.Config) (*httptest.Server, *atomic.Bool) {
 	return srv, &clientCrt
 }
 
-func TestNew_TLS块生效(t *testing.T) {
+func TestNew_TLSBlockApplied(t *testing.T) {
 	p := newPKI(t)
 	srv, _ := tlsServer(t, &tls.Config{Certificates: []tls.Certificate{p.server}})
 	cases := []struct {
@@ -138,7 +138,7 @@ func TestNew_TLS块生效(t *testing.T) {
 	}
 }
 
-func TestNew_TLS双向认证(t *testing.T) {
+func TestNew_TLSMutualAuth(t *testing.T) {
 	p := newPKI(t)
 	srv, clientCrt := tlsServer(t, &tls.Config{
 		Certificates: []tls.Certificate{p.server},
@@ -163,7 +163,7 @@ func TestNew_TLS双向认证(t *testing.T) {
 	}
 }
 
-func TestNew_TLS块不影响明文请求(t *testing.T) {
+func TestNew_TLSBlockDoesNotAffectPlaintext(t *testing.T) {
 	p := newPKI(t)
 	srv, _ := echo(t, nil)
 	cfg := DefaultConfig()
@@ -175,7 +175,7 @@ func TestNew_TLS块不影响明文请求(t *testing.T) {
 	}
 }
 
-func TestNew_TLS配错是配置错误(t *testing.T) {
+func TestNew_TLSMisconfigIsConfigError(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "nope.pem")
 	for name, tc := range map[string]xtls.Config{
 		"没开却写了 CAFile": {CAFile: missing},
@@ -191,7 +191,7 @@ func TestNew_TLS配错是配置错误(t *testing.T) {
 	}
 }
 
-func TestInit_TLS块从配置文件读(t *testing.T) {
+func TestInit_TLSBlockReadFromConfigFile(t *testing.T) {
 	keepGlobals(t)
 	withMetrics(t)
 	p := newPKI(t)
@@ -207,7 +207,7 @@ func TestInit_TLS块从配置文件读(t *testing.T) {
 	}
 }
 
-func TestValidate_TLS块(t *testing.T) {
+func TestValidate_TLSBlock(t *testing.T) {
 	// 读配置时就要拦住：xconfig.Unmarshal 调的是 Validate，不是 New
 	for name, tc := range map[string]xtls.Config{
 		"没开却写了 CAFile": {CAFile: "/etc/ca.pem"},

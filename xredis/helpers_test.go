@@ -35,7 +35,7 @@ func capture(t *testing.T) func() []map[string]any {
 	}
 }
 
-func TestSettle_能看见泄漏的协程(t *testing.T) {
+func TestSettle_DetectsLeakedGoroutines(t *testing.T) {
 	// 先验证这把尺子是准的——一条永远不会失败的测试比没有测试更糟，
 	// 它让人以为查过了
 	const leak = 5

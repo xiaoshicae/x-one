@@ -107,7 +107,7 @@ func publish(r *Registry[*conn], items map[string]*conn) {
 
 // ---- 取实例 ----
 
-func TestGet_不带参数取名为_default_的那个(t *testing.T) {
+func TestGet_NoArgReturnsDefault(t *testing.T) {
 	r := newReg()
 	want := &conn{name: "d"}
 	publish(r, map[string]*conn{DefaultName: want})
@@ -119,7 +119,7 @@ func TestGet_不带参数取名为_default_的那个(t *testing.T) {
 	}
 }
 
-func TestGet_取不到时直接_panic_而不是返回零值(t *testing.T) {
+func TestGet_PanicsInsteadOfReturningZeroWhenMissing(t *testing.T) {
 	// 返回 nil 只是把同一个 panic 推迟到调用方第一次用它的时候，
 	// 那里的栈里只剩 "invalid memory address"，看不出根因是配置没配
 	r := newReg()
@@ -134,7 +134,7 @@ func TestGet_取不到时直接_panic_而不是返回零值(t *testing.T) {
 	}
 }
 
-func TestGet_一个都没配时把配置块的_key_说出来(t *testing.T) {
+func TestGet_NamesConfigKeyWhenNoneConfigured(t *testing.T) {
 	// 名字写错和整块没配是两个不同的问题，文案要能一眼分开：
 	// 前者去查名字，后者去查有没有写这一块、有没有 import 对应的包
 	r := newReg()
@@ -148,7 +148,7 @@ func TestGet_一个都没配时把配置块的_key_说出来(t *testing.T) {
 	}
 }
 
-func TestGet_启动钩子跑之前取实例说是调早了(t *testing.T) {
+func TestGet_SaysTooEarlyBeforeStartHook(t *testing.T) {
 	// 从前这时候报的是「整块没配」，于是在 main 里、在 Run 之前取实例的人
 	// 会去翻一份明明写对了的配置文件
 	r := newReg()
@@ -161,7 +161,7 @@ func TestGet_启动钩子跑之前取实例说是调早了(t *testing.T) {
 	}
 }
 
-func TestGet_关闭之后取实例说是调晚了(t *testing.T) {
+func TestGet_SaysTooLateAfterClose(t *testing.T) {
 	r := newReg()
 	publish(r, map[string]*conn{DefaultName: {}})
 	if err := r.Close(); err != nil {
@@ -173,14 +173,14 @@ func TestGet_关闭之后取实例说是调晚了(t *testing.T) {
 	}
 }
 
-func TestLookup_取不到返回零值和_false(t *testing.T) {
+func TestLookup_ReturnsZeroAndFalseWhenMissing(t *testing.T) {
 	r := newReg()
 	if v, ok := r.Lookup("nope"); ok || v != nil {
 		t.Errorf("want nil,false，got %v,%v", v, ok)
 	}
 }
 
-func TestHas_供可选依赖判断(t *testing.T) {
+func TestHas_ForOptionalDependencies(t *testing.T) {
 	r := newReg()
 	if r.Has() {
 		t.Error("空注册表不该报告有 default")
@@ -191,7 +191,7 @@ func TestHas_供可选依赖判断(t *testing.T) {
 	}
 }
 
-func TestNames_按名字排序(t *testing.T) {
+func TestNames_SortedByName(t *testing.T) {
 	// 顺序稳定，日志和错误文案才可复现
 	r := newReg()
 	publish(r, map[string]*conn{"write": {}, "read": {}, "archive": {}})
@@ -200,7 +200,7 @@ func TestNames_按名字排序(t *testing.T) {
 	}
 }
 
-func TestNames_空注册表返回空切片(t *testing.T) {
+func TestNames_EmptyRegistryReturnsEmptySlice(t *testing.T) {
 	if got := newReg().Names(); len(got) != 0 {
 		t.Errorf("want 空，got %v", got)
 	}
@@ -208,7 +208,7 @@ func TestNames_空注册表返回空切片(t *testing.T) {
 
 // ---- 建实例 ----
 
-func TestBuild_按名字排序建(t *testing.T) {
+func TestBuild_BuildsInNameOrder(t *testing.T) {
 	// 建的顺序要可复现，否则「配了五个库，挂的是哪一个」每次都不一样
 	l := &log{}
 	r := newReg()
@@ -226,7 +226,7 @@ func TestBuild_按名字排序建(t *testing.T) {
 	}
 }
 
-func TestBuild_没有配置时发布一个空注册表(t *testing.T) {
+func TestBuild_PublishesEmptyRegistryWithoutConfig(t *testing.T) {
 	r := newReg()
 	if err := Build(context.Background(), r, map[string]namedCfg{}, namedBuilder(&log{})); err != nil {
 		t.Fatal(err)
@@ -236,7 +236,7 @@ func TestBuild_没有配置时发布一个空注册表(t *testing.T) {
 	}
 }
 
-func TestBuild_中途失败时把已经建好的全关掉(t *testing.T) {
+func TestBuild_ClosesBuiltOnesOnMidwayFailure(t *testing.T) {
 	// 启动钩子返回错误时这一包的停止钩子不会被执行，不自己收拾
 	// 就会漏掉前面那几个连接池
 	l := &log{}
@@ -256,7 +256,7 @@ func TestBuild_中途失败时把已经建好的全关掉(t *testing.T) {
 	}
 }
 
-func TestBuild_失败时注册表保持原样(t *testing.T) {
+func TestBuild_RegistryUnchangedOnFailure(t *testing.T) {
 	// 半套实例发布出去比一个都没有更糟：C() 取得到 a 取不到 b，
 	// 而启动其实已经失败了
 	l := &log{}
@@ -275,7 +275,7 @@ func TestBuild_失败时注册表保持原样(t *testing.T) {
 	}
 }
 
-func TestBuild_错误里带得出是哪个实例(t *testing.T) {
+func TestBuild_ErrorNamesInstance(t *testing.T) {
 	err := Build(context.Background(), newReg(), map[string]namedCfg{
 		"replica": {name: "replica", err: errors.New("dial refused")},
 	}, namedBuilder(&log{}))
@@ -287,7 +287,7 @@ func TestBuild_错误里带得出是哪个实例(t *testing.T) {
 	}
 }
 
-func TestBuild_本模块的错误不再套一层且保留原来的op(t *testing.T) {
+func TestBuild_OwnModuleErrorNotRewrappedAndKeepsOp(t *testing.T) {
 	// 一个模块边界一个 xerror。New 已经报了 connect，再按 new 包一层的话
 	// 文本里模块名出现两次，errors.As 取出来的 op 永远是 new，
 	// 调用方再也分不清是配置错了还是连不上
@@ -315,7 +315,7 @@ func TestBuild_本模块的错误不再套一层且保留原来的op(t *testing.
 	}
 }
 
-func TestBuild_别的错误按new包一层(t *testing.T) {
+func TestBuild_OtherErrorsWrappedOnceAsNew(t *testing.T) {
 	err := Build(context.Background(), newReg(), map[string]namedCfg{
 		"a": {name: "a", err: xerror.New("xother", "connect", errors.New("x"))},
 	}, namedBuilder(&log{}))
@@ -328,7 +328,7 @@ func TestBuild_别的错误按new包一层(t *testing.T) {
 	}
 }
 
-func TestBuild_收到退出信号就不再建剩下的(t *testing.T) {
+func TestBuild_StopsBuildingOnShutdownSignal(t *testing.T) {
 	// 配了五个库、第一个就要重试到超时的话，收到退出信号应当就此打住，
 	// 而不是把剩下四个也挨个试一遍
 	l := &log{}
@@ -357,7 +357,7 @@ func TestBuild_收到退出信号就不再建剩下的(t *testing.T) {
 	}
 }
 
-func TestBuild_一开始就已取消时一个都不建(t *testing.T) {
+func TestBuild_BuildsNothingWhenAlreadyCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	l := &log{}
@@ -370,7 +370,7 @@ func TestBuild_一开始就已取消时一个都不建(t *testing.T) {
 	}
 }
 
-func TestBuild_new_里_panic_不让已建好的漏掉(t *testing.T) {
+func TestBuild_new_PanicDoesNotLeakBuiltOnes(t *testing.T) {
 	// 不隔离的话 panic 会穿过 Build 往上抛，而已经建好的那几个 Closer
 	// 还只存在于 Build 这一帧的局部变量里——栈一展开就找不回来了
 	l := &log{}
@@ -389,7 +389,7 @@ func TestBuild_new_里_panic_不让已建好的漏掉(t *testing.T) {
 	}
 }
 
-func TestBuild_new_返回空_Closer_也不影响(t *testing.T) {
+func TestBuild_new_NilCloserIsHarmless(t *testing.T) {
 	// 有的实例没有要关的东西，返回 nil Closer 是合法的
 	r := newReg()
 	err := Build(context.Background(), r, map[string]namedCfg{"a": {name: "a"}},
@@ -406,7 +406,7 @@ func TestBuild_new_返回空_Closer_也不影响(t *testing.T) {
 
 // ---- 关实例 ----
 
-func TestClose_逆序关闭(t *testing.T) {
+func TestClose_ClosesInReverseOrder(t *testing.T) {
 	l := &log{}
 	r := newReg()
 	if err := Build(context.Background(), r, map[string]namedCfg{
@@ -422,7 +422,7 @@ func TestClose_逆序关闭(t *testing.T) {
 	}
 }
 
-func TestClose_先摘再关(t *testing.T) {
+func TestClose_UnpublishesBeforeClosing(t *testing.T) {
 	// 反过来的话，关到一半时 C() 还能取到正在被关闭的实例
 	r := newReg()
 	var namesDuringClose []string
@@ -448,7 +448,7 @@ type closerFunc func() error
 
 func (f closerFunc) Close() error { return f() }
 
-func TestClose_一个失败不影响其余(t *testing.T) {
+func TestClose_OneFailureDoesNotAffectOthers(t *testing.T) {
 	// 退出阶段要尽量把能关的都关掉
 	l := &log{}
 	boom := errors.New("close failed")
@@ -471,7 +471,7 @@ func TestClose_一个失败不影响其余(t *testing.T) {
 	}
 }
 
-func TestClose_一个_panic_不影响其余(t *testing.T) {
+func TestClose_OnePanicDoesNotAffectOthers(t *testing.T) {
 	l := &log{}
 	r := newReg()
 	r.state.Store(&snapshot[*conn]{closers: []io.Closer{
@@ -489,7 +489,7 @@ func TestClose_一个_panic_不影响其余(t *testing.T) {
 	}
 }
 
-func TestClose_重复调用是空操作(t *testing.T) {
+func TestClose_RepeatedCallIsNoop(t *testing.T) {
 	// 停止钩子可能被重试，关第二次不该把同一个连接池再关一遍
 	l := &log{}
 	r := newReg()
@@ -507,7 +507,7 @@ func TestClose_重复调用是空操作(t *testing.T) {
 	}
 }
 
-func TestBuild_new_panic_出来的error留在链上(t *testing.T) {
+func TestBuild_new_panic_ErrorStaysInChain(t *testing.T) {
 	// 用 %v 接住的话它只剩一段文本，调用方再也问不出根因是什么
 	cause := errors.New("driver exploded")
 	explode := func(context.Context, cfg) (*conn, io.Closer, error) { panic(cause) }
@@ -520,7 +520,7 @@ func TestBuild_new_panic_出来的error留在链上(t *testing.T) {
 	}
 }
 
-func TestClose_panic_出来的error留在链上(t *testing.T) {
+func TestClose_panic_ErrorStaysInChain(t *testing.T) {
 	cause := errors.New("close exploded")
 	r := newReg()
 	r.state.Store(&snapshot[*conn]{closers: []io.Closer{closerFunc(func() error { panic(cause) })}})
@@ -534,7 +534,7 @@ func TestClose_panic_出来的error留在链上(t *testing.T) {
 	}
 }
 
-func TestClose_关完之后取不到实例(t *testing.T) {
+func TestClose_InstancesGoneAfterClose(t *testing.T) {
 	r := newReg()
 	publish(r, map[string]*conn{DefaultName: {}})
 	if err := r.Close(); err != nil {
@@ -545,7 +545,7 @@ func TestClose_关完之后取不到实例(t *testing.T) {
 	}
 }
 
-func TestRegistry_并发读写不出数据竞争(t *testing.T) {
+func TestRegistry_NoDataRaceUnderConcurrentAccess(t *testing.T) {
 	r := newReg()
 	publish(r, map[string]*conn{DefaultName: {}})
 
@@ -570,7 +570,7 @@ func TestRegistry_并发读写不出数据竞争(t *testing.T) {
 }
 
 // C() 每次数据访问都要走一遍 Get
-func BenchmarkGet_取默认实例(b *testing.B) {
+func BenchmarkGet_Default(b *testing.B) {
 	r := newReg()
 	publish(r, map[string]*conn{DefaultName: {}, "b": {}})
 	b.ReportAllocs()
@@ -579,7 +579,7 @@ func BenchmarkGet_取默认实例(b *testing.B) {
 	}
 }
 
-func BenchmarkGet_取默认实例_并发(b *testing.B) {
+func BenchmarkGet_Default_Parallel(b *testing.B) {
 	r := newReg()
 	publish(r, map[string]*conn{DefaultName: {}, "b": {}})
 	b.ReportAllocs()

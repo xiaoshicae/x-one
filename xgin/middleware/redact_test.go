@@ -28,7 +28,7 @@ func TestRedactBody_JSON(t *testing.T) {
 	}
 }
 
-func TestRedactBody_JSON转义的字段名(t *testing.T) {
+func TestRedactBody_JSONEscapedFieldNames(t *testing.T) {
 	// 回归用例。JSON 允许在字符串里写 \uXXXX，于是 password 可以写成
 	// \u0070assword，原始字节里根本没有这个子串。
 	// 上一版只做字面扫描，这种 body 会走快路径原样进日志——密码明文落盘。
@@ -54,7 +54,7 @@ func TestRedactBody_JSON转义的字段名(t *testing.T) {
 	}
 }
 
-func TestRedactBody_JSON解析失败时整个遮掉(t *testing.T) {
+func TestRedactBody_JSONParseFailureMasksAll(t *testing.T) {
 	// 字面扫描认为里面有敏感字段名，但解析不了——定位不了就不能放行
 	got := RedactBody([]byte(`{"password": "`+secret), "application/json")
 	mustNotLeak(t, got)
@@ -63,7 +63,7 @@ func TestRedactBody_JSON解析失败时整个遮掉(t *testing.T) {
 	}
 }
 
-func TestRedactBody_没有敏感字段时原样保留(t *testing.T) {
+func TestRedactBody_KeptAsIsWithoutSensitiveFields(t *testing.T) {
 	// 快路径的意义就在这里：绝大多数请求体不含敏感字段，不该为它们付解析的代价
 	body := `{"user":"alice","age":30}`
 	if got := RedactBody([]byte(body), "application/json"); got != body {
@@ -71,7 +71,7 @@ func TestRedactBody_没有敏感字段时原样保留(t *testing.T) {
 	}
 }
 
-func TestRedactBody_大小写不敏感(t *testing.T) {
+func TestRedactBody_CaseInsensitive(t *testing.T) {
 	for _, body := range []string{
 		`{"PASSWORD":"` + secret + `"}`,
 		`{"PassWord":"` + secret + `"}`,
@@ -81,7 +81,7 @@ func TestRedactBody_大小写不敏感(t *testing.T) {
 	}
 }
 
-func TestRedactBody_嵌套与数组(t *testing.T) {
+func TestRedactBody_NestedAndArrays(t *testing.T) {
 	body := `{"a":{"b":[{"token":"` + secret + `"}]},"c":"keep"}`
 	got := RedactBody([]byte(body), "application/json")
 	mustNotLeak(t, got)
@@ -90,7 +90,7 @@ func TestRedactBody_嵌套与数组(t *testing.T) {
 	}
 }
 
-func TestRedactBody_字段名里带敏感词也遮(t *testing.T) {
+func TestRedactBody_MasksFieldsContainingSensitiveWord(t *testing.T) {
 	// 回归用例。原先是精确匹配，new_password、client_secret、sessionToken
 	// 全都原样进了日志。脱敏的失败模式是不对称的：多遮一个字段只是少点
 	// 排查信息，漏遮一个就是凭证明文落盘。所以去掉大小写和分隔符之后按「含」算
@@ -113,7 +113,7 @@ func TestRedactBody_字段名里带敏感词也遮(t *testing.T) {
 	}
 }
 
-func TestRedactBody_重新序列化不改动其余的值(t *testing.T) {
+func TestRedactBody_ReserializeKeepsOtherValues(t *testing.T) {
 	// 回归用例。原先解进 any 再 json.Marshal：大整数走 float64，
 	// 12345678901234567890 变成 12345678901234567000；< > & 被写成反斜杠 u 开头的转义序列，
 	// 日志里的订单号对不上、检索也搜不到原文
@@ -130,7 +130,7 @@ func TestRedactBody_重新序列化不改动其余的值(t *testing.T) {
 	}
 }
 
-func TestRedactBody_JSON后面跟着别的东西时整个遮掉(t *testing.T) {
+func TestRedactBody_JSONWithTrailingDataMasksAll(t *testing.T) {
 	// 逐个值解码的话第一个值解得出来，后面那一截就被当作不存在——
 	// 而它可能恰好就是含凭证的那部分
 	got := RedactBody([]byte(`{"a":1} {"password":"`+secret+`"}`), "application/json")
@@ -139,7 +139,7 @@ func TestRedactBody_JSON后面跟着别的东西时整个遮掉(t *testing.T) {
 	}
 }
 
-func TestRedactBody_表单(t *testing.T) {
+func TestRedactBody_Form(t *testing.T) {
 	got := RedactBody([]byte("user=alice&password="+secret), "application/x-www-form-urlencoded")
 	mustNotLeak(t, got)
 	if !strings.Contains(got, "user=alice") {
@@ -147,7 +147,7 @@ func TestRedactBody_表单(t *testing.T) {
 	}
 }
 
-func TestRedactBody_表单百分号编码的键(t *testing.T) {
+func TestRedactBody_FormPercentEncodedKeys(t *testing.T) {
 	// 回归用例。表单的键是百分号编码的，p%61ssword 按字面切出来跟 password
 	// 对不上，于是照样进日志。要跟服务端实际读到的键比，就得先解码
 	for _, body := range []string{
@@ -168,14 +168,14 @@ func TestRedactBody_表单百分号编码的键(t *testing.T) {
 	}
 }
 
-func TestRedactBody_表单解析失败时整个遮掉(t *testing.T) {
+func TestRedactBody_FormParseFailureMasksAll(t *testing.T) {
 	got := RedactBody([]byte("password=%zz"), "application/x-www-form-urlencoded")
 	if got != Redacted {
 		t.Errorf("解析失败应整个遮掉，got=%s", got)
 	}
 }
 
-func TestRedactBody_其它类型去掉换行(t *testing.T) {
+func TestRedactBody_OtherTypesStripNewlines(t *testing.T) {
 	// 一条日志被撑成好几行，后面的采集和检索都会错位
 	got := RedactBody([]byte("line1\nline2\r\nline3"), "text/plain")
 	if strings.ContainsAny(got, "\r\n") {
@@ -183,7 +183,7 @@ func TestRedactBody_其它类型去掉换行(t *testing.T) {
 	}
 }
 
-func TestRedactBody_JSON的各种写法都走脱敏(t *testing.T) {
+func TestRedactBody_JSONVariantsAllRedacted(t *testing.T) {
 	// 之前是精确匹配 application/json，于是 +json 的各种子类型、
 	// text/json、以及大写写法全都绕过了脱敏 —— 密码原样进日志。
 	// Content-Type 按 RFC 9110 本就是大小写不敏感的。
@@ -205,14 +205,14 @@ func TestRedactBody_JSON的各种写法都走脱敏(t *testing.T) {
 	}
 }
 
-func TestRedactBody_表单大写写法也走脱敏(t *testing.T) {
+func TestRedactBody_UppercaseFormTypeRedacted(t *testing.T) {
 	got := RedactBody([]byte("password=hunter2"), "Application/X-WWW-Form-Urlencoded")
 	if strings.Contains(got, "hunter2") {
 		t.Errorf("大写的 Content-Type 同样应脱敏，got=%s", got)
 	}
 }
 
-func TestRedactBody_认不出结构时有敏感字段名就整个遮掉(t *testing.T) {
+func TestRedactBody_UnknownFormatWithSensitiveNameMasksAll(t *testing.T) {
 	// text/plain、xml、没带 Content-Type 的 body 都定位不到具体字段，
 	// 但「里面有没有敏感字段名」看得出来。有就整个遮掉 ——
 	// 与 JSON 解析失败时是同一条规矩：定位不了就不能放行。
@@ -224,7 +224,7 @@ func TestRedactBody_认不出结构时有敏感字段名就整个遮掉(t *testi
 	}
 }
 
-func TestRedactBody_认不出结构且没有敏感字段名时原样保留(t *testing.T) {
+func TestRedactBody_UnknownFormatWithoutSensitiveNameKept(t *testing.T) {
 	// 过度遮蔽会把排查信息一起抹掉，只在确实出现敏感字段名时才动手
 	const body = "just a plain note about the weather"
 	if got := RedactBody([]byte(body), "text/plain"); got != body {
@@ -232,7 +232,7 @@ func TestRedactBody_认不出结构且没有敏感字段名时原样保留(t *te
 	}
 }
 
-func TestRedactBody_纯文本里的反斜杠不触发整体遮蔽(t *testing.T) {
+func TestRedactBody_BackslashInPlainTextDoesNotMaskAll(t *testing.T) {
 	// 反斜杠是 JSON 的转义语法，纯文本里它就是个普通字符。
 	// 照搬 JSON 那条「见到反斜杠一律可疑」的规矩，
 	// 一条带 Windows 路径的日志会被整段遮掉
@@ -242,7 +242,7 @@ func TestRedactBody_纯文本里的反斜杠不触发整体遮蔽(t *testing.T) 
 	}
 }
 
-func TestRedactBody_空body(t *testing.T) {
+func TestRedactBody_EmptyBody(t *testing.T) {
 	if got := RedactBody(nil, "application/json"); got != "" {
 		t.Errorf("空 body 应返回空串，got=%q", got)
 	}
@@ -290,7 +290,7 @@ func TestRedactHeaders(t *testing.T) {
 	}
 }
 
-func TestRedactHeaders_在日志里是嵌套对象而不是转义过的字符串(t *testing.T) {
+func TestRedactHeaders_LoggedAsNestedObjectNotEscapedString(t *testing.T) {
 	// 交出序列化好的字符串的话，slog 会把它当普通字符串字段再转义一遍，
 	// 日志里就是 "请求头":"{\"X-A\":\"1\"}" —— 检索时要先解一层字符串
 	got := headerLog(http.Header{"X-A": {"1"}})
@@ -302,7 +302,7 @@ func TestRedactHeaders_在日志里是嵌套对象而不是转义过的字符串
 	}
 }
 
-func TestRedactHeaders_多值头拼成一个字符串(t *testing.T) {
+func TestRedactHeaders_JoinsMultiValueHeader(t *testing.T) {
 	// 同一个字段名忽而是字符串忽而是数组，日志系统建索引时会直接拒收
 	got := headerLog(http.Header{"X-Multi": {"a", "b"}})
 	if !strings.Contains(got, `"X-Multi":"a, b"`) {
@@ -310,7 +310,7 @@ func TestRedactHeaders_多值头拼成一个字符串(t *testing.T) {
 	}
 }
 
-func TestRedactHeaders_字段按key排序(t *testing.T) {
+func TestRedactHeaders_FieldsSortedByKey(t *testing.T) {
 	// map 遍历顺序是随机的，不排序的话每行日志的字段顺序都不一样
 	h := http.Header{"X-C": {"3"}, "X-A": {"1"}, "X-B": {"2"}}
 	for i := 0; i < 20; i++ {
@@ -321,13 +321,13 @@ func TestRedactHeaders_字段按key排序(t *testing.T) {
 	}
 }
 
-func TestRedactHeaders_Cookie默认就遮(t *testing.T) {
+func TestRedactHeaders_CookieMaskedByDefault(t *testing.T) {
 	// Cookie 里几乎总有会话标识，等价于凭证
 	mustNotLeak(t, headerLog(http.Header{"Cookie": {"sid=" + secret}}))
 	mustNotLeak(t, headerLog(http.Header{"Set-Cookie": {"sid=" + secret}}))
 }
 
-func TestRedactHeaders_追加的敏感头也遮(t *testing.T) {
+func TestRedactHeaders_MasksAddedSensitiveHeaders(t *testing.T) {
 	// 名字里没有敏感词的头只能靠追加的名单：这条用例也是
 	// 「按名单遮」那一段代码唯一的看守——默认名单里的头都带着敏感词
 	reset := func() {
@@ -346,7 +346,7 @@ func TestRedactHeaders_追加的敏感头也遮(t *testing.T) {
 	mustNotLeak(t, headerLog(h))
 }
 
-func TestRedactHeaders_名字里带敏感词也遮(t *testing.T) {
+func TestRedactHeaders_MasksNamesContainingSensitiveWord(t *testing.T) {
 	// 回归用例。默认名单漏了 Proxy-Authorization，它和 Authorization
 	// 一样带凭证。名单永远列不全，所以另加一条：名字里带敏感词就遮
 	for _, name := range []string{
@@ -370,7 +370,7 @@ func TestRedactHeaders_名字里带敏感词也遮(t *testing.T) {
 	}
 }
 
-func TestRedactHeaders_两次之间不串味(t *testing.T) {
+func TestRedactHeaders_NoLeakBetweenCalls(t *testing.T) {
 	// 回归用例：早先的实现从池子里取一个 map 复用，忘了清空的话
 	// 上一次请求的头会漏进下一条日志
 	first := headerLog(http.Header{"X-One": {"1"}})
@@ -380,7 +380,7 @@ func TestRedactHeaders_两次之间不串味(t *testing.T) {
 	}
 }
 
-func TestMayContainField_忽略大小写和分隔符(t *testing.T) {
+func TestMayContainField_IgnoresCaseAndSeparators(t *testing.T) {
 	ws := words()
 	for _, c := range []struct {
 		body string
@@ -399,7 +399,7 @@ func TestMayContainField_忽略大小写和分隔符(t *testing.T) {
 	}
 }
 
-func TestMayContainField_反斜杠一律走慢路径(t *testing.T) {
+func TestMayContainField_BackslashAlwaysTakesSlowPath(t *testing.T) {
 	ws := words()
 	if !mayContainField(`{"a":"b\\c"}`, ws) {
 		t.Error("有反斜杠就该走慢路径——字面扫描在转义面前不可靠")
@@ -410,7 +410,7 @@ func TestMayContainField_反斜杠一律走慢路径(t *testing.T) {
 }
 
 // 证明这组用例真的在测旧实现会漏掉的东西
-func TestRedact_旧实现会漏的用例(t *testing.T) {
+func TestRedact_CasesOldImplementationMissed(t *testing.T) {
 	escaped := `{"` + esc('p') + `assword":"` + secret + `"}`
 	encoded := "p%61ssword=" + secret
 
@@ -447,7 +447,7 @@ func TestRedact_旧实现会漏的用例(t *testing.T) {
 // 测的都是普通字段名，全部通过，却什么也没证明。
 func esc(c byte) string { return fmt.Sprintf("%cu%04x", 92, c) }
 
-func TestRedactBody_Unicode折叠后是敏感词也遮(t *testing.T) {
+func TestRedactBody_UnicodeFoldedSensitiveWordMasked(t *testing.T) {
 	// encoding/json 匹配字段名用的是 Unicode 大小写折叠：长 s（U+017F）
 	// 折叠成 s，开尔文符号（U+212A）折叠成 k。只按 ASCII 比的话，
 	// 这种 key 在预检里认不出来，body 原样进日志，而服务端读到的就是那个字段
@@ -468,7 +468,7 @@ func TestRedactBody_Unicode折叠后是敏感词也遮(t *testing.T) {
 	}
 }
 
-func TestRedactBody_中文内容照常走快路径(t *testing.T) {
+func TestRedactBody_ChineseContentTakesFastPath(t *testing.T) {
 	// 多字节字符要解码后再折叠，但不能因此把普通的中文 body 当成可疑
 	body := `{"备注":"你好，世界"}`
 	if got := RedactBody([]byte(body), "text/plain"); got != body {
@@ -476,7 +476,7 @@ func TestRedactBody_中文内容照常走快路径(t *testing.T) {
 	}
 }
 
-func TestRedactHeaders_URL类的头去掉查询串(t *testing.T) {
+func TestRedactHeaders_URLHeadersStripQueryString(t *testing.T) {
 	// 访问日志的 path 特意不带查询串，Referer 却带着上一个页面的完整 URL：
 	// OAuth 回调的 ?code=、带在链接上的 ?token= 从这里又进了日志
 	got := headerLog(http.Header{

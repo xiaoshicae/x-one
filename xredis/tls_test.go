@@ -114,7 +114,7 @@ func TestNew_TLS(t *testing.T) {
 	}
 }
 
-func TestNew_TLS双向认证(t *testing.T) {
+func TestNew_TLSMutualAuth(t *testing.T) {
 	pki := newPKI(t)
 	f := newFakeRedisTLS(t, &tls.Config{
 		Certificates: []tls.Certificate{pki.server},
@@ -136,7 +136,7 @@ func TestNew_TLS双向认证(t *testing.T) {
 	closer.Close()
 }
 
-func TestNew_TLS文件读不出来是配置错误(t *testing.T) {
+func TestNew_TLSUnreadableFileIsConfigError(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "nope.pem")
 	notPEM := filepath.Join(t.TempDir(), "junk.pem")
 	os.WriteFile(notPEM, []byte("not a certificate"), 0o600)

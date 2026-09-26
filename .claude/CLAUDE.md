@@ -5,7 +5,7 @@ xone 是一个 Go 三方库集成框架：统一读配置、按阶段初始化�
 
 ## 语言
 
-- 对话、代码注释、README 与 docs 用简体中文；测试函数名、基准函数名用中文（描述场景）。
+- 对话、代码注释、README 与 docs 用简体中文；测试函数名、基准函数名用英文（描述场景，如 `TestNew_FailsFastOnTypo`）。
 - **error / panic 的消息、日志的 message 与字段名用英文**——它们会落进使用者的日志平台和告警。commit message 用英文。
 - 文档和注释里的示例用中性的值（`Europe/Berlin`、`prod,eu`），不写尚未发布的「之前的版本 / 行为变化」。
 

@@ -12,7 +12,7 @@ import (
 	"github.com/xiaoshicae/x-one"
 )
 
-func TestRun_只用核心也能写XApp(t *testing.T) {
+func TestRun_XAppWorksWithCoreOnly(t *testing.T) {
 	// XApp 块跟着框架一起来：没 import xapp 的程序写了 XApp.Name，也不该被当成没人读的 key
 	cfg := filepath.Join(t.TempDir(), "application.yml")
 	if err := os.WriteFile(cfg, []byte("XApp:\n  Name: core.only\n  Version: v1\n"), 0o600); err != nil {

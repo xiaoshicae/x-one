@@ -40,7 +40,7 @@ func write(t *testing.T, body string) string {
 	return p
 }
 
-func TestLoad_默认值在未写的字段上保留(t *testing.T) {
+func TestLoad_DefaultsKeptOnUnsetFields(t *testing.T) {
 	c := comps(t)
 	if err := LoadInto(write(t, "Demo:\n  Addr: \"10.0.0.1:1\"\n"), "Demo", &c); err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestLoad_默认值在未写的字段上保留(t *testing.T) {
 	}
 }
 
-func TestLoad_显式零值能覆盖默认值(t *testing.T) {
+func TestLoad_ExplicitZeroOverridesDefault(t *testing.T) {
 	// 这正是 *bool 指针模式想解决的问题，预填默认值天然就有这个语义
 	c := comps(t)
 	if err := LoadInto(write(t, "Demo:\n  Enable: false\n  Retries: 0\n  Addr: \"\"\n"), "Demo", &c); err != nil {
@@ -64,7 +64,7 @@ func TestLoad_显式零值能覆盖默认值(t *testing.T) {
 	}
 }
 
-func TestLoad_Duration原生解析(t *testing.T) {
+func TestLoad_DurationParsedNatively(t *testing.T) {
 	for _, tc := range []struct {
 		yaml string
 		want time.Duration
@@ -83,7 +83,7 @@ func TestLoad_Duration原生解析(t *testing.T) {
 	}
 }
 
-func TestLoad_时长格式错误当场报错(t *testing.T) {
+func TestLoad_BadDurationFormatFailsFast(t *testing.T) {
 	c := comps(t)
 	err := LoadInto(write(t, "Demo:\n  Timeout: 那么久\n"), "Demo", &c)
 	if err == nil {
@@ -91,7 +91,7 @@ func TestLoad_时长格式错误当场报错(t *testing.T) {
 	}
 }
 
-func TestLoad_字段拼错是错误(t *testing.T) {
+func TestLoad_MisspelledFieldIsError(t *testing.T) {
 	c := comps(t)
 	err := LoadInto(write(t, "Demo:\n  Adrr: \"x\"\n"), "Demo", &c)
 	if err == nil {
@@ -102,7 +102,7 @@ func TestLoad_字段拼错是错误(t *testing.T) {
 	}
 }
 
-func TestUnclaimed_没人读过的块被报出来(t *testing.T) {
+func TestUnclaimed_ReportsBlocksNobodyRead(t *testing.T) {
 	// 读是各集成包自己在启动钩子里做的，所以「没人要」这件事只有等钩子
 	// 全跑完才知道。框架据此报错，它同时覆盖「key 拼错」和「忘了 import」
 	c := comps(t)
@@ -115,7 +115,7 @@ func TestUnclaimed_没人读过的块被报出来(t *testing.T) {
 	}
 }
 
-func TestLoad_占位符(t *testing.T) {
+func TestLoad_Placeholder(t *testing.T) {
 	t.Run("环境变量已设置", func(t *testing.T) {
 		t.Setenv("XONE_T_ADDR", "10.1.1.1:9")
 		c := comps(t)
@@ -159,7 +159,7 @@ func TestLoad_占位符(t *testing.T) {
 	})
 }
 
-func TestLoad_占位符填非字符串字段(t *testing.T) {
+func TestLoad_PlaceholderFillsNonStringField(t *testing.T) {
 	// 文档把 ${VAR} 写成一条通用规则，那它就得对所有字段类型成立。
 	// 解析时整个 ${PORT:8080} 是一段文本，标量因此被打上 !!str；
 	// 替换之后不重新判定类型的话，这些字段全都以
@@ -242,7 +242,7 @@ func TestLoad_占位符填非字符串字段(t *testing.T) {
 	})
 }
 
-func TestLoad_占位符在map和切片里也按新内容判定类型(t *testing.T) {
+func TestLoad_PlaceholderInMapAndSliceTypedByExpandedContent(t *testing.T) {
 	// 展开是在整棵节点树上做的，map 的 value、切片元素、嵌套结构体都要对。
 	// 尤其是 map[string]string：重新判定类型不该把 "123" 变成读不进 string 的东西
 	os.Unsetenv("XONE_T_C1")
@@ -280,7 +280,7 @@ func TestLoad_占位符在map和切片里也按新内容判定类型(t *testing.
 	}
 }
 
-func TestLoad_占位符的值含特殊字符不破坏结构(t *testing.T) {
+func TestLoad_PlaceholderSpecialCharsDoNotBreakStructure(t *testing.T) {
 	// 在解析后的节点上展开，而不是对原始字节做文本替换 —— 否则这是条注入路径
 	t.Setenv("XONE_T_INJECT", "a: b\nEvil: true")
 	c := comps(t)
@@ -301,7 +301,7 @@ func TestLoad_占位符的值含特殊字符不破坏结构(t *testing.T) {
 	}
 }
 
-func TestLoad_空文件全部用默认值(t *testing.T) {
+func TestLoad_EmptyFileUsesAllDefaults(t *testing.T) {
 	c := comps(t)
 	if err := LoadInto(write(t, ""), "Demo", c); err != nil {
 		t.Fatal(err)
@@ -311,7 +311,7 @@ func TestLoad_空文件全部用默认值(t *testing.T) {
 	}
 }
 
-func TestLoad_没配这一块时保持默认(t *testing.T) {
+func TestLoad_MissingBlockKeepsDefaults(t *testing.T) {
 	c := comps(t)
 	if err := LoadInto(write(t, "Demo:\n"), "Demo", &c); err != nil {
 		t.Fatal(err)
@@ -321,14 +321,14 @@ func TestLoad_没配这一块时保持默认(t *testing.T) {
 	}
 }
 
-func TestLoad_文件不存在(t *testing.T) {
+func TestLoad_FileNotFound(t *testing.T) {
 	c := comps(t)
 	if err := LoadInto(filepath.Join(t.TempDir(), "nope.yml"), "Demo", c); err == nil {
 		t.Fatal("文件不存在应报错")
 	}
 }
 
-func TestLoad_时长字段(t *testing.T) {
+func TestLoad_DurationFields(t *testing.T) {
 	// 各模块的超时/周期都直接用 time.Duration，靠的是 yaml.v3 原生认识时长字符串。
 	// 这是个横跨所有模块的假设，在这里钉住：改了依赖会先在这里炸，
 	// 而不是等到某个模块的超时悄悄变成 0
@@ -364,7 +364,7 @@ func TestLoad_时长字段(t *testing.T) {
 	})
 }
 
-func TestLoad_没人认领的顶层key要报错(t *testing.T) {
+func TestLoad_UnclaimedTopLevelKeyIsError(t *testing.T) {
 	// 多半是拼错了，或者忘了 import 对应的集成包。
 	// 静默忽略的话，使用者会盯着一份"明明配了"的文件查半天
 	type demo struct {
@@ -383,7 +383,7 @@ func TestLoad_没人认领的顶层key要报错(t *testing.T) {
 	}
 }
 
-func TestLoad_默认值的覆盖语义(t *testing.T) {
+func TestLoad_DefaultOverrideSemantics(t *testing.T) {
 	// 默认值预填在结构体里，所以「文件里写了会发生什么」必须钉死。
 	// 两种容器的行为不一样，写默认值的人必须知道
 	type demo struct {
@@ -430,7 +430,7 @@ func TestLoad_默认值的覆盖语义(t *testing.T) {
 	})
 }
 
-func TestLoad_重复的顶层key要报错(t *testing.T) {
+func TestLoad_DuplicateTopLevelKeyIsError(t *testing.T) {
 	// 转成 map 的那一刻重复信息就没了，后面的严格解码再也看不见它——
 	// 于是同一个块写两遍能正常加载，静默地以后一份为准
 	c := comps(t)
@@ -447,7 +447,7 @@ func TestLoad_重复的顶层key要报错(t *testing.T) {
 
 // ---- Has：「配了才初始化」的判据 ----
 
-func TestHas_区分写了和没写(t *testing.T) {
+func TestHas_DistinguishesSetFromUnset(t *testing.T) {
 	// 判错一次，可选组件要么白建一套，要么配了也不起
 	Reset()
 	t.Cleanup(Reset)
@@ -463,7 +463,7 @@ func TestHas_区分写了和没写(t *testing.T) {
 	}
 }
 
-func TestHas_空块等于没配(t *testing.T) {
+func TestHas_EmptyBlockCountsAsUnset(t *testing.T) {
 	// 「XCache:」后面什么都不写，是「我先占个位」而不是「按默认值给我建一套」
 	Reset()
 	t.Cleanup(Reset)
@@ -479,7 +479,7 @@ func TestHas_空块等于没配(t *testing.T) {
 	}
 }
 
-func TestHas_还没加载时先加载(t *testing.T) {
+func TestHas_LoadsFirstIfNotLoaded(t *testing.T) {
 	// 可选组件靠 Has 决定建不建。还没加载就报告没有的话，一个在 Run 之前
 	// 问了一句的组件会以为自己没配，从此静默缺席
 	Reset()
@@ -493,7 +493,7 @@ func TestHas_还没加载时先加载(t *testing.T) {
 
 // ---- Unclaimed 的其余语义 ----
 
-func TestUnclaimed_按名字排序(t *testing.T) {
+func TestUnclaimed_SortedByName(t *testing.T) {
 	// 顺序稳定，错误文案才可复现
 	c := comps(t)
 	if err := LoadInto(write(t, "Demo:\n  Addr: x\nXTypo:\n  Foo: 1\nXAlso:\n  Bar: 2\n"), "Demo", &c); err != nil {
@@ -504,7 +504,7 @@ func TestUnclaimed_按名字排序(t *testing.T) {
 	}
 }
 
-func TestUnclaimed_读一个压根没配的块也算认领(t *testing.T) {
+func TestUnclaimed_ReadingAbsentBlockCountsAsClaim(t *testing.T) {
 	// 可选组件都是「先读了再看有没有」，那种读不该把别的块连累成没人认领
 	c := comps(t)
 	if err := LoadInto(write(t, "Demo:\n  Addr: x\n"), "Demo", &c); err != nil {
@@ -518,14 +518,14 @@ func TestUnclaimed_读一个压根没配的块也算认领(t *testing.T) {
 	}
 }
 
-func TestUnclaimed_加载之前是空的(t *testing.T) {
+func TestUnclaimed_EmptyBeforeLoad(t *testing.T) {
 	Reset()
 	if got := Unclaimed(); len(got) != 0 {
 		t.Errorf("want 空，got=%v", got)
 	}
 }
 
-func TestLoad_每次加载都重新开始认领(t *testing.T) {
+func TestLoad_EachLoadResetsClaims(t *testing.T) {
 	// 同一个进程里跑第二次时，上一轮的认领记录不能留下来——
 	// 那会让这一轮真正没人读的块被漏报
 	c := comps(t)
@@ -543,7 +543,7 @@ func TestLoad_每次加载都重新开始认领(t *testing.T) {
 	}
 }
 
-func TestUnmarshal_空块保持默认值(t *testing.T) {
+func TestUnmarshal_EmptyBlockKeepsDefaults(t *testing.T) {
 	c := comps(t)
 	want := c.Addr
 	if err := LoadInto(write(t, "Demo:\n"), "Demo", &c); err != nil {
@@ -554,7 +554,7 @@ func TestUnmarshal_空块保持默认值(t *testing.T) {
 	}
 }
 
-func TestHas_问过就算认领(t *testing.T) {
+func TestHas_AskingCountsAsClaim(t *testing.T) {
 	// 「XRedis:」这样的空块曾经让启动直接失败：Has 返回 false，那个包就此
 	// 跳过、不再 Unmarshal，于是这个 key 没人认领。而 Unclaimed 报出来的
 	// 两条原因（拼错了、忘了 import）都不成立，照着查什么都查不出来
@@ -572,7 +572,7 @@ func TestHas_问过就算认领(t *testing.T) {
 	}
 }
 
-func TestHas_非空块问过也算认领(t *testing.T) {
+func TestHas_AskingNonEmptyBlockCountsAsClaim(t *testing.T) {
 	Reset()
 	t.Cleanup(Reset)
 	if err := Load(write(t, "XRedis:\n  Addr: a\n")); err != nil {
@@ -587,7 +587,7 @@ func TestHas_非空块问过也算认领(t *testing.T) {
 	}
 }
 
-func TestLoad_占位符展开为空时保持默认值(t *testing.T) {
+func TestLoad_PlaceholderExpandingToEmptyKeepsDefault(t *testing.T) {
 	// 展开成空等于这一项没写：非字符串字段从前以
 	// cannot unmarshal !!str "" into int 失败，字符串字段则被清成空串
 	os.Unsetenv("XONE_T_EMPTY")
@@ -609,7 +609,7 @@ func TestLoad_占位符展开为空时保持默认值(t *testing.T) {
 	}
 }
 
-func TestLoad_加了引号的空占位符是空字符串(t *testing.T) {
+func TestLoad_QuotedEmptyPlaceholderIsEmptyString(t *testing.T) {
 	// 引号是明确的「按字符串处理」，真想要空串就这样写
 	os.Unsetenv("XONE_T_EMPTY")
 	c := comps(t)
@@ -621,7 +621,7 @@ func TestLoad_加了引号的空占位符是空字符串(t *testing.T) {
 	}
 }
 
-func TestLoad_锚点可以跨顶层块引用(t *testing.T) {
+func TestLoad_AnchorsWorkAcrossTopLevelBlocks(t *testing.T) {
 	// 各块是分开解码的，从前别名指向别的块里的锚点时报 unknown anchor
 	body := "Shared: &timeouts\n  Timeout: 7s\n  Retries: 9\n" +
 		"Demo:\n  <<: *timeouts\n  Addr: h:1\n" +
@@ -643,7 +643,7 @@ func TestLoad_锚点可以跨顶层块引用(t *testing.T) {
 	}
 }
 
-func TestLoad_锚点里的占位符在每个引用处都展开(t *testing.T) {
+func TestLoad_AnchorPlaceholdersExpandAtEveryAlias(t *testing.T) {
 	t.Setenv("XONE_T_ANCHOR", "env:1")
 	body := "Base: &b\n  Addr: ${XONE_T_ANCHOR}\nDemo: *b\n"
 	c := comps(t)
@@ -655,7 +655,7 @@ func TestLoad_锚点里的占位符在每个引用处都展开(t *testing.T) {
 	}
 }
 
-func TestLoad_profile文件可以覆盖别名展开出来的字段(t *testing.T) {
+func TestLoad_ProfileFileCanOverrideAliasExpandedFields(t *testing.T) {
 	withProfileEnv(t, "prod")
 	base := files(t, "application.yml", map[string]string{
 		"application.yml":      "Base: &b\n  Addr: base:1\n  Retries: 5\nDemo: *b\n",
@@ -670,7 +670,7 @@ func TestLoad_profile文件可以覆盖别名展开出来的字段(t *testing.T)
 	}
 }
 
-func TestLoad_别名展开过多要报错(t *testing.T) {
+func TestLoad_TooManyAliasExpansionsIsError(t *testing.T) {
 	// 别名在加载时就地展开成副本，一份刻意构造的「十亿笑」会把内存吃光
 	var b strings.Builder
 	b.WriteString("L0: &l0 [x, x, x, x, x, x, x, x, x, x]\n")
@@ -690,7 +690,7 @@ func TestLoad_别名展开过多要报错(t *testing.T) {
 	}
 }
 
-func TestDecodeStrict_字段没写tag时报错里说怎么改(t *testing.T) {
+func TestDecodeStrict_MissingTagErrorExplainsFix(t *testing.T) {
 	// yaml.v3 对没写 tag 的字段只认全小写：照着字段名写 Endpoint，报的是
 	// 「field Endpoint not found」——字段明明就叫这个。嵌套的一样要提示到
 	type inner struct{ Host string }
@@ -717,7 +717,7 @@ func TestDecodeStrict_字段没写tag时报错里说怎么改(t *testing.T) {
 	}
 }
 
-func TestLoad_占位符的值是null写法时不当成没写(t *testing.T) {
+func TestLoad_PlaceholderNullLiteralIsNotTreatedAsUnset(t *testing.T) {
 	// 变量的值恰好是 null / ~ 时，重新判定会把它当成「这一项没写」：
 	// 字段悄悄留在默认值上，启动一切正常，配的值却没生效
 	for _, v := range []string{"null", "~", "Null", "NULL"} {
@@ -752,7 +752,7 @@ func (e *secretElem) UnmarshalYAML(n *yaml.Node) error {
 	return DecodeStrict(n, (*raw)(e))
 }
 
-func TestUnmarshal_占位符展开出来的值不进报错(t *testing.T) {
+func TestUnmarshal_ExpandedPlaceholderValueNotInError(t *testing.T) {
 	// yaml 的类型错误会带上值的前几个字符。${VAR} 是凭证的推荐写法，
 	// 密码填错了字段，报出来的就是 cannot unmarshal !!str `hunter2...` into int
 	t.Setenv("XONE_T_SECRET", "hunter2-very-secret")
@@ -790,7 +790,7 @@ func TestUnmarshal_占位符展开出来的值不进报错(t *testing.T) {
 	}
 }
 
-func TestDecodeStrict_真拼错时不乱给tag提示(t *testing.T) {
+func TestDecodeStrict_NoTagHintOnRealTypo(t *testing.T) {
 	var c struct {
 		Endpoint string `yaml:"Endpoint"`
 	}
@@ -804,7 +804,7 @@ func TestDecodeStrict_真拼错时不乱给tag提示(t *testing.T) {
 	}
 }
 
-func TestLoad_字段写错时报出配置文件和那一行(t *testing.T) {
+func TestLoad_BadFieldReportsFileAndLine(t *testing.T) {
 	// 严格解码从前是把节点序列化成文本再解的，yaml 报的行号是那段文本里的行号：
 	// 第 6 行的拼错报成 line 2，也不说是哪个文件，profile 文件里的更是无从找起
 	type conf struct {
@@ -867,7 +867,7 @@ func TestLoad_字段写错时报出配置文件和那一行(t *testing.T) {
 	}
 }
 
-func TestDecodeStrict_不是从配置文件来的节点报它自己的行号(t *testing.T) {
+func TestDecodeStrict_NonFileNodeReportsItsOwnLine(t *testing.T) {
 	// 没有文件可说时，行号也得是调用方手里那个节点的行号
 	var n yaml.Node
 	if err := yaml.Unmarshal([]byte("a: 1\nDemo:\n  Addr: x\n\n  Adrr: y\n"), &n); err != nil {
@@ -880,7 +880,7 @@ func TestDecodeStrict_不是从配置文件来的节点报它自己的行号(t *
 	}
 }
 
-func TestLoad_集合元素里的问题和外面的一起报(t *testing.T) {
+func TestLoad_CollectionElementErrorsReportedWithOthers(t *testing.T) {
 	// 自己写 UnmarshalYAML 的元素在检查那一遍里就试解，而不是等到最后才解：
 	// 否则外面有一处写错，元素里的就要等改完、重启一次才看得见
 	type conf struct {
@@ -896,7 +896,7 @@ func TestLoad_集合元素里的问题和外面的一起报(t *testing.T) {
 	}
 }
 
-func TestDecodeStrict_字段规则与yaml一致(t *testing.T) {
+func TestDecodeStrict_FieldRulesMatchYAML(t *testing.T) {
 	// 未知字段是自己按类型查的，认字段的规则必须和 yaml.v3 一模一样：
 	// 多认一个是拼错放行，少认一个是合法的配置起不来
 	type base struct {

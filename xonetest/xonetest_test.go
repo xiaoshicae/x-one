@@ -41,7 +41,7 @@ func run(t *testing.T, fn func(testing.TB)) *fakeT {
 	return f
 }
 
-func TestUseConfigYAML_读到的是给的那一份并在结束时清掉(t *testing.T) {
+func TestUseConfigYAML_ReadsGivenYAMLAndCleansUpAtEnd(t *testing.T) {
 	run(t, func(tb testing.TB) {
 		UseConfigYAML(tb, "Demo:\n  Name: inner\n")
 		var d demo
@@ -55,7 +55,7 @@ func TestUseConfigYAML_读到的是给的那一份并在结束时清掉(t *testi
 	}
 }
 
-func TestUseConfig_加载失败时测试失败(t *testing.T) {
+func TestUseConfig_LoadFailureFailsTest(t *testing.T) {
 	if f := run(t, func(tb testing.TB) { UseConfig(tb, "/definitely/not/here.yml") }); !f.failed {
 		t.Error("配置文件不存在时该让测试失败")
 	}
@@ -73,7 +73,7 @@ func rec(seq *[]string, s string, err error) xhook.HookFunc {
 	return func(context.Context) error { *seq = append(*seq, s); return err }
 }
 
-func TestStartHooks_按档位启动并在结束时逆序关闭(t *testing.T) {
+func TestStartHooks_StartsByStageAndClosesInReverseAtEnd(t *testing.T) {
 	seq := board(t)
 	xhook.BeforeStart(rec(seq, "start:biz", nil))
 	xhook.BeforeStop(rec(seq, "stop:biz", nil))
@@ -95,7 +95,7 @@ func TestStartHooks_按档位启动并在结束时逆序关闭(t *testing.T) {
 	}
 }
 
-func TestStartHooks_启动失败时只关已经起来的(t *testing.T) {
+func TestStartHooks_OnStartFailureClosesOnlyStarted(t *testing.T) {
 	seq := board(t)
 	xhook.BeforeStart(rec(seq, "start:a", nil), xhook.At(xhook.StageClient))
 	xhook.BeforeStop(rec(seq, "stop:a", nil))
@@ -110,7 +110,7 @@ func TestStartHooks_启动失败时只关已经起来的(t *testing.T) {
 	}
 }
 
-func TestStartHooks_停止钩子出错时测试失败(t *testing.T) {
+func TestStartHooks_StopHookErrorFailsTest(t *testing.T) {
 	seq := board(t)
 	xhook.BeforeStart(rec(seq, "start:a", nil))
 	xhook.BeforeStop(rec(seq, "stop:a", errors.New("flush failed")))

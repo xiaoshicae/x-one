@@ -85,7 +85,7 @@ func get(path string) *http.Request { return httptest.NewRequest("GET", path, ni
 
 // ---- LogScope ----
 
-func TestLogScope_业务能在任意层级补字段(t *testing.T) {
+func TestLogScope_HandlersCanAddFieldsAtAnyDepth(t *testing.T) {
 	// 调用栈深处拿不到 *gin.Context，本来就没机会把新 context 回传上来
 	lines := capture(t)
 	serve(t, get("/hello"), []gin.HandlerFunc{LogScope(), Log()}, func(c *gin.Context) {
@@ -107,7 +107,7 @@ func deepInBusinessCode(ctx context.Context) { xlog.AddKV(ctx, "用户", "u9") }
 
 // ---- Recover ----
 
-func TestRecover_兜住panic并返回500(t *testing.T) {
+func TestRecover_CatchesPanicAndReturns500(t *testing.T) {
 	lines := capture(t)
 	w := serve(t, get("/hello"), []gin.HandlerFunc{Recover(nil)}, func(c *gin.Context) {
 		panic("炸了")
@@ -128,7 +128,7 @@ func TestRecover_兜住panic并返回500(t *testing.T) {
 	}
 }
 
-func TestRecover_ErrAbortHandler原样抛给net_http(t *testing.T) {
+func TestRecover_ErrAbortHandlerRepanicsToNetHTTP(t *testing.T) {
 	// http.ErrAbortHandler 是 handler 主动说「断掉这个连接」的约定写法，
 	// net/http 收到它会静默断连、不打栈。兜住它变成 500 的话，
 	// 本该被中止的响应照常发出去了，还多一份毫无意义的 panic 栈
@@ -150,7 +150,7 @@ func TestRecover_ErrAbortHandler原样抛给net_http(t *testing.T) {
 	}
 }
 
-func TestRecover_自定义响应(t *testing.T) {
+func TestRecover_CustomResponse(t *testing.T) {
 	capture(t)
 	w := serve(t, get("/hello"), []gin.HandlerFunc{Recover(func(c *gin.Context, _ any) {
 		c.JSON(503, gin.H{"msg": "稍后再试"})
@@ -161,7 +161,7 @@ func TestRecover_自定义响应(t *testing.T) {
 	}
 }
 
-func TestRecover_响应已开始写就不再改状态码(t *testing.T) {
+func TestRecover_KeepsStatusOnceResponseStarted(t *testing.T) {
 	// 响应一旦开始往外发，再改状态码只会得到一个半截的响应
 	capture(t)
 	w := serve(t, get("/hello"), []gin.HandlerFunc{Recover(nil)}, func(c *gin.Context) {
@@ -177,7 +177,7 @@ func TestRecover_响应已开始写就不再改状态码(t *testing.T) {
 	}
 }
 
-func TestRecover_没有panic时不干预(t *testing.T) {
+func TestRecover_NoOpWithoutPanic(t *testing.T) {
 	w := serve(t, get("/hello"), []gin.HandlerFunc{Recover(nil)}, func(c *gin.Context) {
 		c.String(201, "ok")
 	})
@@ -203,7 +203,7 @@ func TestIsBrokenPipe(t *testing.T) {
 
 // ---- Log ----
 
-func TestLog_记下关键字段(t *testing.T) {
+func TestLog_RecordsKeyFields(t *testing.T) {
 	lines := capture(t)
 	serve(t, get("/hello/42?q=1"), []gin.HandlerFunc{Log()}, func(c *gin.Context) {
 		c.String(201, "ok")
@@ -229,7 +229,7 @@ func TestLog_记下关键字段(t *testing.T) {
 	}
 }
 
-func TestLog_跳过指定路径(t *testing.T) {
+func TestLog_SkipsConfiguredPaths(t *testing.T) {
 	lines := capture(t)
 	mws := []gin.HandlerFunc{Log(WithSkipPaths("/hello", "/internal/"))}
 	e := gin.New()
@@ -248,7 +248,7 @@ func TestLog_跳过指定路径(t *testing.T) {
 	}
 }
 
-func TestLog_默认不记body(t *testing.T) {
+func TestLog_NoBodyByDefault(t *testing.T) {
 	// 记 body 要缓存整个请求体并对每个字段脱敏，代价和风险都不小
 	lines := capture(t)
 	req := httptest.NewRequest("POST", "/hello", strings.NewReader(`{"password":"`+secret+`"}`))
@@ -261,7 +261,7 @@ func TestLog_默认不记body(t *testing.T) {
 	}
 }
 
-func TestLog_打开后记body且脱敏(t *testing.T) {
+func TestLog_RecordsRedactedBodyWhenEnabled(t *testing.T) {
 	lines := capture(t)
 	req := httptest.NewRequest("POST", "/hello", strings.NewReader(`{"user":"alice","password":"`+secret+`"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -288,7 +288,7 @@ func TestLog_打开后记body且脱敏(t *testing.T) {
 	}
 }
 
-func TestLog_请求头脱敏(t *testing.T) {
+func TestLog_RedactsRequestHeaders(t *testing.T) {
 	lines := capture(t)
 	req := get("/hello")
 	req.Header.Set("Authorization", "Bearer "+secret)
@@ -299,7 +299,7 @@ func TestLog_请求头脱敏(t *testing.T) {
 	}
 }
 
-func TestLog_不读文件上传的body(t *testing.T) {
+func TestLog_SkipsFileUploadBody(t *testing.T) {
 	// 内容对排查没用，读一遍却要付全部的内存和时间
 	lines := capture(t)
 	req := httptest.NewRequest("POST", "/hello", strings.NewReader("大量二进制内容"))
@@ -311,7 +311,7 @@ func TestLog_不读文件上传的body(t *testing.T) {
 	}
 }
 
-func TestLog_级别关掉时不做任何准备工作(t *testing.T) {
+func TestLog_DoesNoWorkWhenLevelDisabled(t *testing.T) {
 	// 缓存 body、包装 writer、脱敏序列化，全部只为拼出这一行日志。
 	// 级别关掉还照做，就是白付了全部代价再把结果丢掉
 	old := slog.Default()
@@ -344,7 +344,7 @@ func (b *trackingBody) Read(p []byte) (int, error) {
 	return b.ReadCloser.Read(p)
 }
 
-func TestLog_panic穿过时仍写访问日志(t *testing.T) {
+func TestLog_PanicStillWritesAccessLog(t *testing.T) {
 	// 用户自定义的 RecoveryFunc 自己炸了的话，panic 会穿过 Log 这一层
 	lines := capture(t)
 	defer func() { recover() }()
@@ -374,7 +374,7 @@ func TestIsText(t *testing.T) {
 	}
 }
 
-func TestLog_读body出错也不能吃掉请求(t *testing.T) {
+func TestLog_BodyReadErrorDoesNotSwallowRequest(t *testing.T) {
 	// 回归用例。退路里读一半出错就 return 的话，那半截请求体已经消失了，
 	// 下游 handler 拿到的是个空 body——记日志不该有能力改变请求本身。
 	capture(t)
@@ -424,7 +424,7 @@ func (b *countingBody) Read(p []byte) (int, error) {
 }
 func (b *countingBody) Close() error { b.closed = true; return nil }
 
-func TestSnapshotBody_只缓存前缀不整个读进内存(t *testing.T) {
+func TestSnapshotBody_BuffersOnlyPrefix(t *testing.T) {
 	// maxRequestBody 限的是「记多少日志」，不该顺手变成「缓冲多少请求体」。
 	// 整个读进来的话，一个大上传会躺进内存，而且 handler 要等它全部落地
 	// 才能开始处理
@@ -453,7 +453,7 @@ func TestSnapshotBody_只缓存前缀不整个读进内存(t *testing.T) {
 	}
 }
 
-func TestSnapshotBody_Close落到原始body上(t *testing.T) {
+func TestSnapshotBody_CloseReachesOriginalBody(t *testing.T) {
 	// 换成 io.NopCloser 就等于把 http.Request 的关闭语义吃掉了
 	body := &countingBody{r: bytes.NewReader([]byte(`{"a":1}`))}
 	req := httptest.NewRequest("POST", "/", nil)
@@ -486,7 +486,7 @@ func (r *partialThenEOF) Read(p []byte) (int, error) {
 }
 func (r *partialThenEOF) Close() error { return nil }
 
-func TestSnapshotBody_预读时的错误要接回下游(t *testing.T) {
+func TestSnapshotBody_PrereadErrorPassedDownstream(t *testing.T) {
 	// 只把字节接回去的话，下游读到的是「前缀 + EOF」——一个被截断的请求
 	// 看上去和一个正常的请求一模一样，业务层据此判断「收全了」
 	boom := errors.New("connection reset by peer")
@@ -505,7 +505,7 @@ func TestSnapshotBody_预读时的错误要接回下游(t *testing.T) {
 	}
 }
 
-func TestLog_查询串一个字节都不进日志(t *testing.T) {
+func TestLog_NeverLogsQueryString(t *testing.T) {
 	// 访问日志记的是 URL.Path，不含查询串——GET /login?token=hunter2
 	// 这种请求里，凭证就在 URL 上。改成 RequestURI 或者 URL.String()
 	// 看着都像是「把日志记全一点」，实际是把凭证明文写进日志，
@@ -529,7 +529,7 @@ func TestLog_查询串一个字节都不进日志(t *testing.T) {
 	}
 }
 
-func TestLog_c_String_写的响应也记得下来(t *testing.T) {
+func TestLog_c_String_ResponseIsRecorded(t *testing.T) {
 	lines := capture(t)
 	req := httptest.NewRequest("GET", "/hello", nil)
 	serve(t, req, []gin.HandlerFunc{Log(WithBody(false, true))}, func(c *gin.Context) {
@@ -541,7 +541,7 @@ func TestLog_c_String_写的响应也记得下来(t *testing.T) {
 	}
 }
 
-func TestLog_handler_直接调_WriteString_也记得下来(t *testing.T) {
+func TestLog_handler_DirectWriteStringIsRecorded(t *testing.T) {
 	// gin 的 ResponseWriter 接口带 WriteString，handler 直接调它是常见写法。
 	// 包装层只包 Write 的话，这条路写出去的响应在日志里永远是空的
 	lines := capture(t)
@@ -560,7 +560,7 @@ func TestLog_handler_直接调_WriteString_也记得下来(t *testing.T) {
 	}
 }
 
-func TestLog_WriteString_超过上限时只留前缀(t *testing.T) {
+func TestLog_WriteString_TruncatesToPrefixOverLimit(t *testing.T) {
 	lines := capture(t)
 	serve(t, httptest.NewRequest("GET", "/hello", nil),
 		[]gin.HandlerFunc{Log(WithBody(false, true))},
@@ -575,7 +575,7 @@ func TestLog_WriteString_超过上限时只留前缀(t *testing.T) {
 	}
 }
 
-func TestLog_c_String_写的响应也走脱敏(t *testing.T) {
+func TestLog_c_String_ResponseIsRedacted(t *testing.T) {
 	lines := capture(t)
 	serve(t, httptest.NewRequest("GET", "/hello", nil),
 		[]gin.HandlerFunc{Log(WithBody(false, true))},
@@ -586,7 +586,7 @@ func TestLog_c_String_写的响应也走脱敏(t *testing.T) {
 	}
 }
 
-func TestLog_响应体超过上限时只留前缀(t *testing.T) {
+func TestLog_ResponseBodyTruncatedToPrefixOverLimit(t *testing.T) {
 	lines := capture(t)
 	big := strings.Repeat("a", maxResponseBody*2)
 	serve(t, httptest.NewRequest("GET", "/hello", nil),
@@ -599,7 +599,7 @@ func TestLog_响应体超过上限时只留前缀(t *testing.T) {
 	}
 }
 
-func TestSnapshotBody_二进制流不读(t *testing.T) {
+func TestSnapshotBody_SkipsBinaryStream(t *testing.T) {
 	lines := capture(t)
 	req := httptest.NewRequest("POST", "/hello", strings.NewReader("\x00\x01\x02"))
 	req.Header.Set("Content-Type", "application/octet-stream")
@@ -610,7 +610,7 @@ func TestSnapshotBody_二进制流不读(t *testing.T) {
 	}
 }
 
-func TestSnapshotBody_没有_body_时返回空(t *testing.T) {
+func TestSnapshotBody_EmptyWithoutBody(t *testing.T) {
 	if got := snapshotBody(nil); got != nil {
 		t.Errorf("nil 请求应当返回 nil，got=%v", got)
 	}
@@ -626,7 +626,7 @@ func TestSnapshotBody_没有_body_时返回空(t *testing.T) {
 	}
 }
 
-func TestHeaderValue_多值头拼成一个字符串(t *testing.T) {
+func TestHeaderValue_JoinsMultiValueHeader(t *testing.T) {
 	cases := []struct {
 		in   []string
 		want string
@@ -657,7 +657,7 @@ func serveAborted(t *testing.T, mws ...gin.HandlerFunc) {
 	})
 }
 
-func TestLog_ErrAbortHandler中止的请求记成499(t *testing.T) {
+func TestLog_ErrAbortHandlerAbortLoggedAs499(t *testing.T) {
 	// 中止的请求往往已经写出了 200 的响应头。照读 c.Writer.Status() 的话，
 	// 一个被截断的响应在访问日志里是一条普普通通的成功
 	lines := capture(t)
@@ -675,7 +675,7 @@ func TestLog_ErrAbortHandler中止的请求记成499(t *testing.T) {
 	}
 }
 
-func TestSnapshotBody_媒体类型大小写不敏感(t *testing.T) {
+func TestSnapshotBody_MediaTypeCaseInsensitive(t *testing.T) {
 	// 媒体类型按 RFC 9110 大小写不敏感。照字面比的话，
 	// Multipart/Form-Data 的上传绕过判断，文件内容整个进日志
 	for _, ct := range []string{"Multipart/Form-Data; boundary=x", "Application/Octet-Stream"} {

@@ -23,7 +23,7 @@ func entry(name string, s Stage) Entry {
 	return Entry{Name: name, Pkg: name, Stage: s, Run: noop}
 }
 
-func TestStartOrder_档位升序(t *testing.T) {
+func TestStartOrder_AscendingByStage(t *testing.T) {
 	got := board(startOrder([]Entry{
 		entry("server", StageServer),
 		entry("db", StageClient),
@@ -35,7 +35,7 @@ func TestStartOrder_档位升序(t *testing.T) {
 	}
 }
 
-func TestStartOrder_同档内保持登记顺序(t *testing.T) {
+func TestStartOrder_KeepsRegistrationOrderWithinStage(t *testing.T) {
 	// 稳定排序是有意的：同一档内谁先登记谁先起，换成不稳定排序之后
 	// 顺序会随实现变化，而使用者是照着 import 的先后去理解它的。
 	//
@@ -64,7 +64,7 @@ func TestStartOrder_同档内保持登记顺序(t *testing.T) {
 	}
 }
 
-func TestStopOrder_是启动顺序的整体镜像(t *testing.T) {
+func TestStopOrder_MirrorsStartOrder(t *testing.T) {
 	// 「声明一个档位就同时做到先启动、后关闭」这条承诺，全靠这里是整体逆序。
 	// 只按档位降序而不逆转同档内顺序的话，同档里先起的会先关
 	in := []Entry{
@@ -79,7 +79,7 @@ func TestStopOrder_是启动顺序的整体镜像(t *testing.T) {
 	}
 }
 
-func TestStopOrder_逐项与启动顺序对称(t *testing.T) {
+func TestStopOrder_SymmetricWithStartOrderPerItem(t *testing.T) {
 	in := []Entry{
 		entry("a", StageClient),
 		entry("b", StageLog),
@@ -98,7 +98,7 @@ func TestStopOrder_逐项与启动顺序对称(t *testing.T) {
 	}
 }
 
-func TestStartOrder_不改动入参(t *testing.T) {
+func TestStartOrder_DoesNotModifyInput(t *testing.T) {
 	// 排序如果落在调用方的底层数组上，全局登记板会被每次读取悄悄重排——
 	// 之后每一次 Start() 拿到的顺序都不一样了
 	in := []Entry{entry("server", StageServer), entry("log", StageLog)}
@@ -109,7 +109,7 @@ func TestStartOrder_不改动入参(t *testing.T) {
 	}
 }
 
-func TestStart_取到的是副本(t *testing.T) {
+func TestStart_ReturnsCopy(t *testing.T) {
 	t.Cleanup(Reset)
 	Reset()
 	AddStart(entry("a", StageClient))
@@ -123,7 +123,7 @@ func TestStart_取到的是副本(t *testing.T) {
 	}
 }
 
-func TestAddStart_登记后按档位取出(t *testing.T) {
+func TestAddStart_RetrievedByStageAfterRegister(t *testing.T) {
 	t.Cleanup(Reset)
 	Reset()
 	AddStart(entry("db", StageClient))
@@ -139,7 +139,7 @@ func TestAddStart_登记后按档位取出(t *testing.T) {
 	}
 }
 
-func TestReset_两块板都清空(t *testing.T) {
+func TestReset_ClearsBothBoards(t *testing.T) {
 	t.Cleanup(Reset)
 	AddStart(entry("a", StageClient))
 	AddStop(entry("a", StageClient))
@@ -149,7 +149,7 @@ func TestReset_两块板都清空(t *testing.T) {
 	}
 }
 
-func TestAddStart_并发登记不丢项(t *testing.T) {
+func TestAddStart_ConcurrentRegisterLosesNothing(t *testing.T) {
 	// 集成包的 init() 之间是串行的，但框架不该指望这一点：
 	// 使用者完全可以在自己的协程里登记
 	t.Cleanup(Reset)
@@ -172,7 +172,7 @@ func TestAddStart_并发登记不丢项(t *testing.T) {
 	}
 }
 
-func TestAddStop_配的是同包里之前最近登记的那个启动钩子(t *testing.T) {
+func TestAddStop_PairsWithLatestPriorStartHookInSamePackage(t *testing.T) {
 	// 一起登记的就是一对：open 配 close，第二组各配各的。
 	// 别的包的、登记在它之后的，都不算
 	Reset()
@@ -199,7 +199,7 @@ func TestAddStop_配的是同包里之前最近登记的那个启动钩子(t *te
 	}
 }
 
-func TestAddStop_没显式指定档位的跟着配对的启动钩子(t *testing.T) {
+func TestAddStop_WithoutExplicitStageFollowsPairedStartHook(t *testing.T) {
 	// 一对钩子管的是同一个资源：只在启动钩子上声明档位，关闭也该在那一档
 	Reset()
 	t.Cleanup(Reset)
@@ -220,7 +220,7 @@ func TestAddStop_没显式指定档位的跟着配对的启动钩子(t *testing.
 	}
 }
 
-func TestStage_业务档在客户端之后服务之前(t *testing.T) {
+func TestStage_BusinessIsAfterClientBeforeServer(t *testing.T) {
 	// 五档的相对次序是对外承诺的一部分，靠 iota 的书写顺序保证。
 	// 业务钩子里直接用 xgorm.C()，靠的就是 StageClient < StageBusiness
 	if !(StageLog < StageTelemetry && StageTelemetry < StageClient &&

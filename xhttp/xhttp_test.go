@@ -57,7 +57,7 @@ func echo(t *testing.T, h http.HandlerFunc) (*httptest.Server, *atomic.Pointer[h
 	return srv, &last
 }
 
-func TestNew_拿到的是可用的resty(t *testing.T) {
+func TestNew_ReturnsUsableResty(t *testing.T) {
 	srv, _ := echo(t, nil)
 	client, _ := newQuiet(t, DefaultConfig())
 
@@ -70,7 +70,7 @@ func TestNew_拿到的是可用的resty(t *testing.T) {
 	}
 }
 
-func TestNew_连接池参数传下去了(t *testing.T) {
+func TestNew_PoolSettingsPassedThrough(t *testing.T) {
 	c := DefaultConfig()
 	c.MaxIdleConnsPerHost, c.MaxIdleConns, c.IdleConnTimeout, c.MaxConnsPerHost = 33, 77, 11*time.Second, 5
 	c.Trace = false // otelhttp.Transport 不导出内层，要看底层就别包它
@@ -110,7 +110,7 @@ func unwrapTransport(t *testing.T, client *resty.Client) *http.Transport {
 	return nil
 }
 
-func TestNew_关掉Trace只是不开Span_链路标识和透传头照常带给下游(t *testing.T) {
+func TestNew_TraceOffOnlySkipsSpans_TraceIDAndForwardHeadersStillSent(t *testing.T) {
 	// 回归用例。XHttp.Trace: false 原先把 xtrace.Transport 连同注入一起摘掉，
 	// X-Request-Id 和上游的 traceparent 就断在这一跳，而文档说它只管 Span
 	old := otel.GetTracerProvider()
@@ -166,7 +166,7 @@ func TestNew_关掉Trace只是不开Span_链路标识和透传头照常带给下
 	}
 }
 
-func TestNew_关掉Trace时http_Client的CloseIdleConnections照样传到连接池(t *testing.T) {
+func TestNew_TraceOffCloseIdleConnectionsStillReachesPool(t *testing.T) {
 	// RawClient 的使用者调 http.Client.CloseIdleConnections，它靠类型断言一层层往下找，
 	// 中间哪一层不转发就是空操作。只断言方法存在测不出来，得看连接有没有真的被释放
 	var idle atomic.Int64
@@ -195,7 +195,7 @@ func TestNew_关掉Trace时http_Client的CloseIdleConnections照样传到连接�
 	waitFor(t, func() bool { return idle.Load() == 0 }, "CloseIdleConnections 之后空闲连接该被释放")
 }
 
-func TestTransport_otelhttp在noop下仍然注入透传Header(t *testing.T) {
+func TestTransport_OtelhttpInjectsForwardHeadersUnderNoop(t *testing.T) {
 	// 单 Transport 的简化依赖这个前提：otelhttp 无论 TracerProvider 是不是 noop，
 	// 都会调用全局 Propagator 注入。前提不成立就得补回「链路关了自己注入」那一层。
 	// 钉在这里而不是 xtrace：那边为此引 otelhttp 会让每个 xtrace 使用者
@@ -239,7 +239,7 @@ type fromTrusted struct{ propagation.HeaderCarrier }
 
 func (fromTrusted) TrustedPeer() bool { return true }
 
-func TestTransport_开链路时注入traceparent并开Span(t *testing.T) {
+func TestTransport_TraceOnInjectsTraceparentAndStartsSpan(t *testing.T) {
 	old := otel.GetTracerProvider()
 	oldProp := otel.GetTextMapPropagator()
 	t.Cleanup(func() { otel.SetTracerProvider(old); otel.SetTextMapPropagator(oldProp) })
@@ -270,7 +270,7 @@ func TestTransport_开链路时注入traceparent并开Span(t *testing.T) {
 	}
 }
 
-func TestTransport_目标host写进了ctx(t *testing.T) {
+func TestTransport_TargetHostStoredInCtx(t *testing.T) {
 	// 没有它，按域名透传的规则一条都不会命中
 	var seen string
 	tr := &xtrace.Transport{Next: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
@@ -292,7 +292,7 @@ func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { r
 
 // ---- 重试 ----
 
-func TestRetry_只重试幂等方法(t *testing.T) {
+func TestRetry_OnlyIdempotentMethods(t *testing.T) {
 	// 超时分不出「请求没到」和「处理完了但响应丢了」，
 	// 重发一个 POST 就可能变成重复下单
 	if !retryOnlyIdempotent(respFor("GET"), timeoutErr) {
@@ -314,7 +314,7 @@ func TestRetry_只重试幂等方法(t *testing.T) {
 // timeoutErr 一个传输层错误，形状与 http.Client.Do 超时时报的一样
 var timeoutErr error = &url.Error{Op: "Get", URL: "http://h", Err: context.DeadlineExceeded}
 
-func TestRetry_响应解析失败不重试(t *testing.T) {
+func TestRetry_NoRetryOnResponseParseFailure(t *testing.T) {
 	// 挂上重试条件之后 resty 自己的判断就作废了。从前幂等方法遇上任何错都重试，
 	// 实测 200 + 坏 JSON、RetryCount=3 时同一个请求发了 4 次——响应早已完整收到，
 	// 重发只会再拿到一模一样的坏 JSON。不挂条件时 resty 只发 1 次
@@ -339,7 +339,7 @@ func TestRetry_响应解析失败不重试(t *testing.T) {
 	}
 }
 
-func TestRetry_响应体读到一半断开照样重试(t *testing.T) {
+func TestRetry_RetriesOnBodyCutMidway(t *testing.T) {
 	// 与 resty 的默认条件一致：响应体没收全是传输层的问题，io.ErrUnexpectedEOF
 	if !retryOnlyIdempotent(respFor("GET"), io.ErrUnexpectedEOF) {
 		t.Error("响应体读到一半断开应当重试")
@@ -350,7 +350,7 @@ func respFor(method string) *resty.Response {
 	return &resty.Response{Request: &resty.Request{Method: method}}
 }
 
-func TestRetry_真的会重发(t *testing.T) {
+func TestRetry_ActuallyResends(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
@@ -377,7 +377,7 @@ func TestRetry_真的会重发(t *testing.T) {
 	}
 }
 
-func TestRetry_关掉幂等限制后POST也重试(t *testing.T) {
+func TestRetry_POSTRetriedWhenIdempotencyCheckOff(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
@@ -400,7 +400,7 @@ func TestRetry_关掉幂等限制后POST也重试(t *testing.T) {
 
 // ---- 全局实例 ----
 
-func TestC_初始化前有带超时的兜底实例(t *testing.T) {
+func TestC_FallbackWithTimeoutBeforeInit(t *testing.T) {
 	// 零值超时是「永不超时」：关闭阶段发一个这样的请求，整个退出流程就卡住了
 	emptyCell(t)
 
@@ -415,7 +415,7 @@ func TestC_初始化前有带超时的兜底实例(t *testing.T) {
 	}
 }
 
-func TestR_绑定ctx(t *testing.T) {
+func TestR_BindsCtx(t *testing.T) {
 	type key struct{}
 	ctx := context.WithValue(context.Background(), key{}, "v")
 	if got := R(ctx).Context().Value(key{}); got != "v" {
@@ -423,7 +423,7 @@ func TestR_绑定ctx(t *testing.T) {
 	}
 }
 
-func TestRegister_登记内容与框架对得上(t *testing.T) {
+func TestRegister_RegistrationMatchesFramework(t *testing.T) {
 	// 这是本包和框架之间唯一的一根线：钩子漏登记、档位挂错，
 	// 表现是「配置不生效」或者「比用它的东西晚就绪」，别处都测不出来
 	var got *hook.Entry
@@ -455,7 +455,7 @@ func TestRegister_登记内容与框架对得上(t *testing.T) {
 	}
 }
 
-func TestInit_没配也能用(t *testing.T) {
+func TestInit_WorksWithoutConfig(t *testing.T) {
 	// 与 xgorm / xredis 不同：HTTP 客户端不连任何外部资源，没配也该给一个能用的
 	withMetrics(t)
 	initComponent(t, DefaultConfig())
@@ -516,7 +516,7 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-func TestTunedTransport_没改的默认值与文档一致(t *testing.T) {
+func TestTunedTransport_UntouchedDefaultsMatchDocs(t *testing.T) {
 	// 注释和 xhttp/README.md 里写的是这几个数（Go 1.25、resty v2.17.2）。
 	// 升级之后变了，这里先红，文档跟着改
 	tr := tunedTransport(DefaultConfig(), nil).(*http.Transport)
@@ -531,7 +531,7 @@ func TestTunedTransport_没改的默认值与文档一致(t *testing.T) {
 	}
 }
 
-func TestNew_每host连接数上限生效(t *testing.T) {
+func TestNew_MaxConnsPerHostApplied(t *testing.T) {
 	// 不限的话并发多少就开多少条连接；配了上限，超出的请求排队等连接
 	var mu sync.Mutex
 	conns := 0
@@ -569,7 +569,7 @@ func TestNew_每host连接数上限生效(t *testing.T) {
 	}
 }
 
-func TestNew_直接调也校验配置(t *testing.T) {
+func TestNew_DirectCallAlsoValidatesConfig(t *testing.T) {
 	// 不经过配置文件、直接 New 的使用者没有 xconfig.Unmarshal 替他调 Validate
 	bad := DefaultConfig()
 	bad.DialTimeout = -time.Second
@@ -582,7 +582,7 @@ func TestNew_直接调也校验配置(t *testing.T) {
 	}
 }
 
-func TestSpanName_只有方法(t *testing.T) {
+func TestSpanName_MethodOnly(t *testing.T) {
 	// 路径里有 id，query 里常有 id 和令牌：放进 Span 名会撑爆基数，也会把敏感值带出去
 	req, _ := http.NewRequest("GET", "https://h/api/orders/42?token=hunter2&id=1", nil)
 	if got := spanName("", req); got != "GET" {
@@ -617,7 +617,7 @@ func (discardLogger) Errorf(string, ...any) {}
 func (discardLogger) Warnf(string, ...any)  {}
 func (discardLogger) Debugf(string, ...any) {}
 
-func TestNew_关闭时真的清掉空闲连接(t *testing.T) {
+func TestNew_CloseReallyClearsIdleConns(t *testing.T) {
 	// 回归用例。上一版让 Closer 去调 http.Client.CloseIdleConnections()，
 	// 那个方法靠类型断言往下找；链路开着时中间隔着 otelhttp.Transport，
 	// 而它没实现这个方法，断言到那里就断了——整条调用是空操作，
@@ -674,7 +674,7 @@ func waitFor(t *testing.T, cond func() bool, what string) {
 	t.Fatal(what)
 }
 
-func TestMetric_重试耗时算整次逻辑请求(t *testing.T) {
+func TestMetric_RetryDurationCoversWholeLogicalRequest(t *testing.T) {
 	// resty 每次尝试都会重置 Request.Time，resp.Time() 只是最后一次尝试的耗时。
 	// 计数是按「一次逻辑请求」记的，耗时也必须是——否则故障时请求数照涨、
 	// 耗时却纹丝不动，监控看上去异常地健康
@@ -738,7 +738,7 @@ func histogramSum(t *testing.T, h *prometheus.HistogramVec) float64 {
 	return 0
 }
 
-func TestNew_ctx能给整个逻辑请求封顶(t *testing.T) {
+func TestNew_CtxCapsWholeLogicalRequest(t *testing.T) {
 	// Timeout 管的是一次尝试。开了 RetryCount 之后，最坏情况是
 	// (RetryCount+1) × Timeout 再加退避——配 300ms 实际能跑到 1.2s。
 	// 唯一能给整次逻辑请求封顶的是调用方的 ctx，这里把它钉住。
@@ -788,7 +788,7 @@ func keepGlobals(t *testing.T) {
 	})
 }
 
-func TestInitXHttp_没配也装好一个能用的默认客户端(t *testing.T) {
+func TestInitXHttp_NoConfigInstallsUsableDefaultClient(t *testing.T) {
 	// HTTP 客户端没配就不装的话，C() 每次退回兜底实例，
 	// 超时和重试全是另一套值——而使用者没配本来就该是「用默认的」
 	keepGlobals(t)
@@ -805,7 +805,7 @@ func TestInitXHttp_没配也装好一个能用的默认客户端(t *testing.T) {
 	}
 }
 
-func TestInitXHttp_配置写错时启动失败(t *testing.T) {
+func TestInitXHttp_BadConfigFailsStartup(t *testing.T) {
 	keepGlobals(t)
 	xonetest.UseConfigYAML(t, "XHttp:\n  TimeOut: 3s\n")
 
@@ -814,7 +814,7 @@ func TestInitXHttp_配置写错时启动失败(t *testing.T) {
 	}
 }
 
-func TestInitXHttp_取值非法时启动失败(t *testing.T) {
+func TestInitXHttp_InvalidValueFailsStartup(t *testing.T) {
 	// 负的时长是一个减号换来的静默故障：DialTimeout 写成负数时每一次请求
 	// 当场 i/o timeout，Timeout 写成负数反而被标准库当成「不限时」，
 	// 超时保护整个消失——两种都不会有任何迹象
@@ -834,7 +834,7 @@ func TestInitXHttp_取值非法时启动失败(t *testing.T) {
 	}
 }
 
-func TestValidate_KeepAlive_允许负值(t *testing.T) {
+func TestValidate_KeepAlive_AllowsNegative(t *testing.T) {
 	// 这是唯一一个负值有意义的时长：标准库用它表示「不发探测」
 	c := DefaultConfig()
 	c.DialKeepAlive = -1
@@ -843,7 +843,7 @@ func TestValidate_KeepAlive_允许负值(t *testing.T) {
 	}
 }
 
-func TestInitXHttp_配置装到了全局客户端上(t *testing.T) {
+func TestInitXHttp_ConfigAppliedToGlobalClient(t *testing.T) {
 	keepGlobals(t)
 	xonetest.UseConfigYAML(t, "XHttp:\n  Timeout: 7s\n  RetryCount: 4\n")
 
@@ -858,7 +858,7 @@ func TestInitXHttp_配置装到了全局客户端上(t *testing.T) {
 	}
 }
 
-func TestCloseXHttp_关完退回兜底实例(t *testing.T) {
+func TestCloseXHttp_FallsBackToDefaultAfterClose(t *testing.T) {
 	// 摘掉之后 C() 还得能用：退出阶段里其它组件的关闭逻辑可能还要发请求
 	keepGlobals(t)
 	xonetest.UseConfigYAML(t, "XHttp:\n  Timeout: 7s\n")
@@ -876,7 +876,7 @@ func TestCloseXHttp_关完退回兜底实例(t *testing.T) {
 	}
 }
 
-func TestCloseXHttp_没装过也能关(t *testing.T) {
+func TestCloseXHttp_CloseWithoutInstallIsSafe(t *testing.T) {
 	keepGlobals(t)
 	mu.Lock()
 	current, liveCloser = nil, nil
@@ -888,7 +888,7 @@ func TestCloseXHttp_没装过也能关(t *testing.T) {
 
 // ---- 日志、链路属性、cookie ----
 
-func TestNew_resty自己的日志走slog且不带query(t *testing.T) {
+func TestNew_RestyLogsGoToSlogWithoutQuery(t *testing.T) {
 	// 回归用例。resty 的 logger 默认写 os.Stderr（建 client 那一刻抓住的），
 	// 开了重试之后每次失败都打一行 `WARN RESTY Get "http://…?token=…": …, Attempt 1`，
 	// 最后再打一行 ERROR——绕开 slog，查询串里的令牌原样落盘
@@ -958,7 +958,7 @@ func TestStripQuery(t *testing.T) {
 	}
 }
 
-func TestTransport_Span不带查询串且不按路径命名(t *testing.T) {
+func TestTransport_SpanHasNoQueryAndIsNotNamedByPath(t *testing.T) {
 	// 回归用例。otelhttp 往 url.full 里写的是完整 URL，查询串里的令牌跟着进了
 	// 链路后端（它只去掉 user:password）；Span 名按真实路径起，
 	// /users/42、/users/43 各是一个名字，基数随用户数增长
@@ -997,7 +997,7 @@ func TestTransport_Span不带查询串且不按路径命名(t *testing.T) {
 	}
 }
 
-func TestC_兜底实例不带cookie_jar(t *testing.T) {
+func TestC_FallbackHasNoCookieJar(t *testing.T) {
 	// 回归用例。兜底实例原先是 resty.New()，它自带一个 cookie jar，
 	// 而配置出来的实例（NewWithClient）没有。于是初始化之前、关闭之后
 	// 发的请求会把 A 服务种下的 cookie 带给之后的每一次调用——

@@ -23,9 +23,9 @@ mutate("常量标签名不能是保留的标签名", "xmetric/config.go", "./xme
 mutate("没给桶时用本包的默认值", "xmetric/xmetric.go", "./xmetric", "TestNew", swap('\tcfg = cfg.withDefaults()\n', ''))
 # client_golang 现成的 collector 没有 Opts 可填，直接注册在 Registry 上就一个常量标签都不带：
 # 按 env 过滤的看板查 go_goroutines{env="prod"} 什么都查不到
-mutate("Go 运行时指标也带常量标签", "xmetric/xmetric.go", "./xmetric", "TestNew_运行时与进程指标也带常量标签",
+mutate("Go 运行时指标也带常量标签", "xmetric/xmetric.go", "./xmetric", "TestNew_RuntimeAndProcessMetricsHaveConstLabels",
        swap('withLabels.Register(promcollectors.NewGoCollector())', 'reg.Register(promcollectors.NewGoCollector())'))
-mutate("进程指标也带常量标签", "xmetric/xmetric.go", "./xmetric", "TestNew_运行时与进程指标也带常量标签",
+mutate("进程指标也带常量标签", "xmetric/xmetric.go", "./xmetric", "TestNew_RuntimeAndProcessMetricsHaveConstLabels",
        swap('withLabels.Register(promcollectors.NewProcessCollector(', 'reg.Register(promcollectors.NewProcessCollector('))
 # 不拦的话 version 撞上 go_info 自带的常量标签，报的是 client_golang 的 wrapping 错误，关掉 GoMetrics 又不报
 mutate("常量标签名不能是 go_info 的 version", "xmetric/config.go", "./xmetric", "TestNew",

@@ -94,7 +94,7 @@ func faultWaitRestyLogs(t *testing.T, p *harness.Process, token string) (warn, e
 //	「要给整次逻辑请求封顶，用调用方的 ctx，每次尝试和中间的退避都听它的」
 //
 // 次数用下游桩数，每次尝试的时长用桩记下的到达时刻之差量
-func TestFault_下游慢过xhttp的Timeout_每次尝试在Timeout失败_只有幂等方法按配置的次数重试(t *testing.T) {
+func TestFault_DownstreamSlowerThanTimeout_PerAttemptFail_IdempotentRetryOnly(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
@@ -253,7 +253,7 @@ func TestFault_下游慢过xhttp的Timeout_每次尝试在Timeout失败_只有�
 // 拨号在一次尝试之内（DialTimeout 默认 30s，远大于 Timeout，所以先到的是 Timeout）。
 // 拒绝连接时每次尝试立刻失败，总耗时只剩退避。
 // 下游桩数不到次数（连接根本没到它），改数 resty 每次失败记的那行 WARN
-func TestFault_下游拒绝连接或主机宕机_GET按RetryCount重试且每次尝试不超过Timeout(t *testing.T) {
+func TestFault_DownstreamRefusedOrDown_GETRetriesRetryCount_EachWithinTimeout(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 	const retries = 2

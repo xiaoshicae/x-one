@@ -36,7 +36,7 @@ func check(t *testing.T, r *root, body string) []string {
 	return problems(rs, doc)
 }
 
-func TestSchema_运行时接受的写法都放行(t *testing.T) {
+func TestSchema_AcceptsEverythingRuntimeAccepts(t *testing.T) {
 	r := schemaOf(t)
 	cases := map[string]string{
 		"单实例":        "XGorm:\n  DSN: x\n  MaxOpenConns: 5\n",
@@ -66,7 +66,7 @@ func TestSchema_运行时接受的写法都放行(t *testing.T) {
 	}
 }
 
-func TestSchema_运行时拒绝的写法都标红(t *testing.T) {
+func TestSchema_FlagsEverythingRuntimeRejects(t *testing.T) {
 	r := schemaOf(t)
 	cases := map[string]string{
 		"字段拼错":        "XLog:\n  Bogus: 1\n",
@@ -91,7 +91,7 @@ func TestSchema_运行时拒绝的写法都标红(t *testing.T) {
 	}
 }
 
-func TestSchema_示例配置都能通过(t *testing.T) {
+func TestSchema_ExampleConfigsPass(t *testing.T) {
 	r := schemaOf(t)
 	top, _ := filepath.Glob(filepath.Join(repo, "example", "*.yml"))
 	nested, _ := filepath.Glob(filepath.Join(repo, "example", "*", "*.yml"))
@@ -110,7 +110,7 @@ func TestSchema_示例配置都能通过(t *testing.T) {
 	}
 }
 
-func TestCheckDocs_配置文档与结构体一致(t *testing.T) {
+func TestCheckDocs_ConfigDocsMatchStructs(t *testing.T) {
 	docs := map[string]string{}
 	for _, d := range append(slices.Collect(maps.Values(configDocs)), exampleDocs...) {
 		md, err := os.ReadFile(filepath.Join(repo, d.path))
@@ -124,7 +124,7 @@ func TestCheckDocs_配置文档与结构体一致(t *testing.T) {
 	}
 }
 
-func TestCheckDocs_按节检查而不是整份文档里找(t *testing.T) {
+func TestCheckDocs_ChecksPerSectionNotWholeDoc(t *testing.T) {
 	// 从前在整份文档里 grep 字段名：Name 在别处出现过，
 	// XLog.File.Name 没写也照样通过。现在只看 xlog/README.md 的「## 配置」一节
 	r := &root{Properties: map[string]*node{
@@ -141,7 +141,7 @@ func TestCheckDocs_按节检查而不是整份文档里找(t *testing.T) {
 	}
 }
 
-func TestCheckDocs_示例里不存在的字段要报出来(t *testing.T) {
+func TestCheckDocs_ReportsUnknownFieldsInExamples(t *testing.T) {
 	r := &root{Properties: map[string]*node{
 		"XGin": {Type: "object", AdditionalProperties: false, Properties: map[string]*node{"UseH2C": orPlaceholder("boolean")}},
 	}}
@@ -160,7 +160,7 @@ func TestCheckDocs_示例里不存在的字段要报出来(t *testing.T) {
 	}
 }
 
-func TestCheckDocs_没登记文档的配置块要报出来(t *testing.T) {
+func TestCheckDocs_ReportsUndocumentedConfigBlocks(t *testing.T) {
 	r := &root{Properties: map[string]*node{"XNew": {Type: "object"}}}
 	if got := strings.Join(checkDocs(r, nil), "\n"); !strings.Contains(got, "XNew") {
 		t.Errorf("XNew 没登记在 configDocs 里，该报出来，got=%q", got)

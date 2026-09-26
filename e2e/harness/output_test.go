@@ -30,7 +30,7 @@ func out(stream, text string) outLine { return outLine{stream: stream, text: tex
 
 const jsonLine = `{"time":"2026-09-24T00:00:00Z","level":"INFO","msg":"ready"}`
 
-func TestCheckOutput_框架预期会写的都放过(t *testing.T) {
+func TestCheckOutput_AllowsExpectedFrameworkOutput(t *testing.T) {
 	cases := map[string]struct {
 		exit  Exit
 		lines []outLine
@@ -61,7 +61,7 @@ func TestCheckOutput_框架预期会写的都放过(t *testing.T) {
 	}
 }
 
-func TestCheckOutput_三方库的纯文本和数据竞争都报出来(t *testing.T) {
+func TestCheckOutput_ReportsThirdPartyPlainTextAndDataRaces(t *testing.T) {
 	cases := map[string]struct {
 		exit  Exit
 		lines []outLine
@@ -82,7 +82,7 @@ func TestCheckOutput_三方库的纯文本和数据竞争都报出来(t *testing
 	}
 }
 
-func TestCheckOutput_NonJSON只关掉JSON那一条(t *testing.T) {
+func TestCheckOutput_NonJSONOnlyDisablesJSONCheck(t *testing.T) {
 	if errs := checked(Exit{}, "XLog.Format: text", out("stdout", "time=... level=INFO msg=ready")); len(errs) != 0 {
 		t.Errorf("写了 NonJSON 就不查每一行是不是 JSON，实际 %v", errs)
 	}

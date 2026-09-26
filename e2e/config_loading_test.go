@@ -49,7 +49,7 @@ func covBase(t *testing.T, extra map[string]string) string {
 //
 // 「合并规则」：map 递归合并、列表整体替换、标量覆盖。
 // 「通用规则·什么时候读」：在 main 里、xone.Run 之前读到的也是最终值——e2e 服务的 Service 块就是在 main 里读的
-func TestCoverage_profile的三种指定方式和优先级_合并规则(t *testing.T) {
+func TestCoverage_ProfileThreeWaysToSetAndPrecedence_MergeRules(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
@@ -107,7 +107,7 @@ func TestCoverage_profile的三种指定方式和优先级_合并规则(t *testi
 //	optional: 前缀，文件不存在就跳过；没有前缀的不存在是错误
 //
 // 「合并规则」：application.yml < 它 Import 的（含片段自己的 -prod 变体）< application-prod.yml
-func TestCoverage_Import的优先级_相对路径_optional和片段的profile变体(t *testing.T) {
+func TestCoverage_ImportPrecedence_RelativePath_Optional_FragmentProfiles(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
@@ -145,7 +145,7 @@ func TestCoverage_Import的优先级_相对路径_optional和片段的profile变
 //	${VAR:default}  可选，未设置时用默认值
 //	${VAR}          必填（functional_config_test.go 测过未设置时启动失败）
 //	占位符展开为空  ${VAR:} 等于这一项没写，保持结构体里的默认值；真要空串就加引号 "${VAR:}"
-func TestCoverage_占位符的默认值_展开为空时保持结构体默认值(t *testing.T) {
+func TestCoverage_PlaceholderDefaults_EmptyExpansionKeepsStructDefault(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
@@ -178,7 +178,7 @@ func TestCoverage_占位符的默认值_展开为空时保持结构体默认值(
 
 // docs/config.md 开头：「配置文件位置：--config=<path> > XONE_CONFIG > conf/application.yml 等约定路径」；
 // README：「显式指定的找不到是错误」
-func TestCoverage_配置文件位置_config参数压过XONE_CONFIG(t *testing.T) {
+func TestCoverage_ConfigFileLocation_ConfigFlagBeatsXONE_CONFIG(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 
@@ -229,7 +229,7 @@ func covAppRun(t *testing.T, env map[string]string, args ...string) (harness.Exi
 // xone.WithConfigPath：「指定配置文件，优先于 --config、XONE_CONFIG 和约定路径。
 // 在 Run 之前就读过配置的话，配置已经按那几种方式加载过了，这里再点名另一个文件会让 Run 直接报错」。
 // e2e 服务不用 WithConfigPath，这一条用 e2e/covapp 测
-func TestCoverage_WithConfigPath优先于config参数_提前读过之后再点名别的文件报错(t *testing.T) {
+func TestCoverage_WithConfigPathBeatsConfigFlag_OtherFileAfterReadErrors(t *testing.T) {
 	harness.Require(t)
 	t.Parallel()
 

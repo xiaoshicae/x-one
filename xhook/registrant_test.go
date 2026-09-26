@@ -17,7 +17,7 @@ var viaHelper = func() []hook.Entry {
 	return hook.Start()
 }()
 
-func TestBeforeStart_经辅助包登记的钩子算在登记它的包头上(t *testing.T) {
+func TestBeforeStart_HookViaHelperPkgAttributedToRegisteringPkg(t *testing.T) {
 	// 钩子函数是辅助包里的闭包，名字属于辅助包。按名字认包的话，所有经它登记的
 	// 包都成了同一个：一个的启动钩子失败，别人的停止钩子跟着被跳过
 	const want = "github.com/xiaoshicae/x-one/xhook_test"

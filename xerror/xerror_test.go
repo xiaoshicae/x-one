@@ -60,7 +60,7 @@ func TestNewf(t *testing.T) {
 	}
 }
 
-func TestErrorMessage_框架自己的错不重复前缀(t *testing.T) {
+func TestErrorMessage_FrameworkErrorsDoNotRepeatPrefix(t *testing.T) {
 	// 前缀的作用是让错误落进别人的日志时看得出是谁报的。
 	// 模块名本来就是 xone 的那种，再加一次就成了「xone xone init failed」
 	if got := New("xone", "init", errBase).Error(); strings.HasPrefix(got, "xone xone") {
@@ -71,7 +71,7 @@ func TestErrorMessage_框架自己的错不重复前缀(t *testing.T) {
 	}
 }
 
-func TestIs_传_nil_和非本包错误都返回_false(t *testing.T) {
+func TestIs_ReturnsFalseForNilAndForeignErrors(t *testing.T) {
 	if Is(nil, "xgorm") {
 		t.Error("nil 不属于任何模块")
 	}
@@ -80,7 +80,7 @@ func TestIs_传_nil_和非本包错误都返回_false(t *testing.T) {
 	}
 }
 
-func TestIs_链条中途换成非本包错误也停得住(t *testing.T) {
+func TestIs_StopsAtForeignErrorMidChain(t *testing.T) {
 	// 中间裹着一层标准库错误时，外层还是本包的错误，
 	// 遍历要在那一层停下来而不是空转或误判
 	outer := New("xgorm", "query", fmt.Errorf("driver: %w", errBase))
@@ -92,7 +92,7 @@ func TestIs_链条中途换成非本包错误也停得住(t *testing.T) {
 	}
 }
 
-func TestIs_errors_Join的每个分支都找得到(t *testing.T) {
+func TestIs_errors_JoinFindsEveryBranch(t *testing.T) {
 	// Run 把启动错误和关闭错误 Join 在一起返回。errors.As 只会拿到第一个 *Error，
 	// 再顺着它的 .Err 往里走——Join 里排在后面的兄弟从来没被看过
 	joined := errors.Join(New("xgin", "start", errBase), New("xgorm", "close", errBase))
@@ -106,7 +106,7 @@ func TestIs_errors_Join的每个分支都找得到(t *testing.T) {
 	}
 }
 
-func TestIs_Join嵌在本包错误里面也找得到(t *testing.T) {
+func TestIs_JoinNestedInsideErrorIsFound(t *testing.T) {
 	// 本包错误裹着一个 Join、Join 的第二个分支里又裹着别的模块：
 	// 两种 Unwrap 交替出现时仍要走遍整棵树
 	inner := fmt.Errorf("partial: %w", errors.Join(errBase, New("xredis", "close", errBase)))
@@ -116,7 +116,7 @@ func TestIs_Join嵌在本包错误里面也找得到(t *testing.T) {
 	}
 }
 
-func TestModule_Join时取第一个本包错误(t *testing.T) {
+func TestModule_JoinTakesFirstXerror(t *testing.T) {
 	// Run 总是把主因放在 Join 的最前面，所以「谁报的」取深度优先遇到的第一个。
 	// 排在前面的不是本包错误时跳过它，而不是返回空串
 	joined := errors.Join(errBase, New("xgin", "start", errBase), New("xgorm", "close", errBase))
@@ -127,7 +127,7 @@ func TestModule_Join时取第一个本包错误(t *testing.T) {
 
 // ---- 一条错误只有一个框 ----
 
-func TestNewf_同模块的里层只留op和原因(t *testing.T) {
+func TestNewf_SameModuleInnerKeepsOnlyOpAndCause(t *testing.T) {
 	// 从前是 xone xgorm new failed, err=[instance "a": xone xgorm connect failed, err=[...]]：
 	// 模块名说了两遍，使用者要找的原因埋在第二层括号里
 	inner := Newf("xgorm", "connect", "cannot reach %s", "db:3306")
@@ -139,7 +139,7 @@ func TestNewf_同模块的里层只留op和原因(t *testing.T) {
 	}
 }
 
-func TestNewf_别的模块的里层不再重复xone前缀(t *testing.T) {
+func TestNewf_OtherModuleInnerDropsXonePrefix(t *testing.T) {
 	// 「这是 xone 报的」最外层说一次就够了
 	inner := Newf("xconfig", "config", "invalid config %s", "App")
 	outer := Newf("xone", "start", "%s: %w", "xapp.loadConfig", inner)
@@ -150,7 +150,7 @@ func TestNewf_别的模块的里层不再重复xone前缀(t *testing.T) {
 	}
 }
 
-func TestNew_同模块的错误原样返回(t *testing.T) {
+func TestNew_ReturnsSameModuleErrorAsIs(t *testing.T) {
 	// 一个模块边界只有一层框，而且留下的是更具体的那个 op
 	inner := Newf("xgorm", "connect", "cannot reach db")
 	if got := New("xgorm", "init", inner); got != inner {
@@ -161,7 +161,7 @@ func TestNew_同模块的错误原样返回(t *testing.T) {
 	}
 }
 
-func TestNewf_折叠之后错误链照常穿透(t *testing.T) {
+func TestNewf_ErrorChainSurvivesFolding(t *testing.T) {
 	inner := Newf("xgorm", "connect", "dial: %w", errBase)
 	outer := Newf("xone", "start", "%s: %w", "xgorm.init", Newf("xgorm", "new", "instance %q: %w", "a", inner))
 
@@ -177,7 +177,7 @@ func TestNewf_折叠之后错误链照常穿透(t *testing.T) {
 	}
 }
 
-func TestNewf_不改调用方的参数切片(t *testing.T) {
+func TestNewf_DoesNotMutateCallerArgs(t *testing.T) {
 	// args... 展开传进来时它就是调用方那一个切片，改了它调用方会看到一个陌生的类型
 	inner := Newf("xgorm", "connect", "x")
 	args := []any{inner}
@@ -187,7 +187,7 @@ func TestNewf_不改调用方的参数切片(t *testing.T) {
 	}
 }
 
-func TestNew_带类型的nil当成没有原因而不是panic(t *testing.T) {
+func TestNew_TypedNilTreatedAsNoCauseNotPanic(t *testing.T) {
 	// var e *Error 从某个函数返回、没判空就被包了一层——这是常见的笔误，
 	// 报错路径上的 panic 会把真正的故障盖掉
 	var nilErr *Error
@@ -204,7 +204,7 @@ func TestNew_带类型的nil当成没有原因而不是panic(t *testing.T) {
 	}
 }
 
-func TestNewf_参数里带类型的nil渲染成nil而不是panic(t *testing.T) {
+func TestNewf_TypedNilArgRendersAsNilNotPanic(t *testing.T) {
 	var nilErr *Error
 	for _, verb := range []string{"%v", "%w"} {
 		for _, module := range []string{"xgorm", "xredis"} { // 同模块、别的模块两条路都走一遍

@@ -7,7 +7,7 @@ import (
 	"github.com/xiaoshicae/x-one/xonetest"
 )
 
-func TestLoad_配错的值启动时就失败(t *testing.T) {
+func TestLoad_BadValuesFailAtStartup(t *testing.T) {
 	// 这两项配错都不报错，只会让服务「正常地什么都不做」
 	cases := []struct{ yml, field string }{
 		{"MyApp:\n  Workers: 0\n", "Workers"},
@@ -22,7 +22,7 @@ func TestLoad_配错的值启动时就失败(t *testing.T) {
 	}
 }
 
-func TestLoad_默认值能通过校验(t *testing.T) {
+func TestLoad_DefaultsPassValidation(t *testing.T) {
 	useConf(t, "MyApp:\n  Topic: orders\n")
 	if err := Load(); err != nil {
 		t.Fatal(err)

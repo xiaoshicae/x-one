@@ -20,7 +20,7 @@ import (
 // xtrace 只收被判为可信的那些。两边靠 carrier 上的 TrustedPeer() 接头，
 // 各自的单元测试只看得见自己那一半——方法名哪天在一边改了，
 // 两边的测试照样全绿，透传却从此一个都不收。这条把两半接起来测。
-func TestXGin与XTrace_只收可信对端发来的透传Header(t *testing.T) {
+func TestXGinAndXTrace_ForwardHeadersOnlyFromTrustedPeers(t *testing.T) {
 	oldTP, oldProp := otel.GetTracerProvider(), otel.GetTextMapPropagator()
 	t.Cleanup(func() { otel.SetTracerProvider(oldTP); otel.SetTextMapPropagator(oldProp) })
 

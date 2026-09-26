@@ -41,7 +41,7 @@ func roundTrip(p *HeaderPropagator, in http.Header, targetHost string) http.Head
 	return out
 }
 
-func TestHeaderPropagator_全局透传(t *testing.T) {
+func TestHeaderPropagator_GlobalForwarding(t *testing.T) {
 	p := mustProp(t, []string{"X-Request-Id", "X-Tenant-Id"}, nil)
 	in := http.Header{"X-Request-Id": {"r1"}, "X-Tenant-Id": {"t1"}, "X-Other": {"o"}}
 
@@ -62,7 +62,7 @@ type declared struct {
 
 func (d declared) TrustedPeer() bool { return d.ok }
 
-func TestHeaderPropagator_只收可信对端发来的值(t *testing.T) {
+func TestHeaderPropagator_AcceptsOnlyFromTrustedPeers(t *testing.T) {
 	// 回归用例。透传的值原先从任何入站请求里都照单全收：公网客户端发一个
 	// X-Tenant-Id / X-Internal-Token，就被当成「上游给的」带进了内网的每一次调用。
 	// 没有 TrustedPeer() 的 carrier（otelhttp 的 handler、业务自己拼的）一律不收
@@ -90,7 +90,7 @@ func TestHeaderPropagator_只收可信对端发来的值(t *testing.T) {
 	}
 }
 
-func TestHeaderPropagator_不可信对端带来透传头时只告警一次(t *testing.T) {
+func TestHeaderPropagator_WarnsOnceForUntrustedPeerHeaders(t *testing.T) {
 	// 「配了透传却什么都没传」时这是唯一的线索；但公网上谁都能发这些头，
 	// 每次都打就成了一个刷日志的入口
 	var buf strings.Builder
@@ -111,7 +111,7 @@ func TestHeaderPropagator_不可信对端带来透传头时只告警一次(t *te
 	}
 }
 
-func TestHeaderPropagator_全局透传不看域名(t *testing.T) {
+func TestHeaderPropagator_GlobalForwardingIgnoresDomain(t *testing.T) {
 	// 全局就是全局：连目标域名都不知道时也要发出去
 	p := mustProp(t, []string{"X-Request-Id"}, nil)
 	out := roundTrip(p, http.Header{"X-Request-Id": {"r1"}}, "")
@@ -120,7 +120,7 @@ func TestHeaderPropagator_全局透传不看域名(t *testing.T) {
 	}
 }
 
-func TestHeaderPropagator_域名规则(t *testing.T) {
+func TestHeaderPropagator_DomainRules(t *testing.T) {
 	// 内部标识只发给自己人，不发给第三方——这是这条规则存在的全部理由
 	p := mustProp(t, nil, []ForwardHeaderRule{
 		{Domains: []string{"api.internal.com", "*.trusted.com"}, Headers: []string{"X-Internal-Token"}},
@@ -149,7 +149,7 @@ func TestHeaderPropagator_域名规则(t *testing.T) {
 	}
 }
 
-func TestNewHeaderPropagator_只认星点开头的通配(t *testing.T) {
+func TestNewHeaderPropagator_OnlyLeadingStarDotWildcard(t *testing.T) {
 	// 回归用例。原先只是把开头的 * 切掉再做后缀匹配，于是 *trusted.com
 	// 也能匹配 eviltrusted.com——内部令牌发给了一个谁都能注册的域名。
 	// 能写对的只有 *.example.com 这一种，其余带 * 的写法一律在启动时拦下
@@ -164,7 +164,7 @@ func TestNewHeaderPropagator_只认星点开头的通配(t *testing.T) {
 	}
 }
 
-func TestNewHeaderPropagator_矛盾配置要报错(t *testing.T) {
+func TestNewHeaderPropagator_ContradictoryConfigFails(t *testing.T) {
 	// 一边说发给所有人，一边说只发给这些人。猜哪边为准都可能把内部标识发给第三方
 	_, err := NewHeaderPropagator(
 		[]string{"X-Internal-Token", "X-Request-Id"},
@@ -181,7 +181,7 @@ func TestNewHeaderPropagator_矛盾配置要报错(t *testing.T) {
 	}
 }
 
-func TestNewHeaderPropagator_规范化(t *testing.T) {
+func TestNewHeaderPropagator_Normalization(t *testing.T) {
 	p := mustProp(t, []string{"x-request-id", "", "X-REQUEST-ID"}, []ForwardHeaderRule{
 		{Domains: []string{" Example.COM ", ""}, Headers: []string{"x-trace-tag"}},
 		{Domains: nil, Headers: []string{"X-Dropped"}}, // 没域名，整条丢弃
@@ -197,7 +197,7 @@ func TestNewHeaderPropagator_规范化(t *testing.T) {
 	}
 }
 
-func TestHeaderPropagator_Fields是拷贝(t *testing.T) {
+func TestHeaderPropagator_FieldsReturnsCopy(t *testing.T) {
 	p := mustProp(t, []string{"X-Request-Id"}, nil)
 	f := p.Fields()
 	f[0] = "改掉了"
@@ -206,7 +206,7 @@ func TestHeaderPropagator_Fields是拷贝(t *testing.T) {
 	}
 }
 
-func TestHeaderPropagator_空配置什么都不做(t *testing.T) {
+func TestHeaderPropagator_NoOpWithEmptyConfig(t *testing.T) {
 	p := mustProp(t, nil, nil)
 	ctx := p.Extract(context.Background(), trusted(http.Header{"X-Request-Id": {"r1"}}))
 	if ForwardHeadersFromContext(ctx) != nil {
@@ -219,7 +219,7 @@ func TestHeaderPropagator_空配置什么都不做(t *testing.T) {
 	}
 }
 
-func TestHeaderPropagator_Extract合并已有值(t *testing.T) {
+func TestHeaderPropagator_ExtractMergesExistingValues(t *testing.T) {
 	// 组合 Propagator 里可能有多个 HeaderPropagator，后面的不能把前面的覆盖掉
 	p1 := mustProp(t, []string{"X-A"}, nil)
 	p2 := mustProp(t, []string{"X-B"}, nil)
@@ -248,7 +248,7 @@ func TestForwardHeaderFromContext(t *testing.T) {
 	}
 }
 
-func TestForwardHeadersFromContext_是拷贝(t *testing.T) {
+func TestForwardHeadersFromContext_ReturnsCopy(t *testing.T) {
 	p := mustProp(t, []string{"X-Request-Id"}, nil)
 	ctx := p.Extract(context.Background(), trusted(http.Header{"X-Request-Id": {"r1"}}))
 
@@ -262,7 +262,7 @@ func TestForwardHeadersFromContext_是拷贝(t *testing.T) {
 	}
 }
 
-func TestHeaderPropagator_空值不注入(t *testing.T) {
+func TestHeaderPropagator_EmptyValuesNotInjected(t *testing.T) {
 	p := mustProp(t, []string{"X-Request-Id"}, nil)
 	out := roundTrip(p, http.Header{"X-Request-Id": {""}}, "example.com")
 	if _, ok := out["X-Request-Id"]; ok {

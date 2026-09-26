@@ -44,7 +44,7 @@ func TestRotateLayoutFor(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_跨周期切文件(t *testing.T) {
+func TestRotateWriter_SwitchesFileAcrossPeriods(t *testing.T) {
 	now := time.Date(2026, 9, 18, 10, 30, 0, 0, time.Local)
 	w, base := newTestWriter(t, time.Minute, 0, &now)
 
@@ -62,7 +62,7 @@ func TestRotateWriter_跨周期切文件(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_符号链接跟随当前文件(t *testing.T) {
+func TestRotateWriter_SymlinkFollowsCurrentFile(t *testing.T) {
 	now := time.Date(2026, 9, 18, 10, 30, 0, 0, time.Local)
 	w, base := newTestWriter(t, time.Minute, 0, &now)
 
@@ -80,7 +80,7 @@ func TestRotateWriter_符号链接跟随当前文件(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_Purge清理过期文件(t *testing.T) {
+func TestRotateWriter_PurgeRemovesExpiredFiles(t *testing.T) {
 	now := time.Date(2026, 9, 18, 10, 30, 0, 0, time.Local)
 	w, base := newTestWriter(t, time.Minute, 5*time.Minute, &now)
 
@@ -105,7 +105,7 @@ func TestRotateWriter_Purge清理过期文件(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_Purge不删符号链接(t *testing.T) {
+func TestRotateWriter_PurgeKeepsSymlink(t *testing.T) {
 	// 替换链接期间会短暂存在 base.tmp，它匹配 base.* 但不能当历史文件删
 	now := time.Date(2026, 9, 18, 10, 30, 0, 0, time.Local)
 	w, base := newTestWriter(t, time.Minute, time.Minute, &now)
@@ -121,7 +121,7 @@ func TestRotateWriter_Purge不删符号链接(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_Purge关闭时不清理(t *testing.T) {
+func TestRotateWriter_PurgeSkipsWhenClosed(t *testing.T) {
 	now := time.Date(2026, 9, 18, 10, 30, 0, 0, time.Local)
 	w, base := newTestWriter(t, time.Minute, 0, &now) // maxAge <= 0
 
@@ -134,7 +134,7 @@ func TestRotateWriter_Purge关闭时不清理(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_Expired按文件名而非mtime(t *testing.T) {
+func TestRotateWriter_ExpiredByFileNameNotMtime(t *testing.T) {
 	// 备份恢复、rsync、镜像分层都会重写 mtime，按它判断会误删或永不清
 	now := time.Date(2026, 9, 18, 10, 30, 0, 0, time.Local)
 	w, base := newTestWriter(t, time.Minute, 5*time.Minute, &now)
@@ -149,7 +149,7 @@ func TestRotateWriter_Expired按文件名而非mtime(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_Purge只删自己命名的文件(t *testing.T) {
+func TestRotateWriter_PurgeOnlyDeletesOwnNamedFiles(t *testing.T) {
 	// base.* 匹配到的不全是我们写的：使用者手工备份的 app.log.bak、
 	// 别的工具压缩出来的 app.log.1.gz 都在里面。从前文件名解析不了时退回
 	// 按 mtime 判断，于是一份一个月前的手工备份被当成过期日志删掉了
@@ -180,7 +180,7 @@ func TestRotateWriter_Purge只删自己命名的文件(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_Purge按旧粒度的周期算过期(t *testing.T) {
+func TestRotateWriter_PurgeUsesOldGranularityPeriodForExpiry(t *testing.T) {
 	// 从按天轮转改成按小时之后，今天那个按天命名的文件直到重启前还在写。
 	// 按现在的一小时周期算，它零点一过就「过期」了——里面是几分钟前的日志
 	now := time.Date(2026, 9, 18, 10, 30, 0, 0, time.Local)
@@ -203,7 +203,7 @@ func TestRotateWriter_Purge按旧粒度的周期算过期(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_打开时就清理一次过期文件(t *testing.T) {
+func TestRotateWriter_PurgesExpiredFilesOnOpen(t *testing.T) {
 	// 清理只挂在轮转上的话，按天轮转的服务每次发版重启都在周期中间，
 	// 一天重启几次，过期文件就可能永远等不到那次轮转
 	dir := t.TempDir()
@@ -223,7 +223,7 @@ func TestRotateWriter_打开时就清理一次过期文件(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_同名普通文件不被符号链接覆盖(t *testing.T) {
+func TestRotateWriter_RegularFileNotOverwrittenBySymlink(t *testing.T) {
 	// {Path}/{Name} 上要放的是指向当前文件的符号链接。那里已经有一个普通文件时
 	// （从前直接写 app.log 的老版本、别的日志库留下的），Rename 会把它
 	// 原子地替换掉——里面的旧日志一声不响就没了
@@ -242,7 +242,7 @@ func TestRotateWriter_同名普通文件不被符号链接覆盖(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_Expired边界(t *testing.T) {
+func TestRotateWriter_ExpiredBoundary(t *testing.T) {
 	now := time.Date(2026, 9, 18, 10, 30, 0, 0, time.Local)
 	w, base := newTestWriter(t, time.Minute, 5*time.Minute, &now)
 	cutoff := now.Add(-5 * time.Minute) // 10:25
@@ -257,7 +257,7 @@ func TestRotateWriter_Expired边界(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_轮转失败时降级写旧文件(t *testing.T) {
+func TestRotateWriter_FallsBackToOldFileOnRotateFailure(t *testing.T) {
 	// 轮转失败直接返错的话，从此每条日志都失败，而 Close 时才暴露出来，
 	// 现象就是日志某天突然断了却没有任何报错
 	now := time.Date(2026, 9, 18, 10, 30, 0, 0, time.Local)
@@ -278,7 +278,7 @@ func TestRotateWriter_轮转失败时降级写旧文件(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_轮转失败告警降噪(t *testing.T) {
+func TestRotateWriter_RotateFailureWarningsThrottled(t *testing.T) {
 	// 周期到了之后每条日志都会重试轮转，不限流会把告警刷爆
 	now := time.Date(2026, 9, 18, 10, 30, 0, 0, time.Local)
 	w, _ := newTestWriter(t, time.Minute, 0, &now)
@@ -302,7 +302,7 @@ func TestRotateWriter_轮转失败告警降噪(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_Close后拒绝写入(t *testing.T) {
+func TestRotateWriter_CloseRejectsWritesAfterClose(t *testing.T) {
 	now := time.Date(2026, 9, 18, 10, 30, 0, 0, time.Local)
 	w, _ := newTestWriter(t, time.Minute, 0, &now)
 
@@ -317,7 +317,7 @@ func TestRotateWriter_Close后拒绝写入(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_打不开文件时构造失败(t *testing.T) {
+func TestRotateWriter_FailsToConstructWhenFileCannotOpen(t *testing.T) {
 	// 权限、路径问题要在初始化阶段暴露，而不是等到第一条日志
 	_, err := newRotateWriter(filepath.Join(t.TempDir(), "没有这个目录", "app.log"), 0, time.Hour, 0)
 	if err == nil {
@@ -347,7 +347,7 @@ func TestTruncateInLocation(t *testing.T) {
 	}
 }
 
-func TestWarnf写到stderr(t *testing.T) {
+func TestWarnfWritesToStderr(t *testing.T) {
 	// 轮转器是日志系统的底层写入器，自身故障不能再走日志系统，否则成环
 	old := os.Stderr
 	f, err := os.CreateTemp(t.TempDir(), "stderr")
@@ -377,7 +377,7 @@ func readFile(t *testing.T, p string) string {
 	return string(b)
 }
 
-func TestRotateWriter_不配符号链接时不建(t *testing.T) {
+func TestRotateWriter_NoSymlinkWhenNotConfigured(t *testing.T) {
 	now := time.Now()
 	w, base := newTestWriter(t, time.Hour, 0, &now)
 	w.linkName = ""
@@ -393,7 +393,7 @@ func TestRotateWriter_不配符号链接时不建(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_符号链接建不起来也照常写(t *testing.T) {
+func TestRotateWriter_KeepsWritingWhenSymlinkCannotBeCreated(t *testing.T) {
 	// 部分平台和文件系统不支持符号链接，那不该让日志整个写不出去
 	now := time.Now()
 	w, _ := newTestWriter(t, time.Hour, 0, &now)
@@ -412,7 +412,7 @@ func TestRotateWriter_符号链接建不起来也照常写(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_运行中链接位置被占了也不覆盖(t *testing.T) {
+func TestRotateWriter_DoesNotOverwriteOccupiedLinkPathAtRuntime(t *testing.T) {
 	// 启动之后有人把链接换成了普通文件（手工 mv、copytruncate 式的工具）。
 	// 轮转时照样 Rename 过去的话，那个文件就被吞掉了；临时链接也不该留下，
 	// 否则目录里会越堆越多 app.log.tmp
@@ -435,7 +435,7 @@ func TestRotateWriter_运行中链接位置被占了也不覆盖(t *testing.T) {
 	}
 }
 
-func TestRotateWriter_不配_MaxAge_就不清理(t *testing.T) {
+func TestRotateWriter_NoPurgeWithoutMaxAge(t *testing.T) {
 	// 0 表示「一直留着」，不是「全删掉」
 	now := time.Now()
 	w, base := newTestWriter(t, time.Hour, 0, &now)

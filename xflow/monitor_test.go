@@ -48,7 +48,7 @@ func withMonitor(t *testing.T, m Monitor) {
 	SetMonitor(m)
 }
 
-func TestMonitor_收到每一步与流程事件(t *testing.T) {
+func TestMonitor_ReceivesEveryStepAndFlowEvent(t *testing.T) {
 	withConfig(t, nil)
 	r := &recorder{}
 	withMonitor(t, r)
@@ -82,7 +82,7 @@ func TestMonitor_收到每一步与流程事件(t *testing.T) {
 	}
 }
 
-func TestMonitor_panic不打断业务流程(t *testing.T) {
+func TestMonitor_PanicDoesNotInterruptFlow(t *testing.T) {
 	// 监控实现出错只该丢一次观测
 	withConfig(t, nil)
 	withMonitor(t, &recorder{panic: true})
@@ -98,7 +98,7 @@ func TestMonitor_panic不打断业务流程(t *testing.T) {
 	}
 }
 
-func TestMonitor_关掉后零回调(t *testing.T) {
+func TestMonitor_ZeroCallbacksWhenDisabled(t *testing.T) {
 	withConfig(t, func(c *Config) { c.Monitor = false })
 	r := &recorder{}
 	withMonitor(t, r)
@@ -110,7 +110,7 @@ func TestMonitor_关掉后零回调(t *testing.T) {
 	}
 }
 
-func TestSetMonitor_传nil等于关掉(t *testing.T) {
+func TestSetMonitor_NilDisablesMonitor(t *testing.T) {
 	withConfig(t, nil)
 	withMonitor(t, nil)
 
@@ -121,7 +121,7 @@ func TestSetMonitor_传nil等于关掉(t *testing.T) {
 	New("下单", ok("扣券")).Execute(context.Background(), &data{})
 }
 
-func TestMonitor_步骤耗时(t *testing.T) {
+func TestMonitor_StepDuration(t *testing.T) {
 	withConfig(t, nil)
 	r := &recorder{}
 	withMonitor(t, r)
@@ -135,7 +135,7 @@ func TestMonitor_步骤耗时(t *testing.T) {
 	}
 }
 
-func TestSlogMonitor_不炸(t *testing.T) {
+func TestSlogMonitor_DoesNotPanic(t *testing.T) {
 	// 默认实现，跑一遍覆盖各分支
 	withConfig(t, nil)
 	withMonitor(t, slogMonitor{})

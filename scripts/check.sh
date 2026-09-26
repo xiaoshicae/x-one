@@ -199,6 +199,13 @@ echo "✓ 文档和示例里没有已经删掉的名字"
 # 不到一秒。代码挪走了、变异没跟着挪，这里当场就红，不用等下一次想起来跑全量
 python3 scripts/mutate.py --dry-run || fail "有变异的模式对不上代码了，改 scripts/mutations/ 下对应的那条"
 
+# ---- 12.1 测试函数名用英文 ----
+# 测试名会出现在 go test -run、CI 的失败列表和变异表的过滤里，写英文才好搜、好复制
+zhtest=$(files '*_test.go' | xargs grep -nP '^func (Test|Benchmark|Fuzz|Example)\w*[^\x00-\x7F]' || true)
+[ -z "$zhtest" ] || fail "测试函数名要用英文（描述场景，如 TestNew_FailsFastOnTypo）：
+$zhtest"
+echo "✓ 测试函数名都是英文"
+
 # ---- 13. 基本卫生 ----
 unformatted=$(files '*.go' | xargs gofmt -l)
 [ -z "$unformatted" ] || fail "有文件未格式化：$unformatted"

@@ -31,7 +31,7 @@ func chRunning(t *testing.T, marker string) int {
 // 然后才轮到客户端类组件。所以在途的 SELECT sleep 要在服务端睡完、拿到 200，
 // 不看 ctx 的 handler 睡完再查一次 ClickHouse 也要查得到（ch_error=none），
 // 这些都发生在 xgorm 的停止钩子关掉连接池之前
-func TestClickHouse_SIGTERM时在途的ClickHouse查询做完才关连接池(t *testing.T) {
+func TestClickHouse_SIGTERMFinishesInFlightQueriesBeforeClosingPool(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	const (
@@ -133,7 +133,7 @@ func TestClickHouse_SIGTERM时在途的ClickHouse查询做完才关连接池(t *
 //
 //   - 客户端断开：请求的 ctx 被取消，handler 当场返回，不等 read_timeout（默认 300s）；
 //   - SIGTERM 之后到点断连：同样是取消，卡住的查询在断连那一刻返回，进程在预算内退出
-func TestClickHouse_卡住的ClickHouse查询_请求ctx被取消时当场返回_不等read_timeout(t *testing.T) {
+func TestClickHouse_StuckQuery_ReturnsOnRequestCtxCancel_NoReadTimeoutWait(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 
@@ -214,7 +214,7 @@ func TestClickHouse_卡住的ClickHouse查询_请求ctx被取消时当场返回_
 //   - 一行一个数据块、每行之间睡 100ms 的查询：客户端放弃之后很快就从 system.processes 里消失；
 //   - SELECT sleep(2.5) 是一个函数调用、没有块的边界，Cancel 打断不了它：服务端照样睡满（实测 2.5s 后才消失）。
 //     调用方那一侧照样当场返回、连接照样关掉，只是服务端的这点资源要等它自己跑完
-func TestClickHouse_客户端放弃之后_驱动发Cancel_服务端按数据块停下(t *testing.T) {
+func TestClickHouse_ClientGivesUp_DriverSendsCancel_ServerStopsPerBlock(t *testing.T) {
 	harness.RequireCH(t)
 	t.Parallel()
 	p := chStart(t, harness.Options{})

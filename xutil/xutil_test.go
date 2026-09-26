@@ -62,7 +62,7 @@ func TestGetOrDefault(t *testing.T) {
 	}
 }
 
-func TestRetry_首次成功不重试(t *testing.T) {
+func TestRetry_NoRetryOnFirstSuccess(t *testing.T) {
 	n := 0
 	err := Retry(context.Background(), 3, time.Second, time.Millisecond, func(context.Context) error {
 		n++
@@ -73,7 +73,7 @@ func TestRetry_首次成功不重试(t *testing.T) {
 	}
 }
 
-func TestRetry_失败后重试(t *testing.T) {
+func TestRetry_RetriesAfterFailure(t *testing.T) {
 	n := 0
 	err := Retry(context.Background(), 3, time.Second, time.Millisecond, func(context.Context) error {
 		n++
@@ -87,7 +87,7 @@ func TestRetry_失败后重试(t *testing.T) {
 	}
 }
 
-func TestRetry_耗尽后返回最后一次的错误(t *testing.T) {
+func TestRetry_ReturnsLastErrorWhenExhausted(t *testing.T) {
 	last := errors.New("第三次也不行")
 	n := 0
 	err := Retry(context.Background(), 3, time.Second, time.Millisecond, func(context.Context) error {
@@ -105,7 +105,7 @@ func TestRetry_耗尽后返回最后一次的错误(t *testing.T) {
 	}
 }
 
-func TestRetry_每次单独限时(t *testing.T) {
+func TestRetry_PerAttemptTimeout(t *testing.T) {
 	// 一次卡住不该把整轮预算吃光。
 	// 退避换成 0、interval 给大：整轮预算里留给退避的那一段（1s+2s）真的不花，
 	// 成了每次尝试的调度余量。否则预算只比 3×timeout 多 3ms，机器一忙，
@@ -129,7 +129,7 @@ func TestRetry_每次单独限时(t *testing.T) {
 	}
 }
 
-func TestRetry_总预算兜住整轮(t *testing.T) {
+func TestRetry_TotalBudgetCapsWholeRun(t *testing.T) {
 	// 带总预算是为了让启动期收到的退出信号能及时生效：
 	// 不可中断的重试会让进程必须等满整轮才肯退出。
 	// 退避换成一小时：没有总预算兜着，这一轮要等四个小时；有的话约 90ms
@@ -145,7 +145,7 @@ func TestRetry_总预算兜住整轮(t *testing.T) {
 	}
 }
 
-func TestRetry_次数小于一也至少跑一次(t *testing.T) {
+func TestRetry_RunsOnceWhenAttemptsBelowOne(t *testing.T) {
 	n := 0
 	Retry(context.Background(), 0, time.Second, time.Millisecond, func(context.Context) error { n++; return nil })
 	if n != 1 {
@@ -153,7 +153,7 @@ func TestRetry_次数小于一也至少跑一次(t *testing.T) {
 	}
 }
 
-func TestRetry_父ctx取消时立即中止(t *testing.T) {
+func TestRetry_AbortsImmediatelyOnParentCancel(t *testing.T) {
 	// 启动期的建连重试靠这一条：收到退出信号时，进程不该被迫等满整轮。
 	// 三次尝试 × 每次 5s，不中断就是 10 秒起步，而信号已经来了
 	// 退避换成一小时：取消之后要是还在等退避，这里就挂一小时；上界 10s 离两头都远
@@ -179,7 +179,7 @@ func TestRetry_父ctx取消时立即中止(t *testing.T) {
 	}
 }
 
-func TestRetry_两次尝试之间被取消时如实报告取消(t *testing.T) {
+func TestRetry_ReportsCancelBetweenAttempts(t *testing.T) {
 	// 取消发生在退避期间时，报出去的若只是上一次的业务错误，调用方看到的是
 	// 「连不上」，而真实原因是「收到退出信号不再试了」——启动路径据此判断
 	// 这是故障还是按要求退出。上一次的错误也不能丢：它是之前一直失败的原因
@@ -199,7 +199,7 @@ func TestRetry_两次尝试之间被取消时如实报告取消(t *testing.T) {
 	}
 }
 
-func TestRetry_总预算耗尽时报最后一次的错误(t *testing.T) {
+func TestRetry_ReturnsLastErrorWhenBudgetExhausted(t *testing.T) {
 	// 预算耗尽不是取消：调用方没有叫停，只是一直没连上。这时照文档返回
 	// 最后一次的业务错误，不能混进一个 context 的错误让人以为被取消了
 	// 把退避换成远超预算的等待，于是预算必然在两次尝试之间耗尽
@@ -214,7 +214,7 @@ func TestRetry_总预算耗尽时报最后一次的错误(t *testing.T) {
 	}
 }
 
-func TestRetry_父ctx传nil等同于Background(t *testing.T) {
+func TestRetry_NilParentCtxActsAsBackground(t *testing.T) {
 	n := 0
 	//nolint:staticcheck // 显式验证 nil 的兼容行为
 	if err := Retry(nil, 2, time.Second, time.Millisecond, func(context.Context) error {
@@ -228,7 +228,7 @@ func TestRetry_父ctx传nil等同于Background(t *testing.T) {
 	}
 }
 
-func TestRetry_父ctx进来就已取消时一次都不试(t *testing.T) {
+func TestRetry_NoAttemptWhenParentAlreadyCanceled(t *testing.T) {
 	// 启动到一半收到退出信号时，每个连不上的实例不该再发一次注定失败的网络请求
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -247,7 +247,7 @@ func TestRetry_父ctx进来就已取消时一次都不试(t *testing.T) {
 	}
 }
 
-func TestNextBackoff_翻倍且封顶(t *testing.T) {
+func TestNextBackoff_DoublesAndCaps(t *testing.T) {
 	for _, c := range []struct{ in, want time.Duration }{
 		{0, 0},
 		{time.Second, 2 * time.Second},
@@ -262,7 +262,7 @@ func TestNextBackoff_翻倍且封顶(t *testing.T) {
 	}
 }
 
-func TestJitter_落在零到上界之间(t *testing.T) {
+func TestJitter_BetweenZeroAndUpperBound(t *testing.T) {
 	// 取「0 到 d」而不是「d 附近抖一下」：前者才真的把一群同时重启的副本摊开
 	const d = 100 * time.Millisecond
 	var sawSmall, sawLarge bool
@@ -286,7 +286,7 @@ func TestJitter_落在零到上界之间(t *testing.T) {
 	}
 }
 
-func TestRetryBudget_按退避上界求和(t *testing.T) {
+func TestRetryBudget_SumsBackoffUpperBounds(t *testing.T) {
 	// 预算是天花板，所以按退避的上界算，不按抖动后的实际值
 	const timeout, interval = 10 * time.Millisecond, 10 * time.Millisecond
 
@@ -305,7 +305,7 @@ func TestRetryBudget_按退避上界求和(t *testing.T) {
 	}
 }
 
-func TestRetry_退避之后每次尝试都跑得到(t *testing.T) {
+func TestRetry_EveryAttemptRunsAfterBackoff(t *testing.T) {
 	// 回归用例。预算若还按固定间隔算，退避把等待撑长之后，
 	// 最后一次尝试会被自己的预算掐掉，表现是「配了 5 次只试了 4 次」
 	const attempts = 5
@@ -331,7 +331,7 @@ func recordWaits(t *testing.T) *[]time.Duration {
 	return &waits
 }
 
-func TestRetry_两次之间的等待逐次翻倍(t *testing.T) {
+func TestRetry_WaitDoublesBetweenAttempts(t *testing.T) {
 	// 这是退避的全部意义：固定间隔会一直按同一个节奏敲一个正在恢复的下游。
 	// 抖动本身由 TestJitter 单独盯着
 	waits := recordWaits(t)
@@ -346,7 +346,7 @@ func TestRetry_两次之间的等待逐次翻倍(t *testing.T) {
 	}
 }
 
-func TestRetry_第一次等待也不超过上限(t *testing.T) {
+func TestRetry_FirstWaitAlsoCapped(t *testing.T) {
 	// 文档说两次之间最多等 maxBackoff。interval 配得比它还大时，
 	// 从前第一次等待原样用 interval，配 1h 就真的等 1h
 	waits := recordWaits(t)
@@ -364,13 +364,13 @@ func TestRetry_第一次等待也不超过上限(t *testing.T) {
 	}
 }
 
-func TestRetryBudget_第一次退避也按上限算(t *testing.T) {
+func TestRetryBudget_FirstBackoffAlsoCapped(t *testing.T) {
 	if got, want := retryBudget(3, time.Millisecond, time.Hour), 3*time.Millisecond+2*maxBackoff; got != want {
 		t.Errorf("预算按封顶后的退避算，got=%v want=%v", got, want)
 	}
 }
 
-func TestRetry_永久错误不再重试(t *testing.T) {
+func TestRetry_NoRetryOnPermanentError(t *testing.T) {
 	// 密码错、库不存在：重试多少次都一样，只会白白拖长启动
 	root := errors.New("auth failed")
 	calls := 0
@@ -387,7 +387,7 @@ func TestRetry_永久错误不再重试(t *testing.T) {
 	}
 }
 
-func TestRetry_包在别的错误里的永久错误也认(t *testing.T) {
+func TestRetry_RecognizesWrappedPermanentError(t *testing.T) {
 	root := errors.New("auth failed")
 	calls := 0
 	err := Retry(context.Background(), 5, time.Second, time.Hour, func(context.Context) error {
@@ -399,7 +399,7 @@ func TestRetry_包在别的错误里的永久错误也认(t *testing.T) {
 	}
 }
 
-func TestPermanent_透传文本和错误链(t *testing.T) {
+func TestPermanent_PreservesMessageAndChain(t *testing.T) {
 	root := errors.New("auth failed")
 	p := Permanent(root)
 	if p.Error() != root.Error() {
