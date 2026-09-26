@@ -132,6 +132,20 @@ func TestNew_NoConnectOnInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestNew_ValidatesBeforeConnecting(t *testing.T) {
+	// 对端是好的，只有配置不合法：不校验的话 go-redis 把 -1s 当成「不限时」，建连照样成功
+	c := liveCfg(newFakeRedis(t))
+	c.ReadTimeout = -time.Second
+	_, closer, err := New(context.Background(), c)
+	if closer != nil {
+		closer.Close()
+	}
+	var xe *xerror.Error
+	if !errors.As(err, &xe) || xe.Op != "config" {
+		t.Fatalf("直接调 New 也该先校验配置，以 op=config 报错，got=%v", err)
+	}
+}
+
 func TestNew_PoolOptionsPassedThrough(t *testing.T) {
 	f := newFakeRedis(t)
 	c := liveCfg(f)

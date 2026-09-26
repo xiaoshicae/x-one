@@ -44,7 +44,7 @@ mutate("xmetric 重装后 Redis 连接池指标照样导出", "xredis/xredis.go"
 mutate("XRedis 块在读配置时就校验", "xredis/config.go", "./xredis", "TestConfig_InvalidValuesFailAtConfigRead",
        swap('clients, err := xconfig.UnmarshalClients(ConfigKey, DefaultClientConfig)\n\treturn Config{Clients: clients}, err',
             'type raw ClientConfig\n\tm, err := xconfig.UnmarshalClients(ConfigKey, func() raw { return raw(DefaultClientConfig()) })\n\tclients := map[string]ClientConfig{}\n\tfor k, v := range m {\n\t\tclients[k] = ClientConfig(v)\n\t}\n\treturn Config{Clients: clients}, err'))
-mutate("直接调 xredis.New 也校验", "xredis/xredis.go", "./xredis", "TestNew_NoConnectOnInvalidConfig|TestNew_TLSUnreadableFileIsConfigError",
+mutate("直接调 xredis.New 也校验", "xredis/xredis.go", "./xredis", "TestNew_NoConnectOnInvalidConfig|TestNew_ValidatesBeforeConnecting|TestNew_TLSUnreadableFileIsConfigError",
        swap('\tif err := cfg.Validate(); err != nil {', '\tif err := cfg.Validate(); false && err != nil {'))
 # go-redis 把 ReadTimeout -1 当成「不限时」：一个减号就静默关掉超时保护
 mutate("Redis 负的时长要被拦住", "xredis/config.go", "./xredis", "TestValidate|TestConfig_InvalidValuesFailAtConfigRead",
